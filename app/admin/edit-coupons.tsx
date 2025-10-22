@@ -1,30 +1,74 @@
+// app/admin/edit-coupons.tsx
 'use client';
 
-import type { Line, Market } from '@/components/MarketCard';
 import { supabase } from '@/lib/supabaseClient';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
-import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Alert, FlatList, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
-const toNum = (v: string) => {
-  const n = parseFloat((v || '').replace(',', '.'));
-  return isNaN(n) ? undefined : n;
+/* ---------------- helpers ---------------- */
+const toNum  = (v: string) => { const n = parseFloat((v || '').replace(',', '.')); return isNaN(n) ? undefined : n; };
+const toOdds = (v?: number) => { if (v == null) return ''; if (v > 0 && v < 1) return (1 / Math.max(0.01, v)).toFixed(2); return String(v); };
+
+// tek nokta / 2 ondalık (1 → "1", 12 → "12", 1.234 → "1.23", "1.." → "1.")
+const fmtOddsInput = (raw: string) => {
+  let s = (raw || '').replace(',', '.').replace(/[^0-9.]/g, '');
+  const parts = s.split('.');
+  if (parts.length > 2) s = parts[0] + '.' + parts.slice(1).join('');
+  const [i, d] = s.split('.');
+  if (d?.length > 2) s = `${i}.${d.slice(0, 2)}`;
+  return s;
 };
-const toOdds = (v?: number) => {
-  if (v == null) return '';
-  if (v > 0 && v < 1) return (1 / Math.max(0.01, v)).toFixed(2);
-  return String(v);
+
+// payout rpc (geriye uyumlu)
+async function callPayoutRPC(couponId: string | number) {
+  let { data, error } = await supabase.rpc('payout_coupon', { p_coupon_id: couponId });
+  if (error && /does not exist/i.test(error.message)) {
+    const r2 = await supabase.rpc('payout_coupon_v2', { p_coupon_id: couponId });
+    data = r2.data; error = r2.error;
+  }
+  if (error) throw error;
+  return data as any;
+}
+
+// paid_out_at bekleme (maks 12 sn)
+async function waitForPaidOut(id: string|number, tries=24, delay=500) {
+  for (let i=0;i<tries;i++){
+    const { data, error } = await supabase.from('coupons').select('paid_out_at').eq('id', id).single();
+    if (!error && data?.paid_out_at) return true;
+    await new Promise(r=>setTimeout(r, delay));
+  }
+  return false;
+}
+
+// sadece kuponu sil (geçmiş tekiller kalsın)
+async function deleteCouponOnly(id: string | number) {
+  const { error } = await supabase.from('coupons').delete().eq('id', id);
+  if (error) throw error;
+}
+
+/* ---------------- types (sade) ---------------- */
+type Market = {
+  id: string | number;
+  title: string;
+  description?: string | null;
+  category?: string | null;
+  closing_date?: string | null;
+  image_url?: string | null;
+  proof_url?: string | null;
+  is_open?: boolean | null;
+  yes_price?: number | null;
+  no_price?: number | null;
+  liquidity?: number | null;
+  result?: 'YES' | 'NO' | null;
+  paid_out_at?: string | null;
 };
 
 export default function EditCoupons() {
-  const router = useRouter();
-
   const [items, setItems] = useState<Market[]>([]);
   const [editing, setEditing] = useState<string | number | null>(null);
 
-  // form
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState('Gündem');
   const [description, setDescription] = useState('');
@@ -34,98 +78,71 @@ export default function EditCoupons() {
   const [proofUrl, setProofUrl] = useState('');
   const [liquidity, setLiquidity] = useState('0');
   const [isOpen, setIsOpen] = useState(true);
-  const [marketType, setMarketType] = useState<'binary' | 'multi'>('binary');
-
   const [yesOdds, setYesOdds] = useState('1.50');
   const [noOdds, setNoOdds] = useState('1.50');
 
-  const [lines, setLines] = useState<{ name: string; yesOdds: string; noOdds: string }[]>([]);
+  const [winner, setWinner] = useState<'YES' | 'NO' | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const fetchAll = async () => {
-    const { data, error } = await supabase.from('coupons').select('*').order('created_at', { ascending: false });
-    if (!error) setItems((data ?? []) as unknown as Market[]);
+    const { data, error } = await supabase
+      .from('coupons')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) return Alert.alert('Hata', error.message);
+    setItems((data ?? []) as unknown as Market[]);
   };
   useEffect(() => { fetchAll(); }, []);
 
-  // 🔴 canlı dinleyici
   useEffect(() => {
-    const ch = supabase.channel('coupons-live')
-      .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'coupons' },
-        (payload: any) => {
-          setItems(prev => {
-            const arr = [...prev];
-            const row = payload.new ?? payload.old;
-
-            if (payload.eventType === 'INSERT') {
-              // en üste ekle
-              if (!arr.find(x => x.id === row.id)) return [row as Market, ...arr];
-              return arr;
-            }
-            if (payload.eventType === 'UPDATE') {
-              return arr.map(x => (x.id === row.id ? (row as Market) : x));
-            }
-            if (payload.eventType === 'DELETE') {
-              return arr.filter(x => x.id !== row.id);
-            }
-            return arr;
-          });
-        }
-      )
+    const ch = supabase
+      .channel('coupons-live-bin')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'coupons' }, (payload: any) => {
+        setItems(prev => {
+          const arr = [...prev];
+          const row = payload.new ?? payload.old;
+          if (payload.eventType === 'INSERT')  return arr.find(x => (x as any).id === row.id) ? arr : [row as Market, ...arr];
+          if (payload.eventType === 'UPDATE')  return arr.map(x => ((x as any).id === row.id ? (row as Market) : x));
+          if (payload.eventType === 'DELETE')  return arr.filter(x => (x as any).id !== row.id);
+          return arr;
+        });
+      })
       .subscribe();
-
     return () => { supabase.removeChannel(ch); };
   }, []);
 
-  const startEdit = (it: Market) => {
+  const startEdit = (it: any) => {
     setEditing(it.id);
     setTitle(it.title ?? '');
     setCategory(it.category ?? 'Gündem');
-    setDescription((it as any).description ?? '');
+    setDescription(it.description ?? '');
     setClosingDate(it.closing_date ? new Date(it.closing_date) : null);
     setImageUrl(it.image_url ?? '');
-    setProofUrl((it as any).proof_url ?? '');
+    setProofUrl(it.proof_url ?? '');
     setLiquidity(String(it.liquidity ?? 0));
     setIsOpen(!!it.is_open);
-    setMarketType((it.market_type as any) ?? 'binary');
-
     setYesOdds(toOdds(it.yes_price));
     setNoOdds(toOdds(it.no_price));
-    const ls = (it.lines ?? []).map((l: Line) => ({
-      name: l.name, yesOdds: toOdds(l.yesPrice), noOdds: toOdds(l.noPrice),
-    }));
-    setLines(ls);
-  };
-
-  const addLine = () => setLines([...lines, { name: '', yesOdds: '', noOdds: '' }]);
-  const delLine = (i: number) => setLines(lines.filter((_, idx) => idx !== i));
-  const setLine = (i: number, key: 'name' | 'yesOdds' | 'noOdds', v: string) => {
-    const c = [...lines]; (c[i] as any)[key] = v; setLines(c);
+    setWinner(null);
   };
 
   const save = async () => {
     if (!editing) return;
 
+    const y = toNum(yesOdds); const n = toNum(noOdds);
+    if (!y || !n || y <= 1.01 || n <= 1.01) return Alert.alert('Hata', 'YES/NO oranları 1.01 ve üzeri olmalı.');
+
     const payload: any = {
       title, category, description,
       image_url: imageUrl, proof_url: proofUrl,
-      liquidity: Number(liquidity || '0'),
+      liquidity: Number.isFinite(Number(liquidity)) ? Number(liquidity) : 0,
       is_open: isOpen,
-      market_type: marketType,
+      yes_price: y, no_price: n,
+      // binary olduğu için lines yok
+      lines: null,
+      market_type: 'binary',
     };
     if (closingDate) payload.closing_date = closingDate.toISOString();
-
-    if (marketType === 'binary') {
-      const y = toNum(yesOdds); const n = toNum(noOdds);
-      if (!y || !n || y <= 1 || n <= 1) return Alert.alert('Hata', 'YES/NO oranları 1.01 ve üzeri olmalı.');
-      payload.yes_price = y; payload.no_price = n;
-    } else {
-      const prepared = lines
-        .filter(l => l.name && toNum(l.yesOdds) && toNum(l.noOdds))
-        .map(l => ({ name: l.name.trim(), yesPrice: toNum(l.yesOdds)!, noPrice: toNum(l.noOdds)! }));
-      if (prepared.length === 0) return Alert.alert('Hata', 'En az bir satır ekleyin.');
-      payload.lines = prepared;
-    }
 
     const { error } = await supabase.from('coupons').update(payload).eq('id', editing);
     if (error) Alert.alert('Hata', error.message);
@@ -133,11 +150,95 @@ export default function EditCoupons() {
   };
 
   const remove = async (id: string | number) => {
-    const { error } = await supabase.from('coupons').delete().eq('id', id);
-    if (error) Alert.alert('Hata', error.message);
+    try {
+      setBusy(true);
+      await deleteCouponOnly(id);
+      setItems(prev => prev.filter((x: any) => String(x.id) !== String(id)));
+      if (String(editing) === String(id)) setEditing(null);
+    } catch (e: any) {
+      Alert.alert('Hata', e?.message ?? 'Silinemedi.');
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const renderItem = ({ item }: { item: Market }) => (
+  const current    = useMemo(() => items.find(x => String((x as any).id) === String(editing)) as any, [items, editing]);
+  const canResolve = useMemo(() => !!current && !current?.result, [current]);
+  const canPayout  = useMemo(() => !!current && !!current?.result && !current?.paid_out_at, [current]);
+
+  /** ====== BINARY: Sonuçla → Payout → Sil ====== */
+ const resolveNow = async () => {
+  if (!current) return;
+  if (!winner) return Alert.alert('Eksik', 'Kazananı seçin (YES/NO).');
+
+  try {
+    setBusy(true);
+
+    // 1) sonucu yaz + payout tetikle
+    const { error } = await supabase.rpc('resolve_and_payout', {
+      p_coupon_id: current.id,
+      p_result: winner,
+      p_proof_url: null
+    });
+    if (error) throw error;
+
+    // 2) garanti payout (bazı backendlerde resolve otomatik tetiklemeyebiliyor)
+    try { await callPayoutRPC(current.id); } catch {}
+
+    // 3) paid_out_at bekle
+    const paid = await waitForPaidOut(current.id, 24, 500);
+    if (!paid) return Alert.alert('Uyarı', 'Payout tetiklendi ama paid_out_at görünmedi. Birazdan tekrar deneyebilirsin.');
+
+    // 4) ❌ silme yerine arşivle / kapat
+    const { error: archiveErr } = await supabase
+      .from('coupons')
+      .update({ is_open: false, archived: true })
+      .eq('id', current.id);
+    if (archiveErr) throw archiveErr;
+
+    Alert.alert('Tamam', 'Ödemeler dağıtıldı, kupon arşivlendi.');
+    setEditing(null);
+    setItems(prev => prev.map(it => String(it.id) === String(current.id)
+      ? { ...it, is_open: false, archived: true, result: winner, paid_out_at: new Date().toISOString() }
+      : it
+    ));
+  } catch (e:any) {
+    Alert.alert('Hata', e?.message || 'Sonuç/payout başarısız');
+  } finally {
+    setBusy(false);
+  }
+};
+
+/** Yalnız payout + arşivle (sonuç önceden verilmişse) */
+const payoutNow = async () => {
+  if (!current) return;
+  try {
+    setBusy(true);
+    await callPayoutRPC(current.id);
+    const paid = await waitForPaidOut(current.id, 24, 500);
+    if (!paid) return Alert.alert('Uyarı', 'Payout tetiklendi ama paid_out_at görünmedi.');
+
+    // ❌ Silme yok, arşivle
+    const { error: archiveErr } = await supabase
+      .from('coupons')
+      .update({ is_open: false, archived: true })
+      .eq('id', current.id);
+    if (archiveErr) throw archiveErr;
+
+    Alert.alert('Tamam', 'Ödemeler dağıtıldı ve kupon arşivlendi.');
+    setEditing(null);
+    setItems(prev => prev.map(it => String(it.id) === String(current.id)
+      ? { ...it, is_open: false, archived: true, paid_out_at: new Date().toISOString() }
+      : it
+    ));
+  } catch (e:any) {
+    Alert.alert('Hata', e?.message ?? 'Payout başarısız');
+  } finally {
+    setBusy(false);
+  }
+};
+
+  const renderItem = ({ item }: { item: any }) => (
     <View style={styles.card}>
       {editing === item.id ? (
         <>
@@ -153,7 +254,7 @@ export default function EditCoupons() {
               value={closingDate ?? new Date()}
               mode="datetime"
               display={Platform.OS === 'ios' ? 'inline' : 'default'}
-              onChange={(e: DateTimePickerEvent, d?: Date) => { setShowPicker(false); if (d) setClosingDate(d); }}
+              onChange={(_e: DateTimePickerEvent, d?: Date) => { setShowPicker(false); if (d) setClosingDate(d); }}
             />
           )}
 
@@ -167,31 +268,42 @@ export default function EditCoupons() {
             </TouchableOpacity>
           </View>
 
+          {/* BINARY oranları */}
           <View style={styles.row}>
-            {(['binary', 'multi'] as const).map(t => (
-              <TouchableOpacity key={t} onPress={() => setMarketType(t)} style={[styles.switchBtn, marketType === t && styles.switchBtnActive]}>
-                <Text style={[styles.switchText, marketType === t && styles.switchTextActive]}>{t === 'binary' ? 'Binary' : 'Multi'}</Text>
-              </TouchableOpacity>
-            ))}
+            <TextInput value={yesOdds} onChangeText={v=>setYesOdds(fmtOddsInput(v))} style={[styles.input, { flex: 1 }]} placeholder="YES (odds)" />
+            <TextInput value={noOdds}  onChangeText={v=>setNoOdds(fmtOddsInput(v))}  style={[styles.input, { flex: 1 }]} placeholder="NO (odds)" />
           </View>
 
-          {marketType === 'binary' ? (
-            <View style={styles.row}>
-              <TextInput value={yesOdds} onChangeText={setYesOdds} keyboardType="default" style={[styles.input, { flex: 1 }]} placeholder="YES (odds)" />
-              <TextInput value={noOdds}  onChangeText={setNoOdds}  keyboardType="default" style={[styles.input, { flex: 1 }]} placeholder="NO (odds)" />
+          <View style={{ height: 1, backgroundColor: '#eee', marginVertical: 8 }} />
+          <Text style={{ fontWeight: '900', marginBottom: 4 }}>Sonuç & Ödeme (Binary)</Text>
+          <Text style={{ color: '#666', marginBottom: 6 }}>
+            Kapanış: {item.closing_date?.split('T')?.[0]} • Durum: {item.result ? `Sonuç: ${item.result}` : 'Sonuçlanmadı'} {item.paid_out_at ? '• Ödendi' : ''}
+          </Text>
+
+          {!item.result && (
+            <View style={{ gap: 8 }}>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                {(['YES', 'NO'] as const).map(opt => (
+                  <TouchableOpacity key={opt} onPress={() => setWinner(opt)}
+                    style={{ paddingVertical: 8, paddingHorizontal: 14, borderRadius: 10, borderWidth: 1,
+                      borderColor: winner === opt ? '#FF6B00' : '#ddd', backgroundColor: winner === opt ? '#FFEEE2' : '#fff' }}>
+                    <Text style={{ fontWeight: '800', color: winner === opt ? '#FF6B00' : '#333' }}>{opt}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <TouchableOpacity disabled={busy || !winner} onPress={resolveNow}
+                style={{ backgroundColor: (!winner || busy) ? '#f3a774' : '#FF6B00', padding: 12, borderRadius: 10, alignItems: 'center' }}>
+                <Text style={{ color: '#fff', fontWeight: '900' }}>{busy ? 'İşleniyor…' : 'Sonuçla (Öde & Sil)'}</Text>
+              </TouchableOpacity>
             </View>
-          ) : (
-            <>
-              {lines.map((l, i) => (
-                <View key={i} style={styles.lineRow}>
-                  <TextInput value={l.name} onChangeText={v => setLine(i, 'name', v)} style={[styles.input, { flex: 1 }]} placeholder="Aday" />
-                  <TextInput value={l.yesOdds} onChangeText={v => setLine(i, 'yesOdds', v)} keyboardType="default" style={[styles.input, { width: 110 }]} placeholder="YES" />
-                  <TextInput value={l.noOdds}  onChangeText={v => setLine(i,  'noOdds', v)} keyboardType="default" style={[styles.input, { width: 110 }]} placeholder="NO" />
-                  <TouchableOpacity onPress={() => delLine(i)} style={styles.trash}><Ionicons name="trash" size={18} color="#fff" /></TouchableOpacity>
-                </View>
-              ))}
-              <TouchableOpacity onPress={addLine} style={styles.addLine}><Ionicons name="add" size={18} color="#fff" /><Text style={{ color: '#fff', fontWeight: 'bold' }}>Satır Ekle</Text></TouchableOpacity>
-            </>
+          )}
+
+          {!!item.result && !item.paid_out_at && (
+            <TouchableOpacity disabled={busy} onPress={payoutNow}
+              style={{ marginTop: 8, backgroundColor: busy ? '#9ccc65' : '#22c55e', padding: 12, borderRadius: 10, alignItems: 'center' }}>
+              <Text style={{ color: '#fff', fontWeight: '900' }}>{busy ? 'İşleniyor…' : 'Ödemeyi Dağıt (& Sil)'}</Text>
+            </TouchableOpacity>
           )}
 
           <View style={styles.row}>
@@ -202,7 +314,10 @@ export default function EditCoupons() {
       ) : (
         <>
           <Text style={styles.title}>{item.title}</Text>
-          <Text style={styles.meta}>Kategori: {item.category} • Likidite: {(item.liquidity ?? 0).toLocaleString('tr-TR')} XP • {item.is_open ? 'Açık' : 'Kapalı'}</Text>
+          <Text style={styles.meta}>
+            Kategori: {item.category} • Likidite: {(item.liquidity ?? 0).toLocaleString('tr-TR')} XP • {item.is_open ? 'Açık' : 'Kapalı'}
+            {' '}• {item.result ? `Sonuç: ${item.result}` : 'Sonuçlanmadı'} {item.paid_out_at ? '• Ödendi' : ''}
+          </Text>
           <View style={styles.row}>
             <TouchableOpacity onPress={() => startEdit(item)} style={[styles.btn, { backgroundColor: '#1976D2' }]}><Text style={styles.btnText}>Düzenle</Text></TouchableOpacity>
             <TouchableOpacity onPress={() => remove(item.id)} style={[styles.btn, { backgroundColor: '#E53935' }]}><Text style={styles.btnText}>Sil</Text></TouchableOpacity>
@@ -213,12 +328,18 @@ export default function EditCoupons() {
   );
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#fff', padding: 20 }}>
-      <TouchableOpacity style={{ position: 'absolute', top: 50, left: 20 }} onPress={() => router.back()}>
-        <Ionicons name="arrow-back" size={24} color="#FF6B00" />
+    <View style={{ flex: 1, backgroundColor: '#fff', padding: 16 }}>
+      <TouchableOpacity style={{ position: 'absolute', top: 50, left: 20 }} onPress={() => fetchAll()}>
+        <Ionicons name="refresh" size={24} color="#FF6B00" />
       </TouchableOpacity>
-      <Text style={styles.header}>Marketleri Düzenle</Text>
-      <FlatList data={items} renderItem={renderItem} keyExtractor={(it) => String(it.id)} contentContainerStyle={{ paddingBottom: 40 }} />
+      <Text style={styles.header}>Kuponları Düzenle (Binary)</Text>
+
+      <FlatList
+        data={items}
+        keyExtractor={(i:any) => String(i.id)}
+        renderItem={renderItem}
+        contentContainerStyle={{ paddingBottom: 40 }}
+      />
     </View>
   );
 }
@@ -230,13 +351,9 @@ const styles = StyleSheet.create({
   meta: { fontSize: 12, color: '#666', marginTop: 8 },
   input: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#ddd', borderRadius: 10, padding: 10, marginBottom: 8 },
   row: { flexDirection: 'row', gap: 10, alignItems: 'center', marginTop: 6 },
-  toggle: { paddingVertical: 12, paddingHorizontal: 16, borderRadius: 10 }, on: { backgroundColor: '#43A047' }, off: { backgroundColor: '#9E9E9E' },
-  btn: { flex: 1, alignItems: 'center', padding: 12, borderRadius: 10 }, btnText: { color: '#fff', fontWeight: 'bold' },
-  lineRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
-  trash: { backgroundColor: '#E53935', padding: 10, borderRadius: 10 },
-  addLine: { backgroundColor: '#1976D2', padding: 12, borderRadius: 10, alignItems: 'center', flexDirection: 'row', gap: 6, alignSelf: 'flex-start' },
-  switchBtn: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, backgroundColor: '#eee' },
-  switchBtnActive: { backgroundColor: '#FF6B00' },
-  switchText: { color: '#333', fontWeight: '700' },
-  switchTextActive: { color: '#fff' },
+  toggle: { paddingVertical: 12, paddingHorizontal: 16, borderRadius: 10 },
+  on: { backgroundColor: '#43A047' },
+  off: { backgroundColor: '#9E9E9E' },
+  btn: { flex: 1, alignItems: 'center', padding: 12, borderRadius: 10 },
+  btnText: { color: '#fff', fontWeight: 'bold' },
 });

@@ -1,5 +1,5 @@
 // components/MaybeAd.tsx
-import { usePlus } from '@/app/hooks/userPlus';
+import { usePlus } from '@/src/contexts/hooks/usePlus';
 import React from 'react';
 import { View } from 'react-native';
 

@@ -1,14 +1,14 @@
-// app/CouponDetail.tsx
 'use client';
 
 import { BAR_MARGIN, BAR_MIN_HEIGHT } from '@/components/ui/layout';
+import { resolveStorageUrlSmart } from '@/lib/resolveStorageUrlSmart';
 import { supabase } from '@/lib/supabaseClient';
 import { decode as atob } from 'base-64';
-import * as FileSystem from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActionSheetIOS,
   Alert,
   Animated,
   Easing,
@@ -29,10 +29,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 const BRAND = '#FF6B00';
 const BRAND_FAINT = '#FFF2E6';
 const MEDIA_BUCKET = 'Media';
-const LOGO = null as unknown as number; // istersen kendi logonu bağla
+const LOGO = null as unknown as number;
 
 /** ========= UTILS ========= */
-const cacheBust = (u: string) => (u.includes('?') ? `${u}&t=${Date.now()}` : `${u}?t=${Date.now()}`);
+const cacheBust = (u: string) => (u?.includes('?') ? `${u}&t=${Date.now()}` : `${u}?t=${Date.now()}`);
 const urlCache = new Map<string, string>();
 
 async function resolveUrl(raw?: string | null): Promise<string | null> {
@@ -45,11 +45,12 @@ async function resolveUrl(raw?: string | null): Promise<string | null> {
   }
   if (urlCache.has(raw)) return urlCache.get(raw)!;
 
-  const pub = supabase.storage.from(MEDIA_BUCKET).getPublicUrl(raw).data?.publicUrl ?? null;
+  // storage path -> public/signed url
+  const pub = (supabase.storage.from(MEDIA_BUCKET).getPublicUrl(raw).data?.publicUrl ?? null) as string | null;
   let url: string | null = pub;
   if (!url) {
-    const { data } = await supabase.storage.from(MEDIA_BUCKET).createSignedUrl(raw, 60 * 60);
-    url = data?.signedUrl ?? null;
+    const { data } = await supabase.storage.from(MEDIA_BUCKET).createSignedUrl(raw, 3600);
+    url = (data?.signedUrl ?? null) as string | null;
   }
   if (url) {
     const u = cacheBust(url);
@@ -67,14 +68,19 @@ const guessExt = (uri: string) => {
 const contentType = (ext: string) =>
   ext === 'jpg' ? 'image/jpeg' : ext === 'heic' ? 'image/heic' : `image/${ext}`;
 
-async function uploadToMediaBucket(uri: string, path: string) {
-  const ext = guessExt(uri);
-  const ct = contentType(ext);
-  const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
-  const bin = atob(base64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  const { error } = await supabase.storage.from(MEDIA_BUCKET).upload(path, bytes, { contentType: ct });
+const b64ToBytes = (b64: string) => {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+};
+
+async function uploadToMediaBucketBase64(base64: string, path: string, mime: string) {
+  const bytes = b64ToBytes(base64);
+  const { error } = await supabase.storage.from(MEDIA_BUCKET).upload(path, bytes, {
+    contentType: mime,
+    upsert: false,
+  });
   if (error) throw error;
   return path;
 }
@@ -91,32 +97,29 @@ function formatWhen(iso?: string) {
   if (h < 24) return `${h} sa`;
   const day = Math.floor(h / 24);
   if (day < 7) return `${day} gün`;
-  const pad = (n: number) => (n < 10 ? `0${n}` : n);
+  const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
   return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}`;
 }
 
 /** ========= TYPES ========= */
 type VComment = {
-  id: string;
-  user_id: string;
-  coupon_id: string;
-  content: string;
-  created_at: string;
-  parent_id?: string | null;
-  full_name?: string | null;
-  avatar_url?: string | null;
+  id: string; user_id: string; coupon_id: string; content: string; created_at: string;
+  parent_id?: string | null; full_name?: string | null; avatar_url?: string | null;
   image_url?: string | null;
 };
+type Line = { name: string; yesPrice?: number; noPrice?: number; imageUrl?: string | null };
 type Coupon = {
   id: string;
   title: string;
   closing_date: string;
   description?: string;
   image_url?: string | null;
-  yes_price?: number;
-  no_price?: number;
+  yes_price?: number | null;
+  no_price?: number | null;
   category?: string;
   is_open?: boolean | null;
+  market_type?: 'binary' | 'multi' | null;
+  lines?: Line[] | null;
 };
 type Reaction = 'like' | 'dislike';
 type Counts = { likes: number; dislikes: number; my?: Reaction | null };
@@ -124,18 +127,14 @@ type Counts = { likes: number; dislikes: number; my?: Reaction | null };
 /** ========= SMALL COMPONENTS ========= */
 const AsyncThumb = ({ path, style }: { path?: string | null; style: any }) => {
   const [u, setU] = useState<string | null>(null);
-  useEffect(() => {
-    (async () => setU(await resolveUrl(path)))();
-  }, [path]);
+  useEffect(() => { (async () => setU(await resolveUrl(path)))(); }, [path]);
   if (!u) return <View style={[style, { backgroundColor: '#eee' }]} />;
   return <Image source={{ uri: u }} style={style} />;
 };
 
 const AsyncCommentImage = ({ path, onPress }: { path: string; onPress?: (url: string) => void }) => {
   const [u, setU] = useState<string | null>(null);
-  useEffect(() => {
-    (async () => setU(await resolveUrl(path)))();
-  }, [path]);
+  useEffect(() => { (async () => setU(await resolveUrl(path)))(); }, [path]);
   if (!u) return null;
   return (
     <TouchableOpacity activeOpacity={0.9} onPress={() => onPress?.(u)}>
@@ -148,9 +147,7 @@ const SpinnerLogo = ({ visible }: { visible: boolean }) => {
   const spin = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     if (!visible) return;
-    const loop = Animated.loop(
-      Animated.timing(spin, { toValue: 1, duration: 900, easing: Easing.linear, useNativeDriver: true })
-    );
+    const loop = Animated.loop(Animated.timing(spin, { toValue: 1, duration: 900, easing: Easing.linear, useNativeDriver: true }));
     loop.start();
     return () => loop.stop();
   }, [visible]);
@@ -164,10 +161,53 @@ const SpinnerLogo = ({ visible }: { visible: boolean }) => {
   );
 };
 
+/** ========= HELPERS FOR LINES ========= */
+type AnyLine = Record<string, any>;
+
+const getLineImageRaw = (l: AnyLine): string | null => {
+  // Desteklenen anahtarlar: imageUrl | image_url | image | photo | avatar
+  return (
+    (typeof l.imageUrl === 'string' && l.imageUrl) ||
+    (typeof l.image_url === 'string' && l.image_url) ||
+    (typeof l.image === 'string' && l.image) ||
+    (typeof l.photo === 'string' && l.photo) ||
+    (typeof l.avatar === 'string' && l.avatar) ||
+    null
+  );
+};
+
+const normalizeLines = (rows: AnyLine[] | null | undefined): Line[] => {
+  if (!Array.isArray(rows)) return [];
+  return rows.map((l) => ({
+    name: l.name ?? l.label ?? '',
+    yesPrice: typeof l.yesPrice === 'number' ? l.yesPrice : (typeof l.yes_price === 'number' ? l.yes_price : undefined),
+    noPrice: typeof l.noPrice === 'number' ? l.noPrice : (typeof l.no_price === 'number' ? l.no_price : undefined),
+    imageUrl: getLineImageRaw(l) ?? null, // normalize to camelCase
+  }));
+};
+
+const resolveLinesImages = async (lines: Line[]): Promise<Line[]> => {
+  const out = await Promise.all(
+    lines.map(async (l) => {
+      const resolved = l.imageUrl ? (await resolveStorageUrlSmart(l.imageUrl)) ?? (await resolveUrl(l.imageUrl)) : null;
+      return { ...l, imageUrl: resolved ? cacheBust(resolved) : null };
+    })
+  );
+  return out;
+};
+
+/** ========= PLUS/HOME filtre yardımcıları (yalnız Benzer Kuponlar için) ========= */
+const isPlusLike = (c: any) =>
+  !!(c?.is_plus || c?.plus_only || c?.require_plus || (typeof c?.tier === 'string' && c.tier.toLowerCase() === 'plus'));
+
+const isHomeLike = (c: any) =>
+  c?.source === 'home' || c?.show_on_home === true || c?.in_home_feed === true || c?.admin === true;
+
 /** ========= SCREEN ========= */
 export default function CouponDetail() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, src } = useLocalSearchParams<{ id: string; src?: string }>();
   const couponId = (Array.isArray(id) ? id[0] : id || '').toString();
+  const source = (Array.isArray(src) ? src[0] : src) || '';
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
@@ -178,10 +218,7 @@ export default function CouponDetail() {
     const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
     const s1 = Keyboard.addListener(showEvt, (e) => setKb(e.endCoordinates?.height ?? 0));
     const s2 = Keyboard.addListener(hideEvt, () => setKb(0));
-    return () => {
-      s1.remove();
-      s2.remove();
-    };
+    return () => { s1.remove(); s2.remove(); };
   }, []);
 
   /** me */
@@ -204,41 +241,78 @@ export default function CouponDetail() {
     return () => sub.data.subscription.unsubscribe();
   }, []);
 
-  /** coupon */
+  /** coupon + lines */
   const [coupon, setCoupon] = useState<Coupon | null>(null);
   useEffect(() => {
     if (!couponId) return;
     let alive = true;
+
     (async () => {
-      const { data } = await supabase.from('coupons').select('*').eq('id', couponId).single();
-      if (alive && data) setCoupon(data as any);
+      const { data, error } = await supabase
+        .from('coupons')
+        .select(`
+          id, title, closing_date, description, image_url, yes_price, no_price, category, is_open, market_type, lines
+        `)
+        .eq('id', couponId)
+        .single();
+
+    if (error || !data) return;
+
+      // ana görsel
+      const resolvedHero = await resolveStorageUrlSmart((data as any).image_url ?? null);
+
+      // lines normalize + resolve
+      const rawLines = normalizeLines((data as any).lines);
+      const lines = await resolveLinesImages(rawLines);
+
+      if (alive) {
+        setCoupon({ ...(data as any), image_url: resolvedHero ?? null, lines });
+      }
     })();
+
+    // realtime: hem hero hem lines yeniden resolve
     const ch = supabase
       .channel(`coupon-${couponId}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'coupons', filter: `id=eq.${couponId}` },
-        (payload) => {
-          // @ts-ignore
-          if (payload?.eventType === 'DELETE') {
-            Alert.alert('Bilgi', 'Bu market kaldırıldı.');
-            router.back();
-          } else if ((payload as any)?.new) {
-            setCoupon((payload as any).new as Coupon);
-          }
+        async (payload) => {
+          const fresh: any = (payload as any)?.new;
+          if (!fresh) return;
+
+          // hero
+          const hero = await resolveStorageUrlSmart(fresh.image_url ?? null);
+
+          // lines
+          const norm = normalizeLines(fresh.lines);
+          const resolved = await resolveLinesImages(norm);
+
+          setCoupon((prev) => ({
+            ...(prev ?? ({} as any)),
+            ...fresh,
+            image_url: hero ?? prev?.image_url ?? null,
+            lines: resolved,
+          }));
         }
       )
       .subscribe();
-    return () => {
-      alive = false;
-      supabase.removeChannel(ch);
-    };
-  }, [couponId, router]);
+
+    return () => { alive = false; supabase.removeChannel(ch); };
+  }, [couponId]);
 
   /** comments + reactions */
   const [comments, setComments] = useState<VComment[]>([]);
   const [countsMap, setCountsMap] = useState<Map<string, Counts>>(new Map());
+  const [expandedRoot, setExpandedRoot] = useState<Set<string>>(new Set());
+  const toggleRoot = (id: string) =>
+    setExpandedRoot(prev => {
+      const n = new Set(prev);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+
   const listRef = useRef<FlatList<any>>(null);
+  const inputRef = useRef<TextInput>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   const fetchCounts = useCallback(async (ids: string[], myId?: string | null) => {
@@ -269,9 +343,7 @@ export default function CouponDetail() {
     await fetchCounts(rows.map((r) => r.id), me?.id);
   }, [couponId, fetchCounts, me?.id]);
 
-  useEffect(() => {
-    loadComments();
-  }, [loadComments]);
+  useEffect(() => { loadComments(); }, [loadComments]);
 
   // realtime comments only
   useEffect(() => {
@@ -306,18 +378,15 @@ export default function CouponDetail() {
         }
       )
       .subscribe();
-    return () => {
-      supabase.removeChannel(ch);
-    };
+    return () => { supabase.removeChannel(ch); };
   }, [couponId, fetchCounts, me?.id]);
 
-  /** toggle like/dislike (optimistic + rollback) */
+  /** toggle like/dislike (optimistic) */
   const toggleReaction = async (commentId: string, type: Reaction) => {
     if (!me?.id) return Alert.alert('Giriş gerekli', 'Beğenmek için giriş yap.');
 
     const current = countsMap.get(commentId)?.my ?? null;
 
-    // optimistic UI
     setCountsMap((prev) => {
       const next = new Map(prev);
       const c = next.get(commentId) || { likes: 0, dislikes: 0, my: null };
@@ -344,8 +413,8 @@ export default function CouponDetail() {
           .from('comments_likes')
           .upsert({ comment_id: commentId, user_id: me.id, type }, { onConflict: 'comment_id,user_id' });
       }
-    } catch (e: any) {
-      await fetchCounts([commentId], me.id);
+    } catch {
+      await fetchCounts([commentId], me?.id);
     }
   };
 
@@ -362,9 +431,10 @@ export default function CouponDetail() {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (perm.status !== 'granted') return Alert.alert('İzin gerekli', 'Fotoğraf galerisine erişim izni ver.');
     const res = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: (ImagePicker as any).MediaType ? [(ImagePicker as any).MediaType.Images] : ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       quality: 0.9,
+      base64: true,
     });
     if (res.canceled) return;
     const asset = res.assets?.[0];
@@ -373,8 +443,10 @@ export default function CouponDetail() {
     setUploading(true);
     try {
       const ext = guessExt(asset.uri);
+      const mime = contentType(ext);
+      if (!asset.base64) throw new Error('Seçilen görselde base64 verisi yok.');
       const path = `comments/${couponId}/${uid()}.${ext}`;
-      const stored = await uploadToMediaBucket(asset.uri, path);
+      const stored = await uploadToMediaBucketBase64(asset.base64, path, mime);
       setCommentImagePath(stored);
     } catch (e: any) {
       Alert.alert('Yükleme hatası', e?.message || 'Görsel yüklenemedi.');
@@ -384,10 +456,7 @@ export default function CouponDetail() {
       setUploading(false);
     }
   };
-  const clearCommentImage = () => {
-    setCommentImageLocal(null);
-    setCommentImagePath(null);
-  };
+  const clearCommentImage = () => { setCommentImageLocal(null); setCommentImagePath(null); };
 
   const sendComment = async () => {
     const text = newComment.trim();
@@ -405,109 +474,221 @@ export default function CouponDetail() {
       .insert([payload])
       .select('id, user_id, coupon_id, content, created_at, parent_id, image_url')
       .single();
-
     if (error) return Alert.alert('Hata', error.message);
 
     setComments((prev) => [...prev, { ...inserted!, full_name: me?.name, avatar_url: me?.avatar }]);
-    setCountsMap((prev) => {
-      const next = new Map(prev);
-      next.set(inserted!.id, { likes: 0, dislikes: 0, my: undefined });
-      return next;
-    });
+    setCountsMap((prev) => { const next = new Map(prev); next.set(inserted!.id, { likes: 0, dislikes: 0, my: undefined }); return next; });
 
-    setNewComment('');
-    setReplyTo(null);
-    clearCommentImage();
-    setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 0);
+    setNewComment(''); setReplyTo(null); clearCommentImage();
+    setTimeout(() => { listRef.current?.scrollToEnd({ animated: true }); inputRef.current?.blur(); Keyboard.dismiss(); }, 0);
   };
 
   const deleteComment = async (c: VComment) => {
     if (!me || me.id !== c.user_id) return;
     setComments((prev) => prev.filter((x) => x.id !== c.id));
-    setCountsMap((prev) => {
-      const n = new Map(prev);
-      n.delete(c.id);
-      return n;
-    });
+    setCountsMap((prev) => { const n = new Map(prev); n.delete(c.id); return n; });
     const { error } = await supabase.from('comments').delete().eq('id', c.id).eq('user_id', me.id);
-    if (error) {
-      Alert.alert('Silinemedi', error.message);
-      loadComments();
-    }
+    if (error) { Alert.alert('Silinemedi', error.message); loadComments(); }
   };
 
-  /** tree */
-  const tree = useMemo(() => {
-    const roots: VComment[] = [];
+  /** ====== FLAT THREAD ====== */
+  const { roots, childrenByRoot, byId } = useMemo(() => {
+    const map = new Map<string, VComment>();
+    comments.forEach(c => map.set(c.id, c));
+
+    const findRoot = (c: VComment): VComment => {
+      let cur: VComment = c;
+      while (cur.parent_id && map.get(cur.parent_id)) cur = map.get(cur.parent_id)!;
+      return cur;
+    };
+
+    const rootArr: VComment[] = [];
     const children = new Map<string, VComment[]>();
     comments.forEach((c) => {
-      if (c.parent_id) {
-        const arr = children.get(c.parent_id) ?? [];
+      const root = c.parent_id ? findRoot(c) : c;
+      if (c.id === root.id) rootArr.push(c);
+      else {
+        const arr = children.get(root.id) ?? [];
         arr.push(c);
-        children.set(c.parent_id, arr);
-      } else roots.push(c);
+        children.set(root.id, arr);
+      }
     });
-    return { roots, children };
+    rootArr.sort((a, b) => a.created_at.localeCompare(b.created_at));
+    Array.from(children.values()).forEach(arr => arr.sort((a, b) => a.created_at.localeCompare(b.created_at)));
+    return { roots: rootArr, childrenByRoot: children, byId: map };
   }, [comments]);
 
-  /** similar coupons (altta, PLUS filtreli) */
+  /** ========== BENZER KUPONLAR (her zaman 3, PLUS yok, sadece HOME/Admin) ========== */
   const [similar, setSimilar] = useState<Coupon[]>([]);
   useEffect(() => {
     let on = true;
-    (async () => {
-      if (!coupon?.category) return setSimilar([]);
-      const { data } = await supabase
-        .from('coupons')
-        .select(`
-          id, title, closing_date, image_url, yes_price, no_price, category,
-          users!inner ( is_plus )
-        `)
-        .neq('id', couponId)
-        .eq('category', coupon.category)
-        .eq('users.is_plus', false) // PLUS değil
-        .order('created_at', { ascending: false })
-        .limit(3);
-      if (on) setSimilar((data ?? []) as any);
-    })();
-    return () => {
-      on = false;
+
+    const shuffle = <T,>(arr: T[]) => {
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return arr;
     };
-  }, [coupon?.category, couponId]);
+
+    const nowIso = new Date().toISOString();
+
+    const notThis = (c: any) => String(c?.id) !== String(couponId);
+    const active = (c: any) => (c?.is_open !== false) && (!c?.closing_date || c.closing_date > nowIso);
+
+    (async () => {
+      try {
+        const baseFields =
+          'id, title, closing_date, image_url, yes_price, no_price, category, is_open, market_type, lines, ' +
+          'is_plus, plus_only, require_plus, tier, source, show_on_home, in_home_feed, admin';
+
+        // 1) Home/Admin view varsa önce onu dene
+        let homeRows: any[] = [];
+        try {
+          const { data } = await supabase
+            .from('v_home_coupons')
+            .select(baseFields)
+            .gt('closing_date', nowIso)
+            .order('created_at', { ascending: false });
+          homeRows = (data ?? []) as any[];
+        } catch {
+          homeRows = [];
+        }
+
+        // 2) Yoksa coupons içinden home-like işaretlileri çek
+        if (homeRows.length === 0) {
+          const { data } = await supabase
+            .from('coupons')
+            .select(baseFields)
+            .gt('closing_date', nowIso)
+            .eq('is_open', true)
+            .order('created_at', { ascending: false });
+          homeRows = (data ?? []) as any[];
+          homeRows = homeRows.filter(isHomeLike);
+        }
+
+        // PLUS dışı + aktif + farklı id
+        let pool = homeRows.filter(notThis).filter(active).filter((c) => !isPlusLike(c));
+
+        // 3) 3'ten azsa non-plus genel havuzdan doldur
+        let backup: any[] = [];
+        if (pool.length < 3) {
+          const { data } = await supabase
+            .from('coupons')
+            .select(baseFields)
+            .gt('closing_date', nowIso)
+            .eq('is_open', true)
+            .order('created_at', { ascending: false });
+          backup = ((data ?? []) as any[]).filter(notThis).filter(active).filter((c) => !isPlusLike(c));
+        }
+
+        const first = shuffle([...pool]).slice(0, 3);
+        const need = 3 - first.length;
+        const extra = need > 0
+          ? shuffle(backup.filter(b => !first.some(f => String(f.id) === String(b.id)))).slice(0, need)
+          : [];
+        const picked = [...first, ...extra].slice(0, 3);
+
+        if (on) setSimilar(picked as Coupon[]);
+      } catch {
+        if (on) setSimilar([]);
+      }
+    })();
+
+    return () => { on = false; };
+  }, [couponId]);
 
   /** ===== RENDER ===== */
-  const HeaderCard = () => (
-    <View style={[styles.card, { marginHorizontal: 16 }]}>
-      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-        <AsyncThumb path={coupon?.image_url ?? null} style={styles.hero} />
-        <View style={{ marginLeft: 12, flex: 1 }}>
-          <Text style={styles.title}>{coupon?.title}</Text>
-          <Text style={styles.meta}>
-            {coupon?.category ? `${coupon.category} • ` : ''}Kapanış: {coupon?.closing_date?.split('T')[0]}
-          </Text>
-        </View>
-      </View>
-
-      <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 16, marginTop: 16 }}>
-        <View style={[styles.pill, { backgroundColor: '#2E7D32' }]}>
-          <Text style={styles.pillTxt}>YES {coupon?.yes_price?.toFixed(2)}</Text>
-        </View>
-        <View style={[styles.pill, { backgroundColor: '#C62828' }]}>
-          <Text style={styles.pillTxt}>NO {coupon?.no_price?.toFixed(2)}</Text>
-        </View>
-      </View>
-
-      <Text style={styles.payoutRow}>
-        YES ≈ {Math.round((coupon?.yes_price || 0) * 100)} XP / NO ≈ {Math.round((coupon?.no_price || 0) * 100)} XP
-      </Text>
-
-      {!!coupon?.description && (
-        <View style={styles.ruleBox}>
-          <Text style={styles.ruleTitle}>Kurallar / Özet</Text>
-          <Text style={{ color: '#333' }}>{coupon.description}</Text>
-        </View>
-      )}
+  const Pill = ({ label, color, children }: { label: string; color: 'yes' | 'no'; children?: any }) => (
+    <View style={[
+      styles.pill,
+      { backgroundColor: color === 'yes' ? '#EAF1FF' : '#FDEAF1' }
+    ]}>
+      <Text style={[
+        styles.pillTxt,
+        { color: color === 'yes' ? '#2A55FF' : '#D0146A' }
+      ]}>{label}</Text>
+      {children}
     </View>
   );
+
+  const LinesBlock = () => {
+    const lines = coupon?.lines ?? [];
+    if (!lines.length) return null;
+    return (
+      <View style={{ marginTop: 12 }}>
+        {lines.map((l, idx) => {
+          const y = typeof l.yesPrice === 'number' ? Math.max(1.01, l.yesPrice) : undefined;
+          const n = typeof l.noPrice === 'number' ? Math.max(1.01, l.noPrice) : undefined;
+          return (
+            <View key={`${coupon?.id}-line-${idx}`} style={styles.lineRow}>
+              {l.imageUrl ? (
+                <Image source={{ uri: l.imageUrl }} style={styles.lineAvatar} />
+              ) : (
+                <View style={[styles.lineAvatar, { backgroundColor: '#eee' }]} />
+              )}
+              <Text style={styles.lineName} numberOfLines={1}>{l.name}</Text>
+              <View style={{ flex: 1 }} />
+              <Pill label={`Yes ${y?.toFixed(2) ?? '-'}`} color="yes" />
+              <Pill label={`No ${n?.toFixed(2) ?? '-'}`} color="no" />
+            </View>
+          );
+        })}
+      </View>
+    );
+  };
+
+  const HeaderCard = () => {
+    const isMulti = coupon?.market_type === 'multi' && (coupon?.lines?.length ?? 0) > 0;
+    const y = coupon?.yes_price ? Math.max(1.01, coupon.yes_price) : undefined;
+    const n = coupon?.no_price ? Math.max(1.01, coupon.no_price) : undefined;
+
+    return (
+      <View style={[styles.card, { marginHorizontal: 16 }]}>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          {coupon?.image_url ? (
+            <Image source={{ uri: coupon.image_url }} style={styles.hero} />
+          ) : (
+            <View style={[styles.hero, { backgroundColor: '#eee' }]} />
+          )}
+
+          <View style={{ marginLeft: 12, flex: 1 }}>
+            <Text style={styles.title}>{coupon?.title}</Text>
+            <Text style={styles.meta}>
+              {coupon?.category ? `${coupon.category} • ` : ''}Kapanış: {coupon?.closing_date?.split('T')[0]}
+            </Text>
+          </View>
+        </View>
+
+        {/* Binary üst pill’ler */}
+        {!isMulti && (
+          <>
+            <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 12, marginTop: 14 }}>
+              <Pill label={`Yes ${y?.toFixed(2) ?? '-'}`} color="yes" />
+              <Pill label={`No ${n?.toFixed(2) ?? '-'}`} color="no" />
+            </View>
+            <Text style={styles.payoutRow}>
+              YES ≈ {Math.round((y || 0) * 100)} XP • NO ≈ {Math.round((n || 0) * 100)} XP
+            </Text>
+          </>
+        )}
+
+        {/* Multi ise aday listesi */}
+        {isMulti && <LinesBlock />}
+
+        {!!coupon?.description && (
+          <View style={styles.ruleBox}>
+            <Text style={styles.ruleTitle}>Kurallar / Özet</Text>
+            <Text style={{ color: '#333' }}>{coupon.description}</Text>
+          </View>
+        )}
+
+        <Text style={{ color: '#888', marginTop: 10 }}>
+          Topluluk kurallarına aykırı içerikleri bildirebilirsin.
+        </Text>
+      </View>
+    );
+  };
 
   const SectionTag = ({ title }: { title: string }) => (
     <View style={styles.sectionTag}>
@@ -521,16 +702,16 @@ export default function CouponDetail() {
       {similar.map((s) => (
         <TouchableOpacity
           key={s.id}
-          onPress={() => router.push(`/CouponDetail?id=${s.id}`)}
+          onPress={() => router.push({ pathname: '/CouponDetail', params: { id: s.id, src: source } })}
           style={styles.simRow}
-          activeOpacity={0.8}
+          activeOpacity={0.85}
         >
           <AsyncThumb path={s.image_url ?? null} style={styles.simThumb} />
           <View style={{ flex: 1, marginLeft: 10 }}>
-            <Text style={{ fontWeight: '800' }}>{s.title}</Text>
+            <Text style={{ fontWeight: '800' }} numberOfLines={2}>{s.title}</Text>
             <Text style={{ color: '#777', marginTop: 2 }}>Kapanış: {s.closing_date?.split('T')[0]}</Text>
           </View>
-          <View style={{ alignItems: 'flex-end' }}>
+          <View style={{ alignItems: 'flex-end', width: 64 }}>
             <Text style={{ color: '#2E7D32', fontWeight: '900' }}>{s.yes_price?.toFixed(2)}</Text>
             <Text style={{ color: '#C62828', fontWeight: '900', marginTop: 4 }}>{s.no_price?.toFixed(2)}</Text>
           </View>
@@ -539,10 +720,59 @@ export default function CouponDetail() {
     </>
   );
 
-  const CommentItem = ({ c, depth = 0 }: { c: VComment; depth?: number }) => {
+  const reportComment = (c: VComment) => {
+    const openSheet = () => {
+      const doInsert = async (reason: string, extra?: string) => {
+        try {
+          const { data: auth } = await supabase.auth.getUser();
+          const uid = auth?.user?.id;
+          if (!uid) return Alert.alert('Giriş gerekli', 'Şikayet etmek için giriş yap.');
+          await supabase.from('comment_reports').insert({
+            comment_id: c.id, reporter_id: uid, reason, extra: extra ?? null,
+          });
+          Alert.alert('Teşekkürler', 'Şikayetin alındı.');
+        } catch (e: any) {
+          Alert.alert('Hata', e?.message ?? 'Şikayet kaydedilemedi');
+        }
+      };
+
+      if (Platform.OS === 'ios') {
+        ActionSheetIOS.showActionSheetWithOptions(
+          {
+            options: ['İptal', 'Hakaret/nefret', 'Spam', 'Yasadışı içerik', 'Diğer…'],
+            cancelButtonIndex: 0,
+            destructiveButtonIndex: -1,
+            title: 'Bu yorumu bildir',
+            message: 'Sebep seç',
+          },
+          (i) => {
+            const map = ['','Hakaret/nefret','Spam','Yasadışı içerik','Diğer…'] as const;
+            const sel = map[i] as string;
+            if (!sel || sel === 'Diğer…') {
+              if (sel) Alert.prompt?.('Sebep yaz', '', (txt) => doInsert('Diğer', txt || ''));
+              return;
+            }
+            doInsert(sel);
+          }
+        );
+      } else {
+        Alert.alert('Bu yorumu bildir', 'Sebep seç', [
+          { text: 'Hakaret/nefret', onPress: () => doInsert('Hakaret/nefret') },
+          { text: 'Spam', onPress: () => doInsert('Spam') },
+          { text: 'Yasadışı içerik', onPress: () => doInsert('Yasadışı içerik') },
+          { text: 'İptal', style: 'cancel' },
+        ]);
+      }
+    };
+    openSheet();
+  };
+
+  const CommentRow = ({ c, isChild }: { c: VComment; isChild: boolean }) => {
     const counts = countsMap.get(c.id) || { likes: 0, dislikes: 0, my: null };
+    const parent = c.parent_id ? byId.get(c.parent_id) : undefined;
+
     return (
-      <View style={[styles.commentRow, { marginLeft: depth ? 12 : 0 }]}>
+      <View style={[styles.commentRow, { marginLeft: isChild ? 44 : 0 }]}>
         {c.avatar_url ? (
           <Image source={{ uri: c.avatar_url }} style={styles.avatar} />
         ) : (
@@ -556,7 +786,14 @@ export default function CouponDetail() {
             <Text style={{ color: '#888' }}>• {formatWhen(c.created_at)}</Text>
           </View>
 
-          {!!c.content && <Text style={styles.commentText}>{c.content}</Text>}
+          {!!c.content && (
+            <Text style={styles.commentText}>
+              {isChild && parent?.full_name ? (
+                <Text style={{ color: '#3D5AFE', fontWeight: '800' }}>@{parent.full_name} </Text>
+              ) : null}
+              {c.content}
+            </Text>
+          )}
 
           {c.image_url && (
             <View style={{ marginTop: 8 }}>
@@ -565,28 +802,18 @@ export default function CouponDetail() {
           )}
 
           <View style={{ flexDirection: 'row', gap: 16, marginTop: 8, alignItems: 'center' }}>
-            <TouchableOpacity onPress={() => setReplyTo(c)}>
+            <TouchableOpacity onPress={() => { setReplyTo(c); setTimeout(() => inputRef.current?.focus(), 0); }}>
               <Text style={styles.link}>Cevapla</Text>
             </TouchableOpacity>
 
             <TouchableOpacity onPress={() => toggleReaction(c.id, 'like')}>
-              <Text
-                style={[
-                  styles.link,
-                  { color: '#D32F2F', fontWeight: counts.my === 'like' ? '900' : '800' },
-                ]}
-              >
+              <Text style={[styles.link, { color: '#D32F2F', fontWeight: counts.my === 'like' ? '900' : '800' }]}>
                 ❤️ {counts.likes}
               </Text>
             </TouchableOpacity>
 
             <TouchableOpacity onPress={() => toggleReaction(c.id, 'dislike')}>
-              <Text
-                style={[
-                  styles.link,
-                  { color: '#F9A825', fontWeight: counts.my === 'dislike' ? '900' : '800' },
-                ]}
-              >
+              <Text style={[styles.link, { color: '#F9A825', fontWeight: counts.my === 'dislike' ? '900' : '800' }]}>
                 👎 {counts.dislikes}
               </Text>
             </TouchableOpacity>
@@ -596,32 +823,48 @@ export default function CouponDetail() {
                 <Text style={[styles.link, { color: '#E53935' }]}>Sil</Text>
               </TouchableOpacity>
             )}
-          </View>
 
-          {(tree.children.get(c.id) ?? []).map((ch) => (
-            <CommentItem key={ch.id} c={ch} depth={depth + 1} />
-          ))}
+            <TouchableOpacity onPress={() => reportComment(c)}>
+              <Text style={[styles.link, { color: '#888' }]}>…</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     );
   };
 
-  // composer’ı alt barın üstüne cuk oturtmak için offset
+  const Thread = ({ root }: { root: VComment }) => {
+    const replies = childrenByRoot.get(root.id) ?? [];
+    const opened = expandedRoot.has(root.id);
+    const visible = opened ? replies : replies.slice(0, 2);
+
+    return (
+      <>
+        <CommentRow c={root} isChild={false} />
+        {visible.map((r) => (<CommentRow key={r.id} c={r} isChild={true} />))}
+        {replies.length > 2 && (
+          <TouchableOpacity onPress={() => toggleRoot(root.id)} style={{ marginLeft: 44, marginTop: 6 }}>
+            <Text style={[styles.link, { color: '#666' }]}>
+              {opened ? 'Yanıtları gizle' : `Yanıtları göster (${replies.length - 2})`}
+            </Text>
+          </TouchableOpacity>
+        )}
+      </>
+    );
+  };
+
   const bottomOffset = Math.max(insets.bottom, BAR_MARGIN) + BAR_MIN_HEIGHT + 8;
 
   return (
     <View style={{ flex: 1 }}>
       <FlatList
         ref={listRef}
-        data={tree.roots}
+        data={roots}
         keyExtractor={(it) => it.id}
         keyboardShouldPersistTaps="handled"
         onRefresh={loadComments}
         refreshing={refreshing}
-        contentContainerStyle={{
-          // liste sonuna bar + composer kadar yer bırak
-          paddingBottom: (kb ? kb : bottomOffset) + 92,
-        }}
+        contentContainerStyle={{ paddingBottom: (kb ? kb : bottomOffset) + 92 }}
         ListHeaderComponent={
           <>
             <TouchableOpacity onPress={() => router.back()} style={{ padding: 16 }}>
@@ -631,30 +874,33 @@ export default function CouponDetail() {
             <HeaderCard />
 
             <SectionTag title="Yorumlar" />
-            {tree.roots.length === 0 && (
-              <View style={styles.emptyHint}>
-                <View style={[styles.avatar, { backgroundColor: '#eee', marginRight: 10 }]} />
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontWeight: '800' }}>{me?.name || 'Sen'}</Text>
-                  <Text style={{ color: '#666', marginTop: 2 }}>İlk yorumu sen yaz! Foto da ekleyebilirsin 🧡</Text>
-                </View>
-              </View>
+            {roots.length === 0 && (
+            <View style={styles.emptyHint}>
+  {me?.avatar ? (
+    <Image source={{ uri: me.avatar }} style={[styles.avatar, { marginRight: 10 }]} />
+  ) : (
+    <View style={[styles.avatar, { backgroundColor: '#eee', marginRight: 10, alignItems: 'center', justifyContent: 'center' }]}>
+      <Text style={{ fontWeight: '800', color: '#888' }}>
+        {(me?.name ?? 'S')[0]?.toUpperCase?.() ?? 'S'}
+      </Text>
+    </View>
+  )}
+  <View style={{ flex: 1 }}>
+    <Text style={{ fontWeight: '800' }}>{me?.name || 'Sen'}</Text>
+    <Text style={{ color: '#666', marginTop: 2 }}>İlk yorumu sen yaz! </Text>
+  </View>
+</View>
             )}
           </>
         }
-        renderItem={({ item }) => <CommentItem c={item} />}
+        renderItem={({ item }) => <Thread root={item} />}
         ListFooterComponent={<SimilarBlock />}
         showsVerticalScrollIndicator={false}
       />
 
-      {/* COMPOSER — alt barın üstüne dock */}
-      <View
-        style={[
-          styles.composerDock,
-          { bottom: kb ? kb : bottomOffset },
-        ]}
-      >
-        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
+      {/* COMPOSER */}
+      <View style={[styles.composerDock, { bottom: kb ? kb : bottomOffset }]}>
+        <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 10 }}>
           {me?.avatar ? (
             <Image source={{ uri: me.avatar }} style={styles.avatarMe} />
           ) : (
@@ -666,35 +912,40 @@ export default function CouponDetail() {
           )}
 
           <View style={{ flex: 1 }}>
-            <TextInput
-              value={newComment}
-              onChangeText={setNewComment}
-              placeholder="Yorumunu yaz…"
-              style={styles.input}
-              placeholderTextColor="#999"
-              multiline
-            />
+           <TextInput
+  ref={inputRef}
+  value={newComment}
+  onChangeText={setNewComment}
+  placeholder="Yorumunu yaz…"
+  style={styles.input}
+  placeholderTextColor="#999"
+  multiline
+/>
 
             {replyTo && (
               <View style={styles.replyBar}>
-                <Text style={{ fontWeight: '700' }}>Cevaplanan: {replyTo.full_name || 'Anonim'}</Text>
+                <Text style={{ fontWeight: '700' }} numberOfLines={1}>
+                  Cevaplanan: {replyTo.full_name || 'Anonim'}
+                </Text>
                 <TouchableOpacity onPress={() => setReplyTo(null)}>
                   <Text style={{ color: '#E53935', fontWeight: '700' }}>İptal</Text>
                 </TouchableOpacity>
               </View>
             )}
 
-            {commentImageLocal ? (
-              <View style={{ marginTop: 8, alignItems: 'flex-start' }}>
-                <Image source={{ uri: commentImageLocal }} style={{ width: 120, height: 120, borderRadius: 8 }} />
-                <TouchableOpacity onPress={clearCommentImage} style={{ marginTop: 6 }}>
-                  <Text style={{ color: '#E53935', fontWeight: '800' }}>Fotoğrafı kaldır</Text>
+            {!commentImageLocal ? (
+              <TouchableOpacity disabled={uploading} onPress={pickCommentImage} style={{ marginTop: 6 }}>
+                <Text style={{ color: '#3D5AFE', fontWeight: '800' }}>
+                  {uploading ? 'Yükleniyor…' : 'Fotoğraf ekle'}
+                </Text>
+              </TouchableOpacity>
+            ) : (
+              <View style={{ marginTop: 6, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Image source={{ uri: commentImageLocal }} style={{ width: 48, height: 48, borderRadius: 8 }} />
+                <TouchableOpacity onPress={clearCommentImage}>
+                  <Text style={{ color: '#E53935', fontWeight: '800' }}>Kaldır</Text>
                 </TouchableOpacity>
               </View>
-            ) : (
-              <TouchableOpacity disabled={uploading} onPress={pickCommentImage} style={{ marginTop: 8 }}>
-                <Text style={{ color: '#3D5AFE', fontWeight: '800' }}>{uploading ? 'Yükleniyor…' : 'Fotoğraf ekle'}</Text>
-              </TouchableOpacity>
             )}
           </View>
 
@@ -743,8 +994,10 @@ const styles = StyleSheet.create({
   hero: { width: 64, height: 64, borderRadius: 12 },
   title: { fontSize: 20, fontWeight: '900' },
   meta: { color: '#666', marginTop: 6 },
-  pill: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 12, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 6, elevation: 2 },
-  pillTxt: { color: '#fff', fontWeight: '900' },
+
+  pill: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 12 },
+  pillTxt: { fontWeight: '900' },
+
   payoutRow: { textAlign: 'center', fontWeight: '900', color: '#666', marginTop: 10 },
 
   ruleBox: {
@@ -787,7 +1040,6 @@ const styles = StyleSheet.create({
 
   avatarMe: { width: 36, height: 36, borderRadius: 18 },
 
-  // composer: alt barın üstüne dock
   composerDock: {
     position: 'absolute',
     left: 12,
@@ -805,30 +1057,30 @@ const styles = StyleSheet.create({
   },
 
   input: {
-    borderWidth: 1,
-    borderColor: BRAND,
+    borderWidth: 2,
+    borderColor: '#FF6B00',
     borderRadius: 12,
-    padding: 12,
-    marginTop: 8,
-    minHeight: 42,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     backgroundColor: '#fff',
+    maxHeight: 110,
   },
   sendFab: {
-    backgroundColor: BRAND,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    backgroundColor: '#FF6B00',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 2,
   },
 
   link: { color: '#3D5AFE', fontWeight: '800' },
   replyBar: {
-    marginTop: 8,
-    padding: 10,
+    marginTop: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
     borderRadius: 10,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#F6F6F6',
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -848,12 +1100,25 @@ const styles = StyleSheet.create({
 
   spinnerWrap: {
     position: 'absolute',
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
+    left: 0, right: 0, top: 0, bottom: 0,
     backgroundColor: 'rgba(0,0,0,0.45)',
     alignItems: 'center',
     justifyContent: 'center',
   },
+
+  // multi lines
+  lineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#eee',
+    marginBottom: 8,
+  },
+  lineAvatar: { width: 36, height: 36, borderRadius: 18 },
+  lineName: { fontWeight: '800', maxWidth: 140 },
 });

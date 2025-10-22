@@ -1,5 +1,8 @@
+'use client';
+
+import { resolveStorageUrlSmart } from '@/lib/resolveStorageUrlSmart';
 import { supabase } from '@/lib/supabaseClient';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -46,10 +49,11 @@ const emptyCounts = (): Counts => ({ like: 0, dislike: 0, wow: 0 });
 
 export default function Vitrin() {
   const ins = useSafeAreaInsets();
-const topPad =
-  Platform.OS === 'ios'
-    ? s(6)
-    : ((ins.top || StatusBar.currentHeight || 0) + s(6));
+  const topPad =
+    Platform.OS === 'ios'
+      ? s(6)
+      : ((ins.top || StatusBar.currentHeight || 0) + s(6));
+
   const [loading, setLoading] = useState(true);
   const [xp, setXp] = useState<number>(0);
   const [rows, setRows] = useState<Proof[]>([]);
@@ -72,11 +76,13 @@ const topPad =
 
   const load = async () => {
     setLoading(true);
+
+    // 🔧 PGRST201 fix: ilişkiyi adıyla embedle
     const { data: proofs, error: pErr } = await supabase
       .from('coupon_proofs')
       .select(`
         id, title, media_url, status, created_at, coupon_id,
-        coupons ( title ),
+        coupons:coupons!coupon_proofs_coupon_id_fkey ( title ),
         proof_reactions ( emoji ),
         users!inner ( id, is_plus )
       `)
@@ -92,80 +98,77 @@ const topPad =
       return;
     }
 
+    // benim reaksiyonlarım
     const { data: auth } = await supabase.auth.getUser();
     const uid = auth?.user?.id ?? null;
     const { data: mine } = uid
       ? await supabase.from('proof_reactions').select('proof_id,emoji').eq('user_id', uid)
       : { data: [] as any[] };
-    const mineMap = new Map<string, EmojiKey>(mine?.map((m: any) => [m.proof_id as string, m.emoji as EmojiKey]) ?? []);
+    const mineMap: Map<string, EmojiKey> = new Map(
+      (mine ?? []).map((m: any) => [String(m.proof_id), m.emoji as EmojiKey] as const)
+    );
 
-    const withCounts: Proof[] = (proofs ?? []).map((p: any) => {
-      const counts = emptyCounts();
-      (p.proof_reactions ?? []).forEach((r: any) => {
-        const e = r?.emoji as EmojiKey;
-        if (e === 'like' || e === 'dislike' || e === 'wow') counts[e] = (counts[e] ?? 0) + 1;
-      });
-      return {
-        id: p.id,
-        title: p.title,
-        media_url: p.media_url,
-        status: p.status,
-        created_at: p.created_at,
-        coupon_id: p.coupon_id,
-        coupons: p.coupons ?? null,
-        counts,
-        my: mineMap.get(p.id) ?? null,
-      };
-    });
+    // URL çöz + sayımlar
+    const withCounts: Proof[] = await Promise.all(
+      (proofs ?? []).map(async (p: any) => {
+        const counts = emptyCounts();
+        (p.proof_reactions ?? []).forEach((r: any) => {
+          const e = r?.emoji as EmojiKey;
+          if (e === 'like' || e === 'dislike' || e === 'wow') counts[e] = (counts[e] ?? 0) + 1;
+        });
+        return {
+          id: p.id,
+          title: p.title,
+          media_url: await resolveStorageUrlSmart(p.media_url),
+          status: p.status,
+          created_at: p.created_at,
+          coupon_id: p.coupon_id,
+          coupons: p.coupons ?? null,
+          counts,
+          my: mineMap.get(p.id) ?? null,
+        };
+      })
+    );
 
-    const { data: xpData } = await supabase.rpc('get_user_xp');
-    setXp(Number(xpData ?? 0));
+    // 🔥 XP çek (users tablosundan)
+    if (uid) {
+      const { data: urow } = await supabase
+        .from('users')
+        .select('xp')
+        .eq('id', uid)
+        .single();
+      setXp(Number(urow?.xp ?? 0));
+    } else {
+      setXp(0);
+    }
+
     setRows(withCounts);
     setLoading(false);
   };
 
   useEffect(() => { load(); }, []);
 
-  const Header = useMemo(
-    () => (
-      <View
-        style={{
-          backgroundColor: '#fff',
-          paddingHorizontal: s(16),
-          paddingBottom: s(10),
-          paddingTop: topPad,
-          borderBottomWidth: Platform.OS === 'android' ? 0.5 : 0,
-          borderBottomColor: '#00000010',
-          zIndex: 2,
-        }}
-      >
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <Text style={{ fontSize: s(28), fontWeight: '900', color: ORANGE, includeFontPadding: false }}>
-            Kanıt Vitrini
-          </Text>
-          <View
-            style={{
-              marginLeft: 'auto',
-              backgroundColor: '#FFF2E8',
-              borderWidth: 1,
-              borderColor: ORANGE,
-              paddingVertical: s(6),
-              paddingHorizontal: s(10),
-              borderRadius: s(20),
-            }}
-          >
-            <Text style={{ color: ORANGE, fontWeight: '800', includeFontPadding: false }}>
-              {xp.toLocaleString()} XP
-            </Text>
-          </View>
-        </View>
-        <Text style={{ marginTop: s(6), color: '#6B7280', includeFontPadding: false }}>
-          Onaylı kanıtlar — dokun, büyüsün.
-        </Text>
-      </View>
-    ),
-    [xp, topPad]
-  );
+  // 🔁 XP realtime güncelle (opsiyonel ama güzel)
+  useEffect(() => {
+    let ch: any;
+    (async () => {
+      const { data: au } = await supabase.auth.getUser();
+      const uid = au?.user?.id;
+      if (!uid) return;
+      ch = supabase
+        .channel('rt-xp-vitrin')
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'users', filter: `id=eq.${uid}` },
+          (payload) => {
+            const next = (payload.new as any)?.xp;
+            if (typeof next === 'number') setXp(next);
+          }
+        )
+        .subscribe();
+    })();
+    return () => { if (ch) supabase.removeChannel(ch); };
+  }, []);
 
   const react = async (proof: Proof, next: EmojiKey) => {
     const { data: auth } = await supabase.auth.getUser();
@@ -247,6 +250,47 @@ const topPad =
     });
   };
 
+  const Header = useMemo(
+    () => (
+      <View
+        style={{
+          backgroundColor: '#fff',
+          paddingHorizontal: s(16),
+          paddingBottom: s(10),
+          paddingTop: topPad,
+          borderBottomWidth: Platform.OS === 'android' ? 0.5 : 0,
+          borderBottomColor: '#00000010',
+          zIndex: 2,
+        }}
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Text style={{ fontSize: s(28), fontWeight: '900', color: ORANGE, includeFontPadding: false }}>
+            Kanıt Vitrini
+          </Text>
+          <View
+            style={{
+              marginLeft: 'auto',
+              backgroundColor: '#FFF2E8',
+              borderWidth: 1,
+              borderColor: ORANGE,
+              paddingVertical: s(6),
+              paddingHorizontal: s(10),
+              borderRadius: s(20),
+            }}
+          >
+            <Text style={{ color: ORANGE, fontWeight: '800', includeFontPadding: false }}>
+              {xp.toLocaleString('tr-TR')} XP
+            </Text>
+          </View>
+        </View>
+        <Text style={{ marginTop: s(6), color: '#6B7280', includeFontPadding: false }}>
+          Onaylı kanıtlar — dokun, büyüsün.
+        </Text>
+      </View>
+    ),
+    [xp, topPad]
+  );
+
   const Card = ({ item }: { item: Proof }) => (
     <Pressable
       onPress={() => {
@@ -302,17 +346,19 @@ const topPad =
         {item.media_url ? <Image source={{ uri: item.media_url }} style={{ width: '100%', height: '100%' }} /> : null}
       </View>
 
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+      {/* Emojiler: eşit genişlik + ortalı */}
+      <View style={{ flexDirection: 'row', gap: s(6) }}>
         {EMOJIS.map(e => (
           <TouchableOpacity
             key={e.key}
             onPress={() => react(item, e.key)}
             disabled={pending.has(item.id)}
             style={{
+              flex: 1,
               flexDirection: 'row',
+              justifyContent: 'center',
               alignItems: 'center',
               paddingVertical: s(6),
-              paddingHorizontal: s(8),
               borderRadius: s(10),
               backgroundColor: item.my === e.key ? '#FFEEE2' : '#FFF8F3',
               borderWidth: 1,
@@ -322,7 +368,7 @@ const topPad =
           >
             <Text style={{ fontSize: s(16) }}>{e.label}</Text>
             <Text style={{ marginLeft: 6, color: '#444', fontWeight: '700' }}>
-              {String(item.counts[e.key] ?? 0)}
+              {(item.counts[e.key] ?? 0).toString()}
             </Text>
           </TouchableOpacity>
         ))}
@@ -411,17 +457,20 @@ const topPad =
 
               <View style={{ padding: s(14) }}>
                 <Text style={{ color: '#6B7280' }}>{new Date(selected.created_at).toLocaleString()}</Text>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: s(12) }}>
+
+                {/* Emojiler: eşit genişlik + ortalı */}
+                <View style={{ flexDirection: 'row', gap: s(8), marginTop: s(12) }}>
                   {EMOJIS.map(e => (
                     <TouchableOpacity
                       key={e.key}
                       onPress={() => react(selected, e.key)}
                       disabled={pending.has(selected.id)}
                       style={{
+                        flex: 1,
                         flexDirection: 'row',
+                        justifyContent: 'center',
                         alignItems: 'center',
                         paddingVertical: s(8),
-                        paddingHorizontal: s(10),
                         borderRadius: s(12),
                         backgroundColor: selected.my === e.key ? '#FFEEE2' : '#FFF8F3',
                         borderWidth: 1,
@@ -431,7 +480,7 @@ const topPad =
                     >
                       <Text style={{ fontSize: s(18) }}>{e.label}</Text>
                       <Text style={{ marginLeft: 6, color: '#444', fontWeight: '700' }}>
-                        {String(selected.counts[e.key] ?? 0)}
+                        {(selected.counts[e.key] ?? 0).toString()}
                       </Text>
                     </TouchableOpacity>
                   ))}

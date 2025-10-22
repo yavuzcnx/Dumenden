@@ -1,6 +1,5 @@
 'use client';
 
-import React from 'react';
 import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 /** ---------- Types ---------- */
@@ -9,27 +8,28 @@ export type Line = {
   /** odds (decimal). Eski kayıt 0–1 ise normalize edilir. */
   yesPrice?: number;
   noPrice?: number;
+  /** aday görseli (public url) */
+  imageUrl?: string | null;
 };
 
 export type Market = {
   id: string | number;
   title: string;
-  description?: string;            // ✅ açıklama
+  description?: string;
   category?: string;
   closing_date?: string;
   market_type?: 'binary' | 'multi';
   /** odds (decimal). Eski kayıt 0–1 ise normalize edilir. */
-  yes_price?: number;
-  no_price?: number;
-  lines?: Line[];
+  yes_price?: number | null;
+  no_price?: number | null;
+  lines?: Line[] | null;
   image_url?: string | null;
   is_open?: boolean;
-  liquidity?: number;
+  liquidity?: number | null;
 };
 
 type Props = {
   item: Market;
-  /** slider kartı için hafif büyük görünüm */
   compact?: boolean;
   onPress: () => void;
   onTapYes: (m: Market, label: string, price: number) => void;
@@ -40,15 +40,15 @@ type Props = {
 };
 
 /** --- helpers --- */
-const normOdds = (v?: number) => {
+const normOdds = (v?: number | null) => {
   if (v == null) return undefined;
   if (v > 0 && v < 1) return +(1 / Math.max(0.01, v)).toFixed(2);
   return +(+v).toFixed(2);
 };
+
 const payout = (stake: number, odds: number) => Math.round(stake * odds);
 const StakePreview = 100;
 
-/** Geçerli satırlar (isim + odds) */
 const getValidLines = (item: Market) => {
   const ls = (item.lines ?? []).map((l) => ({
     ...l,
@@ -75,19 +75,17 @@ export default function MarketCard({
   urgent,
   disabled,
 }: Props) {
-  const yOdds = normOdds(item.yes_price);
-  const nOdds = normOdds(item.no_price);
+  const yOdds = normOdds(item.yes_price ?? undefined);
+  const nOdds = normOdds(item.no_price ?? undefined);
 
   const validLines = getValidLines(item);
   const isMulti = (item.market_type === 'multi' && validLines.length > 0) || validLines.length > 0;
   const isBinary = !isMulti;
 
-  // kart ve sabit kısımların yükseklikleri — slider bir tık daha büyük
-  const CARD_H = compact ? 276 : 256;
   const PILL_ROW_H = 92;
   const DESC_H = 40;
 
-  const pill = (label: 'Yes' | 'No', odds?: number, tap?: () => void) => {
+  const bigPill = (label: 'Yes' | 'No', odds?: number, tap?: () => void) => {
     const bg = label === 'Yes' ? '#e9f0ff' : '#fde9f1';
     const tx = label === 'Yes' ? '#2657ff' : '#d0146a';
     const dis = disabled || !odds || odds < 1.01;
@@ -132,66 +130,72 @@ export default function MarketCard({
     </View>
   );
 
-  /** +N daha rozeti (multi > 2 satır) */
-  const ExtraBadge = ({ count }: { count: number }) =>
-    count > 0 ? (
-      <View style={styles.moreBadge}>
-        <Text style={styles.moreBadgeTxt}>+{count} daha</Text>
+  const CandidateRow = ({ l }: { l: Line }) => {
+    const disYes = disabled || !l.yesPrice || l.yesPrice < 1.01;
+    const disNo = disabled || !l.noPrice || l.noPrice < 1.01;
+
+    return (
+      <View style={styles.candRow}>
+        <View style={styles.candLeft}>
+          {l.imageUrl ? (
+            <Image source={{ uri: l.imageUrl }} style={styles.candAvatar} />
+          ) : (
+            <View style={[styles.candAvatar, { backgroundColor: '#eee' }]} />
+          )}
+          <Text numberOfLines={1} style={styles.candName}>
+            {l.name}
+          </Text>
+        </View>
+
+        <View style={styles.candChips}>
+          <TouchableOpacity
+            disabled={disYes}
+            onPress={() => onTapYes(item, l.name, l.yesPrice!)}
+            style={[styles.chip, styles.chipYes, disYes && styles.chipDisabled]}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.chipTxt}>Yes {l.yesPrice?.toFixed(2)}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            disabled={disNo}
+            onPress={() => onTapNo(item, l.name, l.noPrice!)}
+            style={[styles.chip, styles.chipNo, disNo && styles.chipDisabled]}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.chipTxt}>No {l.noPrice?.toFixed(2)}</Text>
+          </TouchableOpacity>
+        </View>
       </View>
-    ) : null;
+    );
+  };
 
   return (
-    <TouchableOpacity
-      onPress={onPress}
-      activeOpacity={0.9}
-      style={[
-        styles.card,
-        { minHeight: CARD_H, overflow: 'hidden' },
-      ]}
-    >
+    <TouchableOpacity onPress={onPress} activeOpacity={0.9} style={styles.card}>
       {Header}
 
       {isBinary ? (
         <>
           <View style={[styles.pillRow, { height: PILL_ROW_H }]}>
-            {pill('Yes', yOdds, () => onTapYes(item, 'YES/NO', yOdds!))}
-            {pill('No', nOdds, () => onTapNo(item, 'YES/NO', nOdds!))}
+            {bigPill('Yes', yOdds, () => onTapYes(item, 'YES/NO', yOdds!))}
+            {bigPill('No', nOdds, () => onTapNo(item, 'YES/NO', nOdds!))}
           </View>
 
-          {/* açıklama alanı (sabit yükseklik) */}
           <View style={{ minHeight: DESC_H, justifyContent: 'center' }}>
-            {item.description ? (
-              <Text style={styles.desc} numberOfLines={2}>
-                {item.description}
-              </Text>
-            ) : null}
+            {item.description ? <Text style={styles.desc} numberOfLines={2}>{item.description}</Text> : null}
           </View>
         </>
       ) : (
         <>
-          {(validLines.slice(0, 2) as Line[]).map((l, idx) => (
-            <View key={`${item.id}-row-${idx}`} style={[styles.pillRow, { height: PILL_ROW_H }]}>
-              {pill('Yes', l.yesPrice, () => onTapYes(item, l.name, l.yesPrice!))}
-              {pill('No', l.noPrice, () => onTapNo(item, l.name, l.noPrice!))}
-            </View>
+          {validLines.map((l, idx) => (
+            <CandidateRow key={`${item.id}-cand-${idx}`} l={l} />
           ))}
-
-          {/* açıklama alanı (sabit yükseklik) */}
           <View style={{ minHeight: DESC_H, justifyContent: 'center' }}>
-            {item.description ? (
-              <Text style={styles.desc} numberOfLines={2}>
-                {item.description}
-              </Text>
-            ) : null}
+            {item.description ? <Text style={styles.desc} numberOfLines={2}>{item.description}</Text> : null}
           </View>
-
-          <ExtraBadge count={Math.max(0, validLines.length - 2)} />
         </>
       )}
 
-      <Text style={styles.liq}>
-        {(item.liquidity ?? 0).toLocaleString('tr-TR')} XP likidite
-      </Text>
+      <Text style={styles.liq}>{(item.liquidity ?? 0).toLocaleString('tr-TR')} XP likidite</Text>
     </TouchableOpacity>
   );
 }
@@ -205,6 +209,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 6,
     elevation: 2,
+    marginBottom: 12,
   },
 
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
@@ -215,36 +220,38 @@ const styles = StyleSheet.create({
   badgeOff: { backgroundColor: '#e0e0e0', borderRadius: 12, paddingHorizontal: 10, paddingVertical: 6 },
   badgeOffTxt: { fontWeight: '800', color: '#757575' },
 
+  // binary pills
   pillRow: { flexDirection: 'row', gap: 10, marginTop: 8 },
-  pill: {
-    flex: 1,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 10,
-  },
+  pill: { flex: 1, borderRadius: 14, alignItems: 'center', justifyContent: 'center', paddingVertical: 10 },
   pillTitle: { fontSize: 16, fontWeight: '800', marginBottom: 4 },
   pillSub: { color: '#555', fontWeight: '600' },
   pillOdds: { color: '#999', marginTop: 4, fontWeight: '700' },
 
-  // açıklama
-  desc: {
-    textAlign: 'center',
-    color: '#666',
-    fontSize: 13,
-    fontWeight: '500',
-  },
-
-  moreBadge: {
-    position: 'absolute',
-    right: 16,
-    bottom: 54,
-    backgroundColor: '#FF6B00',
+  // multi (Kalshi) rows
+  candRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#eee',
     paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 12,
+    paddingVertical: 10,
+    marginTop: 8,
+    backgroundColor: '#fff',
   },
-  moreBadgeTxt: { color: '#fff', fontWeight: '800', fontSize: 12 },
+  candLeft: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 },
+  candAvatar: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#f0f0f0' },
+  candName: { fontWeight: '800', color: '#222', flexShrink: 1 },
+
+  candChips: { flexDirection: 'row', gap: 8 },
+  chip: { paddingHorizontal: 10, paddingVertical: 8, borderRadius: 12 },
+  chipYes: { backgroundColor: '#e9f0ff' },
+  chipNo: { backgroundColor: '#fde9f1' },
+  chipDisabled: { opacity: 0.35 },
+  chipTxt: { fontWeight: '900', color: '#333' },
+
+  // açıklama
+  desc: { textAlign: 'center', color: '#666', fontSize: 13, fontWeight: '500' },
 
   liq: { marginTop: 10, color: '#9e9e9e', fontWeight: '600' },
 });

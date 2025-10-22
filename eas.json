@@ -1,18 +1,19 @@
 {
-  "cli": {
-    "version": ">= 3.12.0"
-  },
+  "cli": { "version": ">= 5.0.0", "appVersionSource": "remote" },
   "build": {
+    "production": {
+      "android": { "buildType": "app-bundle" },
+      "developmentClient": false,
+      "env": { "NODE_ENV": "production" }
+    },
     "preview": {
       "distribution": "internal",
-      "android": {
-        "buildType": "apk"
-      }
-    },
+      "android": { "buildType": "apk" }
+    }
+  },
+  "submit": {
     "production": {
-      "android": {
-        "buildType": "app-bundle"
-      }
+      "android": { "track": "closed" }
     }
   }
 }

@@ -1,18 +1,66 @@
 'use client';
+
 import CartRibbon from '@/components/CartRibbon';
 import MarketCard, { type Market } from '@/components/MarketCard';
+import { resolveStorageUrlSmart } from '@/lib/resolveStorageUrlSmart';
 import { supabase } from '@/lib/supabaseClient';
+import { useXp } from '@/src/contexts/XpProvider';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert, Dimensions, FlatList, Image, Keyboard, KeyboardAvoidingView, Modal,
-  Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity,
-  TouchableWithoutFeedback, View,
+  Alert,
+  Animated,
+  Dimensions,
+  Easing,
+  FlatList,
+  Image,
+  Keyboard,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  View,
 } from 'react-native';
 
 const CATS = ['Tümü', 'Gündem', 'Spor', 'Magazin', 'Politika', 'Absürt'];
 const PAGE = 12;
+
+/* -------------------- Bildirim Helper -------------------- */
+async function notifyNow(
+  type: 'bet_place' | 'parlay_place',
+  title: string,
+  body: string,
+  payload?: Record<string, any>
+) {
+  try {
+    const { data: auth } = await supabase.auth.getUser();
+    const uid = auth?.user?.id;
+    if (!uid) return;
+
+    const { error } = await supabase.rpc('notify_text', {
+      p_user_id: uid,
+      p_type_txt: type,
+      p_title: title,
+      p_body: body,
+      p_extra: {},
+      p_image: null,
+      p_payload: payload ?? {},
+    });
+    if (error) console.log('notify error', error);
+  } catch (e) {
+    console.log('notify exception', e);
+  }
+}
 
 /* -------- countdown helper -------- */
 const timeLeft = (iso?: string) => {
@@ -27,21 +75,13 @@ const timeLeft = (iso?: string) => {
   return { expired, label: `${pad(h)}:${pad(m)}:${pad(ss)}`, seconds: s };
 };
 
-/* ----- Storage URL helper (liste görselleri için) ----- */
-const MEDIA_BUCKET = 'media';
-async function resolveStorageUrl(raw?: string | null): Promise<string | null> {
-  if (!raw) return null;
-  if (String(raw).startsWith('http')) return String(raw);
-  const pub = supabase.storage.from(MEDIA_BUCKET).getPublicUrl(String(raw)).data?.publicUrl;
-  if (pub) return pub;
-  const { data: signed } = await supabase.storage
-    .from(MEDIA_BUCKET)
-    .createSignedUrl(String(raw), 60 * 60 * 6);
-  return signed?.signedUrl ?? null;
-}
-
-/* ---- Market tipini genişlet: image sahası eklendi ---- */
-type MarketRow = Market & { image?: string | null };
+/* ---- Market tipini genişlet ---- */
+type MarketRow = Market & {
+  image?: string | null;
+  yes_liquidity?: number | null;
+  no_liquidity?: number | null;
+  liquidity?: number | null;
+};
 
 /* profil satırını garanti altına al */
 async function ensureUserProfile() {
@@ -49,21 +89,107 @@ async function ensureUserProfile() {
   const u = auth?.user;
   if (!u) return;
   const full_name =
-    (u.user_metadata?.full_name as string) ||
-    (u.email ? u.email.split('@')[0] : 'Kullanıcı');
+    (u.user_metadata?.full_name as string) || (u.email ? u.email.split('@')[0] : 'Kullanıcı');
   const avatar_url = (u.user_metadata?.avatar_url as string) || null;
-  await supabase
-    .from('users')
-    .upsert({ id: u.id, full_name, avatar_url }, { onConflict: 'id' });
+  await supabase.from('users').upsert({ id: u.id, full_name, avatar_url }, { onConflict: 'id' });
+}
+
+/* ===================== OYNA (RPC çağrıları) ===================== */
+type BasketItem = {
+  coupon_id: string | number;
+  title: string;
+  label: string;
+  side: 'YES' | 'NO';
+  price: number;
+  stake: number;
+};
+
+async function playBasket(items: BasketItem[]) {
+  const payload = items.map((it) => ({
+    coupon_id: it.coupon_id,
+    side: it.side,
+    price: it.price,
+    stake: it.stake,
+  }));
+  const { data, error } = await supabase.rpc('play_coupons', { p_items: payload });
+  if (error) throw error;
+  const newBal =
+    Array.isArray(data) && data.length ? ((data[0] as any).new_balance as number) : undefined;
+  return typeof newBal === 'number' ? (newBal as number) : undefined;
+}
+
+/* PARLAY: tek stake + çok bacak */
+async function playParlay(items: BasketItem[], stake: number) {
+  const legs = items.map((it) => ({
+    coupon_id: String(it.coupon_id),
+    side: it.side,
+    price: it.price,
+  }));
+  const { data, error } = await supabase.rpc('play_parlay', {
+    p_items: legs,
+    p_stake: stake,
+  });
+  if (error) throw error;
+  const newBal =
+    Array.isArray(data) && data.length ? ((data[0] as any).new_balance as number) : undefined;
+  return typeof newBal === 'number' ? (newBal as number) : undefined;
 }
 
 export default function HomeScreen() {
   const router = useRouter();
+  const { xp, loading: xpLoading, refresh } = useXp();
 
-  /* -------- USER (fallback: email @ öncesi) -------- */
-  const [user, setUser] = useState<{ name: string; xp: number; avatar: string | null }>({
+  /* -------- XP Topla cooldown + shimmer -------- */
+  const [cooldownEnd, setCooldownEnd] = useState<Date | null>(null);
+  const [busyTopla, setBusyTopla] = useState(false);
+  const shimmer = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    (async () => {
+      const { data: au } = await supabase.auth.getUser();
+      const uid = au?.user?.id;
+      if (!uid) {
+        setCooldownEnd(null);
+        return;
+      }
+
+      const { data } = await supabase
+        .from('xp_ad_grants')
+        .select('created_at')
+        .eq('user_id', uid)
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      const last = data?.[0]?.created_at ? new Date(data[0].created_at) : null;
+      setCooldownEnd(last ? new Date(last.getTime() + 3 * 60 * 60 * 1000) : null);
+    })();
+  }, []);
+
+  const toplaReady = !cooldownEnd || Date.now() >= cooldownEnd.getTime();
+  const remainLabel = (() => {
+    if (toplaReady || !cooldownEnd) return '';
+    const ms = cooldownEnd.getTime() - Date.now();
+    const m = Math.ceil(ms / 60000);
+    const h = Math.floor(m / 60),
+      mm = m % 60;
+    return `${h}s ${mm}dk`;
+  })();
+
+  useEffect(() => {
+    if (!toplaReady) return;
+    Animated.loop(
+      Animated.timing(shimmer, {
+        toValue: 1,
+        duration: 1600,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      })
+    ).start();
+  }, [toplaReady, shimmer]);
+
+  /* -------- USER (ad + avatar) -------- */
+  const [user, setUser] = useState<{ name: string; avatar: string | null }>({
     name: 'Kullanıcı',
-    xp: 0,
     avatar: null,
   });
 
@@ -73,20 +199,19 @@ export default function HomeScreen() {
       const { data: auth } = await supabase.auth.getUser();
       const au = auth?.user;
       if (!au) return;
-      const { data } = await supabase
+
+      const { data: profile } = await supabase
         .from('users')
-        .select('full_name, xp, avatar_url')
+        .select('full_name, avatar_url')
         .eq('id', au.id)
         .single();
-      const fallbackName =
-        (data?.full_name && data.full_name.trim()) ||
-        ((au.user_metadata?.full_name as string) || '') ||
-        (au.email ? au.email.split('@')[0] : 'Kullanıcı');
 
       setUser({
-        name: fallbackName || 'Kullanıcı',
-        xp: data?.xp ?? 0,
-        avatar: data?.avatar_url ?? null,
+        name:
+          profile?.full_name?.trim() ||
+          (au.user_metadata?.full_name as string) ||
+          (au.email ? au.email.split('@')[0] : 'Kullanıcı'),
+        avatar: profile?.avatar_url ?? null,
       });
     })();
   }, []);
@@ -98,70 +223,94 @@ export default function HomeScreen() {
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
 
-  const fetchMore = useCallback(
-    async (reset = false) => {
-      if (!hasMore && !reset) return;
-      setLoadingMore(true);
+ const toNum = (v: any) =>
+  typeof v === 'number' ? v : v == null ? undefined : parseFloat(String(v).replace(',', '.'));
 
-   let q = supabase
-  .from('coupons')
-  .select('id,title,category,closing_date,yes_price,no_price,image_url')
-  .eq('is_open', true)
-  .eq('is_user_generated', false) // <<< user-generated kuponları Home’dan çıkar
-  .order('created_at', { ascending: false })
-  .limit(50);
+const fetchMore = useCallback(
+  async (reset: boolean = false) => {
+    if (!hasMore && !reset) return;
+    setLoadingMore(true);
+    try {
+      let q = supabase
+        .from('coupons')
+        .select(
+          `
+          id, title, description, category, closing_date,
+          market_type, lines,
+          yes_price, no_price, image_url,
+          is_open, is_user_generated, created_at,
+          yes_liquidity, no_liquidity, liquidity
+        `
+        )
+        .eq('is_open', true)
+        .eq('is_user_generated', false)
+        .gt('closing_date', new Date().toISOString())
+        .order('created_at', { ascending: false });
 
-if (category !== 'Tümü') q = q.eq('category', category);
+      if (category !== 'Tümü') q = q.eq('category', category);
+
       const from = reset ? 0 : page * PAGE;
       const to = from + PAGE - 1;
       const { data, error } = await q.range(from, to);
+      if (error) throw error;
 
-      if (!error) {
-        // 🔧 DB -> UI normalizasyonu
-        const normalized: MarketRow[] = (data ?? []).map((m: any) => ({
-          ...m,
-          // MarketCard image alanını garanti et
-          image: m.image ?? m.image_url ?? null,
-        }));
+      // normalize + url resolve (hem market resmi hem de aday resimleri)
+      const normalized: MarketRow[] = (data ?? []).map((m: any) => ({
+        ...m,
+        image: m.image ?? m.image_url ?? null,
+        yes_liquidity: m.yes_liquidity ?? 0,
+        no_liquidity: m.no_liquidity ?? 0,
+        liquidity: m.liquidity ?? 0,
+        // lines içindeki farklı key isimlerini tek tipe çevir
+        lines: Array.isArray(m.lines)
+          ? m.lines.map((ln: any) => ({
+              name: String(ln.name ?? ''),
+              yesPrice: toNum(ln.yesPrice ?? ln.yes_price ?? ln.y ?? ln.yes),
+              noPrice: toNum(ln.noPrice ?? ln.no_price ?? ln.no),
+              imageUrl: ln.imageUrl ?? ln.image_url ?? ln.image ?? null,
+            }))
+          : [],
+      }));
 
-        // storage path → gerçek URL (batch)
-        await Promise.all(
-          normalized.map(async (it) => {
-            if (it.image && !String(it.image).startsWith('http')) {
-              it.image = await resolveStorageUrl(String(it.image));
-            }
-          })
-        );
+      // public url çöz
+      await Promise.all(
+        normalized.map(async (it) => {
+          it.image = await resolveStorageUrlSmart(it.image ?? it.image_url ?? null);
+          it.image_url = it.image; // kart burada bunu okuyor
+          if (Array.isArray(it.lines)) {
+            it.lines = await Promise.all(
+              it.lines.map(async (ln: any) => ({
+                ...ln,
+                imageUrl: await resolveStorageUrlSmart(ln.imageUrl ?? null),
+              }))
+            );
+          }
+        })
+      );
 
-        const merged = reset ? normalized : [...markets, ...normalized];
-        const map = new Map<string | number, MarketRow>();
-        merged.forEach((m) => map.set(m.id, m));
-        const unique = Array.from(map.values());
-        setMarkets(unique);
-        setPage((p) => (reset ? 1 : p + 1));
-        setHasMore((normalized.length ?? 0) === PAGE);
-      }
+      const merged = reset ? normalized : [...markets, ...normalized];
+      const unique = Array.from(new Map(merged.map((m) => [m.id, m])).values()) as MarketRow[];
+
+      setMarkets(unique);
+      setPage((p) => (reset ? 1 : p + 1));
+      setHasMore((data?.length ?? 0) === PAGE);
+    } catch (e) {
+      console.log('fetchMore error:', e);
+    } finally {
       setLoadingMore(false);
-    },
-    [category, page, hasMore, markets],
-  );
+    }
+  },
+  [hasMore, category, page, markets]
+);
 
-  useEffect(() => {
-    setMarkets([]);
-    setPage(0);
-    setHasMore(true);
-    fetchMore(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [category]);
-
-  /* -------- GLOBAL TICK (geri sayım) -------- */
+  /* -------- GLOBAL TICK -------- */
   const [, setTick] = useState(0);
   useEffect(() => {
     const t = setInterval(() => setTick((x) => x + 1), 1000);
     return () => clearInterval(t);
   }, []);
 
-  /* -------- REALTIME: kupon ekle/güncelle/sil → listeyi yenile -------- */
+  /* -------- REALTIME coupons -------- */
   useEffect(() => {
     const ch = supabase
       .channel('rt-coupons')
@@ -169,21 +318,24 @@ if (category !== 'Tümü') q = q.eq('category', category);
         fetchMore(true);
       })
       .subscribe();
-
     return () => {
       supabase.removeChannel(ch);
     };
   }, [category, fetchMore]);
 
-  /* -------- BASKET -------- */
-  type BasketItem = {
-    coupon_id: string | number;
-    title: string;
-    label: string;
-    side: 'YES' | 'NO';
-    price: number; // odds
-    stake: number;
+  // expire kapatma (best-effort)
+  const closeExpired = async () => {
+    try {
+      await supabase.rpc('close_expired_coupons');
+    } catch {}
   };
+  useEffect(() => {
+    closeExpired();
+    const t = setInterval(closeExpired, 60_000);
+    return () => clearInterval(t);
+  }, []);
+
+  /* -------- BASKET -------- */
   const [basket, setBasket] = useState<BasketItem[]>([]);
   const [basketOpen, setBasketOpen] = useState(false);
 
@@ -195,18 +347,130 @@ if (category !== 'Tümü') q = q.eq('category', category);
   }, [basket]);
 
   const updateBasketStake = (idx: number, val: string) =>
-    setBasket((b) => b.map((it, i) => (i === idx ? { ...it, stake: Math.max(0, Number(val || '0')) } : it)));
+    setBasket((b) =>
+      b.map((it, i) => (i === idx ? { ...it, stake: Math.max(0, Number(val || '0')) } : it))
+    );
   const removeBasketItem = (idx: number) => setBasket((b) => b.filter((_, i) => i !== idx));
   const clearBasket = () => setBasket([]);
-  const confirmPlayAll = () => {
-    if (basket.length === 0) return;
-    Alert.alert('Onay', 'Toplu oynama gönderildi (mock).');
-    setBasketOpen(false);
-    clearBasket();
+
+  /* ====== PARLAY state ====== */
+  const [parlayMode, setParlayMode] = useState(false);
+  const [parlayStake, setParlayStake] = useState('100');
+
+  const parlayProduct = useMemo(
+    () => basket.reduce((mul, it) => mul * Math.max(1, it.price), 1),
+    [basket]
+  );
+  const parlayNumbers = useMemo(() => {
+    const s = Math.max(0, Number(parlayStake || '0'));
+    const payout = Math.round(s * parlayProduct);
+    return { stake: s, payout, profit: payout - s };
+  }, [parlayStake, parlayProduct]);
+
+  /* ===== GERÇEK OYNAMA ===== */
+  const [submitting, setSubmitting] = useState(false);
+
+  const confirmPlaySingles = async () => {
+    if (basket.length === 0 || submitting) return;
+    const bad = basket.find((it) => !it.stake || it.stake <= 0);
+    if (bad) {
+      Alert.alert('Hata', 'Geçersiz stake var.');
+      return;
+    }
+
+    // optimistic UI
+    setMarkets((prev) => {
+      const copy = prev.map((m) => ({ ...m }));
+      for (const it of basket) {
+        const idx = copy.findIndex((m) => String(m.id) === String(it.coupon_id));
+        if (idx === -1) continue;
+        const m = copy[idx];
+        const delta = Number(it.stake) || 0;
+        if (it.side === 'YES') m.yes_liquidity = (m.yes_liquidity ?? 0) + delta;
+        else m.no_liquidity = (m.no_liquidity ?? 0) + delta;
+        m.liquidity = (m.liquidity ?? 0) + delta;
+        copy[idx] = m;
+      }
+      return copy;
+    });
+
+    try {
+      setSubmitting(true);
+      const newBal = await playBasket(basket);
+
+      await notifyNow('bet_place', 'Kupon oynandı', 'Sepetten tek tek oynandı', {
+        legs: basket.length,
+        totalStake: totals.totalStake,
+      });
+
+      await refresh();
+      await fetchMore(true);
+
+      setBasketOpen(false);
+      clearBasket();
+      Alert.alert(
+        'Tamam',
+        `Oynandı${
+          typeof newBal === 'number' ? ` • Yeni bakiye: ${newBal.toLocaleString('tr-TR')} XP` : ''
+        }`
+      );
+    } catch (e: any) {
+      await fetchMore(true);
+      Alert.alert('Hata', e?.message ?? 'Oynama başarısız');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const confirmPlayParlay = async () => {
+    if (basket.length < 2) {
+      Alert.alert('Hata', 'Parlay için en az 2 seçim gerekli.');
+      return;
+    }
+    const s = Math.max(0, Number(parlayStake || '0'));
+    if (!s) {
+      Alert.alert('Hata', 'Parlay stake gir.');
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      const newBal = await playParlay(basket, s);
+
+      await notifyNow('parlay_place', 'Parlay oynandı', 'Sepetten parlay oynandı', {
+        legs: basket.length,
+        stake: s,
+        multiplier: parlayProduct,
+      });
+
+      await refresh();
+      await fetchMore(true);
+
+      setBasketOpen(false);
+      clearBasket();
+      setParlayStake('100');
+      setParlayMode(false);
+      Alert.alert(
+        'Tamam',
+        `Parlay oynandı${
+          typeof newBal === 'number' ? ` • Yeni bakiye: ${newBal.toLocaleString('tr-TR')} XP` : ''
+        }`
+      );
+    } catch (e: any) {
+      await fetchMore(true);
+      Alert.alert('Hata', e?.message ?? 'Parlay başarısız');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   /* -------- TRADE MODAL -------- */
-  const [modal, setModal] = useState<{ market: MarketRow; label: string; side: 'YES' | 'NO'; price: number } | null>(null);
+  const [modal, setModal] = useState<{
+    market: MarketRow;
+    label: string;
+    side: 'YES' | 'NO';
+    price: number;
+  } | null>(null);
   const [stake, setStake] = useState('100');
   const openPill = (market: MarketRow, label: string, side: 'YES' | 'NO', price: number) => {
     setStake('100');
@@ -218,24 +482,26 @@ if (category !== 'Tümü') q = q.eq('category', category);
     if (!s) return;
     setBasket((b) => [
       ...b,
-      { coupon_id: modal.market.id, title: modal.market.title, label: modal.label, side: modal.side, price: modal.price, stake: s },
+      {
+        coupon_id: modal.market.id,
+        title: modal.market.title,
+        label: modal.label,
+        side: modal.side,
+        price: modal.price,
+        stake: s,
+      },
     ]);
     setModal(null);
     setBasketOpen(true);
   };
 
-  /* -------- SLIDER (başlıkta) -------- */
+  /* -------- SLIDER (sabit, karıştırma yok) -------- */
   const { width } = Dimensions.get('window');
   const SLIDER_W = Math.round(width * 0.78);
   const [sliderIdx, setSliderIdx] = useState(0);
-  const sliderData = useMemo(() => {
-    const arr = [...markets];
-    for (let i = arr.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [arr[i], arr[j]] = [arr[j], arr[i]];
-    }
-    return arr.slice(0, 5);
-  }, [markets]);
+
+  // ÖNEMLİ: rastgele karıştırmayı kaldırdık. Sadece ilk 5 market.
+  const sliderData = useMemo(() => markets.slice(0, 5), [markets]);
 
   const marketState = (m: MarketRow) => {
     const t = timeLeft(m.closing_date);
@@ -289,190 +555,336 @@ if (category !== 'Tümü') q = q.eq('category', category);
 
   /* -------- UI -------- */
   return (
-    <View style={{ flex: 1, backgroundColor: '#fff' }}>
-      {/* Header */}
-      <View style={styles.appHeader}>
-        <View>
+    <SafeAreaView style={[styles.safe, Platform.OS === 'android' && { paddingTop: StatusBar.currentHeight || 0 }]}>
+      <View style={{ flex: 1, backgroundColor: '#fff' }}>
+        {/* HEADER */}
+        <View style={styles.appHeader}>
           <Text style={styles.brand}>Dümenden</Text>
-          <Text style={styles.welcome}>{user.name}</Text>
-        </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-          <View style={styles.xpPill}><Text style={styles.xpPillTxt}>{user.xp.toLocaleString('tr-TR')} XP</Text></View>
-          <TouchableOpacity onPress={() => router.push('/profile')}>
-            {user.avatar
-              ? <Image source={{ uri: user.avatar }} style={styles.avatarMini} />
-              : <View style={[styles.avatarMini,{ backgroundColor:'#eee', alignItems:'center', justifyContent:'center' }]}><Text style={{ fontWeight:'900', color:'#999' }}>{user.name[0]?.toUpperCase()||'K'}</Text></View>}
-          </TouchableOpacity>
-        </View>
-      </View>
 
-      {/* Kategori bar */}
-      <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8, paddingHorizontal: 16 }}>
-        {CATS.map((c) => (
+          {/* XP Topla */}
           <TouchableOpacity
-            key={c}
-            onPress={() => setCategory(c)}
-            style={{ paddingVertical: 8, paddingHorizontal: 14, borderRadius: 12, backgroundColor: category === c ? '#FF6B00' : '#eee' }}>
-            <Text style={{ color: category === c ? '#fff' : '#333', fontWeight:'700' }}>{c}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      {/* Liste */}
-      <FlatList
-        data={markets}
-        keyExtractor={(it) => String(it.id)}
-        ListHeaderComponent={SliderHeader}
-        contentContainerStyle={{ padding: 16, paddingBottom: 140 }}
-        onEndReachedThreshold={0.4}
-        onEndReached={() => fetchMore()}
-        ListFooterComponent={loadingMore ? <Text style={{ textAlign:'center', color:'#888', padding:10 }}>Yükleniyor…</Text> : null}
-        renderItem={({ item }) => {
-          const st = marketState(item);
-          return (
-            <View style={{ marginBottom: 12 }}>
-              <MarketCard
-                item={item}
-                onPress={() => router.push(`/CouponDetail?id=${item.id}`)}
-                onTapYes={(m, label, price) => openPill(m as MarketRow, label, 'YES', price)}
-                onTapNo={(m, label, price) => openPill(m as MarketRow, label, 'NO', price)}
-                timeLeftLabel={st.label}
-                urgent={st.urgent}
-                disabled={st.disabled}
-              />
-            </View>
-          );
-        }}
-      />
-
-      {/* Trade Modal */}
-      <Modal visible={!!modal} transparent animationType="slide">
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <View style={styles.modalWrap}>
-            <KeyboardAvoidingView
-              behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-              keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
-              style={{ width: '100%' }}>
-              <View style={styles.modalCard}>
-                {modal && (
-                  <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 8 }} showsVerticalScrollIndicator={false}>
-                    <Text style={styles.modalTitle}>{modal.market.title}</Text>
-                    <Text style={styles.modalSub}>{modal.label} • {modal.side}</Text>
-                    <TextInput
-                      value={stake}
-                      onChangeText={setStake}
-                      keyboardType="numeric"
-                      placeholder="XP"
-                      style={styles.stakeInput}
-                      autoFocus
-                      returnKeyType="done"
-                      onSubmitEditing={() => { Keyboard.dismiss(); addToBasket(); }}
-                    />
-                    <View style={styles.quickRow}>
-                      {[25, 50, 100, 250, 500].map((q) => (
-                        <TouchableOpacity key={`q-${q}`} style={styles.quickBtn} onPress={() => setStake(String(q))}>
-                          <Text style={{ fontWeight: '700' }}>{q}×</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                    <TouchableOpacity style={styles.tradeBtn} onPress={() => { Keyboard.dismiss(); addToBasket(); }}>
-                      <Text style={{ color:'#fff', fontWeight:'bold' }}>Sepete Ekle</Text>
-                    </TouchableOpacity>
-                    <Pressable onPress={() => { Keyboard.dismiss(); setModal(null); }} style={styles.closeBtn}>
-                      <Text style={{ fontWeight:'bold' }}>Kapat</Text>
-                    </Pressable>
-                  </ScrollView>
-                )}
-              </View>
-            </KeyboardAvoidingView>
-          </View>
-        </TouchableWithoutFeedback>
-      </Modal>
-
-      {/* Sepet Bar */}
-<CartRibbon
-  count={basket.length}
-  totalXp={totals.totalStake}
-  onPress={() => setBasketOpen(true)}
-  fabDiameter={84}   // turuncu halkalı görünüm için bırakabilirsin
-/>
-
-      {/* Sepet Modal */}
-      <Modal visible={basketOpen} transparent animationType="slide">
-        <View style={styles.modalWrap}>
-          <View style={[styles.modalCard, { maxHeight: '72%' }]}>
-            <View style={{ flexDirection:'row', justifyContent:'space-between', marginBottom: 8 }}>
-              <Text style={styles.modalTitle}>Sepet</Text>
-              <Pressable onPress={() => setBasketOpen(false)}><Text style={{ fontWeight:'bold' }}>Kapat</Text></Pressable>
-            </View>
-
-            {basket.map((it, i) => (
-              <View key={`${it.coupon_id}-${i}`} style={styles.basketItem}>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontWeight:'700' }}>{it.title}</Text>
-                  <Text style={{ color:'#666' }}>{it.label} • {it.side} • Fiyat: {it.price.toFixed(2)}</Text>
-                </View>
-                <TextInput
-                  value={String(it.stake)}
-                  onChangeText={(v) => updateBasketStake(i, v)}
-                  keyboardType="numeric"
-                  style={styles.basketStakeInput}
+            onPress={() => router.push('/dailyentry')}
+            disabled={busyTopla}
+            activeOpacity={0.9}
+            style={{ borderRadius: 14, flexShrink: 1, marginHorizontal: 8 }}
+          >
+            <View style={{ padding: 2, borderRadius: 14, overflow: 'hidden' }}>
+              <Animated.View
+                pointerEvents="none"
+                style={{
+                  transform: [
+                    {
+                      translateX: shimmer.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [-18, 18],
+                      }),
+                    },
+                  ],
+                  opacity: toplaReady ? 1 : 0.3,
+                }}
+              >
+                <LinearGradient
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  colors={toplaReady ? ['#FFAA66', '#FF6B00', '#FFAA66'] : ['#ddd', '#ccc', '#ddd']}
+                  style={{ height: 30, width: 120, borderRadius: 14 }}
                 />
-                <TouchableOpacity onPress={() => removeBasketItem(i)} style={styles.trashBtn}>
-                  <Text style={{ color:'#fff', fontWeight:'700' }}>Sil</Text>
+              </Animated.View>
+
+              <View
+                style={{
+                  position: 'absolute',
+                  left: 2,
+                  right: 2,
+                  top: 2,
+                  bottom: 2,
+                  backgroundColor: '#FFF2E8',
+                  borderRadius: 12,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Text style={{ color: '#FF6B00', fontWeight: '900' }}>
+                  {toplaReady ? 'XP Topla' : remainLabel}
+                </Text>
+              </View>
+            </View>
+          </TouchableOpacity>
+
+          {/* Avatar */}
+          <TouchableOpacity onPress={() => router.push('/profile')}>
+            {user.avatar ? (
+              <Image source={{ uri: user.avatar }} style={styles.avatarMini} />
+            ) : (
+              <View style={[styles.avatarMini, { backgroundColor: '#eee', alignItems: 'center', justifyContent: 'center' }]}>
+                <Text style={{ fontWeight: '900', color: '#999' }}>{user.name[0]?.toUpperCase() || 'K'}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
+
+        {/* XP ROZETİ */}
+        <View style={{ paddingHorizontal: 16, marginTop: 6 }}>
+          <View style={styles.xpPill}>
+            <Text style={styles.xpPillTxt}>{xpLoading ? '...' : xp.toLocaleString('tr-TR')} XP</Text>
+          </View>
+        </View>
+
+        {/* KATEGORİ BAR */}
+        <View style={styles.catBarWrap}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingHorizontal: 16, alignItems: 'center' }}
+            bounces={false}
+          >
+            {CATS.map((c) => {
+              const active = c === category;
+              return (
+                <TouchableOpacity
+                  key={c}
+                  onPress={() => setCategory(c)}
+                  style={[styles.catPill, active && styles.catPillActive]}
+                >
+                  <Text style={[styles.catTxt, active && styles.catTxtActive]}>{c}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+
+        {/* Liste */}
+        <FlatList
+          data={markets}
+          keyExtractor={(it) => String(it.id)}
+          ListHeaderComponent={SliderHeader}
+          contentContainerStyle={{ padding: 16, paddingBottom: 140 }}
+          onEndReachedThreshold={0.4}
+          onEndReached={() => fetchMore()}
+          ListFooterComponent={
+            loadingMore ? <Text style={{ textAlign: 'center', color: '#888', padding: 10 }}>Yükleniyor…</Text> : null
+          }
+          renderItem={({ item }) => {
+            const st = marketState(item);
+            return (
+              <View style={{ marginBottom: 12 }}>
+                <MarketCard
+                  item={item}
+                  onPress={() => router.push(`/CouponDetail?id=${item.id}`)}
+                  onTapYes={(m, label, price) => openPill(m as MarketRow, label, 'YES', price)}
+                  onTapNo={(m, label, price) => openPill(m as MarketRow, label, 'NO', price)}
+                  timeLeftLabel={st.label}
+                  urgent={st.urgent}
+                  disabled={st.disabled}
+                />
+              </View>
+            );
+          }}
+        />
+
+        {/* Trade Modal */}
+        <Modal visible={!!modal} transparent animationType="slide">
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+            <View style={styles.modalWrap}>
+              <KeyboardAvoidingView
+                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
+                style={{ width: '100%' }}
+              >
+                <View style={styles.modalCard}>
+                  {modal && (
+                    <ScrollView
+                      keyboardShouldPersistTaps="handled"
+                      contentContainerStyle={{ paddingBottom: 8 }}
+                      showsVerticalScrollIndicator={false}
+                    >
+                      <Text style={styles.modalTitle}>{modal.market.title}</Text>
+                      <Text style={styles.modalSub}>
+                        {modal.label} • {modal.side}
+                      </Text>
+                      <TextInput
+                        value={stake}
+                        onChangeText={setStake}
+                        keyboardType="numeric"
+                        placeholder="XP"
+                        style={styles.stakeInput}
+                        autoFocus
+                        returnKeyType="done"
+                        onSubmitEditing={() => {
+                          Keyboard.dismiss();
+                          addToBasket();
+                        }}
+                      />
+                      <View style={styles.quickRow}>
+                        {[25, 50, 100, 250, 500].map((q) => (
+                          <TouchableOpacity key={`q-${q}`} style={styles.quickBtn} onPress={() => setStake(String(q))}>
+                            <Text style={{ fontWeight: '700' }}>{q}×</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                      <TouchableOpacity
+                        style={styles.tradeBtn}
+                        onPress={() => {
+                          Keyboard.dismiss();
+                          addToBasket();
+                        }}
+                      >
+                        <Text style={{ color: '#fff', fontWeight: 'bold' }}>Sepete Ekle</Text>
+                      </TouchableOpacity>
+                      <Pressable
+                        onPress={() => {
+                          Keyboard.dismiss();
+                          setModal(null);
+                        }}
+                        style={styles.closeBtn}
+                      >
+                        <Text style={{ fontWeight: 'bold' }}>Kapat</Text>
+                      </Pressable>
+                    </ScrollView>
+                  )}
+                </View>
+              </KeyboardAvoidingView>
+            </View>
+          </TouchableWithoutFeedback>
+        </Modal>
+
+        {/* Sepet Bar */}
+        <CartRibbon
+          count={basket.length}
+          totalXp={parlayMode ? parlayNumbers.stake : totals.totalStake}
+          onPress={() => setBasketOpen(true)}
+          fabDiameter={84}
+        />
+
+        {/* Sepet Modal */}
+        <Modal visible={basketOpen} transparent animationType="slide">
+          <View style={styles.modalWrap}>
+            <View style={[styles.modalCard, { maxHeight: '72%' }]}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                <Text style={styles.modalTitle}>Sepet</Text>
+                <Pressable onPress={() => setBasketOpen(false)}>
+                  <Text style={{ fontWeight: 'bold' }}>Kapat</Text>
+                </Pressable>
+              </View>
+
+              {basket.map((it, i) => (
+                <View key={`${it.coupon_id}-${i}`} style={styles.basketItem}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontWeight: '700' }}>{it.title}</Text>
+                    <Text style={{ color: '#666' }}>
+                      {it.label} • {it.side} • Fiyat: {it.price.toFixed(2)}
+                    </Text>
+                  </View>
+                  {!parlayMode && (
+                    <>
+                      <TextInput
+                        value={String(it.stake)}
+                        onChangeText={(v) => updateBasketStake(i, v)}
+                        keyboardType="numeric"
+                        style={styles.basketStakeInput}
+                      />
+                      <TouchableOpacity onPress={() => removeBasketItem(i)} style={styles.trashBtn}>
+                        <Text style={{ color: '#fff', fontWeight: '700' }}>Sil</Text>
+                      </TouchableOpacity>
+                    </>
+                  )}
+                  {parlayMode && (
+                    <TouchableOpacity onPress={() => removeBasketItem(i)} style={styles.trashBtn}>
+                      <Text style={{ color: '#fff', fontWeight: '700' }}>Sil</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              ))}
+
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
+                <TouchableOpacity
+                  style={[styles.tradeBtn, { flex: 1, backgroundColor: '#FF6B00', opacity: submitting ? 0.7 : 1 }]}
+                  onPress={parlayMode ? confirmPlayParlay : confirmPlaySingles}
+                  disabled={submitting}
+                >
+                  <Text style={{ color: '#fff', fontWeight: 'bold', textAlign: 'center' }}>
+                    {submitting ? 'Gönderiliyor…' : parlayMode ? 'Parlay Oyna' : 'Onayla / Oyna'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.tradeBtn, { flex: 1, backgroundColor: '#757575' }]}
+                  onPress={clearBasket}
+                  disabled={submitting}
+                >
+                  <Text style={{ color: '#fff', fontWeight: 'bold', textAlign: 'center' }}>Sepeti Temizle</Text>
                 </TouchableOpacity>
               </View>
-            ))}
-
-            <View style={{ marginTop:10, borderTopWidth:1, borderTopColor:'#eee', paddingTop:10 }}>
-              <Text style={{ fontWeight:'700' }}>
-                Toplam Stake: {totals.totalStake} XP • Payout: {Math.round(totals.totalPayout)} XP • Kâr: {Math.round(totals.totalProfit)} XP
-              </Text>
-            </View>
-
-            <View style={{ flexDirection:'row', gap:8, marginTop:12 }}>
-              <TouchableOpacity style={[styles.tradeBtn, { flex:1, backgroundColor:'#FF6B00' }]} onPress={confirmPlayAll}>
-                <Text style={{ color:'#fff', fontWeight:'bold', textAlign:'center' }}>Onayla / Oyna</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.tradeBtn, { flex:1, backgroundColor:'#757575' }]} onPress={clearBasket}>
-                <Text style={{ color:'#fff', fontWeight:'bold', textAlign:'center' }}>Sepeti Temizle</Text>
-              </TouchableOpacity>
             </View>
           </View>
-        </View>
-      </Modal>
-    </View>
+        </Modal>
+      </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  appHeader:{ paddingTop:56, paddingBottom:12, paddingHorizontal:16, flexDirection:'row', justifyContent:'space-between', alignItems:'center', backgroundColor:'#fff' },
-  brand:{ fontSize:22, fontWeight:'900', color:'#FF6B00' },
-  welcome:{ fontSize:14, color:'#666' },
-  xpPill:{ backgroundColor:'#FFE0B2', paddingHorizontal:10, paddingVertical:6, borderRadius:12 },
-  xpPillTxt:{ color:'#FF6B00', fontWeight:'800' },
-  avatarMini:{ width:36, height:36, borderRadius:18 },
+  safe: { flex: 1, backgroundColor: '#fff' },
 
-  dotsRow:{ flexDirection:'row', justifyContent:'center', alignItems:'center', gap:6, marginTop:6, marginBottom:6 },
-  dot:{ width:6, height:6, borderRadius:3, backgroundColor:'#ddd' },
-  dotActive:{ backgroundColor:'#999' },
+  appHeader: {
+    paddingTop: 8,
+    paddingBottom: 8,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    backgroundColor: '#fff',
+  },
+  brand: { fontSize: 24, fontWeight: '900', color: '#FF6B00' },
 
-  modalWrap:{ flex:1, backgroundColor:'rgba(0,0,0,0.3)', justifyContent:'flex-end' },
-  modalCard:{ backgroundColor:'#fff', padding:16, borderTopLeftRadius:16, borderTopRightRadius:16 },
-  modalTitle:{ fontSize:16, fontWeight:'700' },
-  modalSub:{ color:'#666', marginBottom:8 },
-  stakeInput:{ borderWidth:1, borderColor:'#FF6B00', borderRadius:10, padding:10, marginTop:8, marginBottom:6 },
-  quickRow:{ flexDirection:'row', gap:8, marginTop:10, marginBottom:6 },
-  quickBtn:{ backgroundColor:'#f0f0f0', paddingVertical:8, paddingHorizontal:12, borderRadius:10 },
-  tradeBtn:{ backgroundColor:'#FF6B00', padding:12, alignItems:'center', borderRadius:10, marginTop:4 },
-  closeBtn:{ alignItems:'center', padding:10, marginTop:8 },
+  xpPill: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#FFE0B2',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+  },
+  xpPillTxt: { color: '#FF6B00', fontWeight: '800' },
 
-  basketBar:{ position:'absolute', bottom:0, left:0, right:0, backgroundColor:'#fff', borderTopWidth:1, borderTopColor:'#ddd', padding:12, alignItems:'center' },
-  basketText:{ color:'#333', fontWeight:'bold', fontSize:13, textAlign:'center', marginBottom:8 },
-  basketBtn:{ paddingHorizontal:16, paddingVertical:10, borderRadius:10 },
-  basketBtnTxt:{ color:'#fff', fontWeight:'bold' },
+  avatarMini: { width: 36, height: 36, borderRadius: 18 },
 
-  basketItem:{ flexDirection:'row', alignItems:'center', gap:10, paddingVertical:8 },
-  basketStakeInput:{ borderWidth:1, borderColor:'#ddd', borderRadius:8, paddingHorizontal:10, paddingVertical:6, width:80, textAlign:'center' },
-  trashBtn:{ backgroundColor:'#E53935', paddingHorizontal:10, paddingVertical:10, borderRadius:10 },
+  catBarWrap: { height: 48, marginTop: 8, marginBottom: 8 },
+  catPill: {
+    height: 40,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: '#eee',
+    marginRight: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  catPillActive: { backgroundColor: '#FF6B00' },
+  catTxt: { color: '#333', fontWeight: '700' },
+  catTxtActive: { color: '#fff' },
+
+  dotsRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6, marginTop: 6, marginBottom: 6 },
+  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#ddd' },
+  dotActive: { backgroundColor: '#999' },
+
+  modalWrap: { flex: 1, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'flex-end' },
+  modalCard: { backgroundColor: '#fff', padding: 16, borderTopLeftRadius: 16, borderTopRightRadius: 16 },
+  modalTitle: { fontSize: 16, fontWeight: '700' },
+  modalSub: { color: '#666', marginBottom: 8 },
+  stakeInput: { borderWidth: 1, borderColor: '#FF6B00', borderRadius: 10, padding: 10, marginTop: 8, marginBottom: 6 },
+  quickRow: { flexDirection: 'row', gap: 8, marginTop: 10, marginBottom: 6 },
+  quickBtn: { backgroundColor: '#f0f0f0', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10 },
+  tradeBtn: { backgroundColor: '#FF6B00', padding: 12, alignItems: 'center', borderRadius: 10, marginTop: 4 },
+  closeBtn: { alignItems: 'center', padding: 10, marginTop: 8 },
+
+  basketItem: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8 },
+  basketStakeInput: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    width: 110,
+    textAlign: 'center',
+  },
+  trashBtn: { backgroundColor: '#E53935', paddingHorizontal: 10, paddingVertical: 10, borderRadius: 10 },
 });

@@ -1,15 +1,14 @@
 'use client';
-import { MEDIA_BUCKET, publicUrl } from '@/lib/storage';
+import { publicUrl } from '@/lib/storage';
 import { supabase } from '@/lib/supabaseClient';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Alert, FlatList, Image, RefreshControl, Text, TouchableOpacity, View,
 } from 'react-native';
 
-const BUCKET = MEDIA_BUCKET; // "Media"
-
+const BUCKET = 'Media';  
 /* ----------------- Types ----------------- */
 type CouponSubmission = {
   id: string;

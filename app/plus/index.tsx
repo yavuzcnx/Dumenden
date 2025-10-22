@@ -1,7 +1,7 @@
-import { usePlus } from '@/app/hooks/userPlus';
 import { supabase } from '@/lib/supabaseClient';
+import { usePlus } from '@/src/contexts/hooks/usePlus';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 const BRAND  = '#FF6B00';
@@ -59,25 +59,26 @@ export default function PlusHome() {
   const goShop     = () => router.push('/xpshop');
   const goCreate   = () => router.push('/(modals)/create');
   const goManage   = () => router.push('/plus/manage');
-  const goProof = () => router.push('/plus/proofs'); // 👈
+  const goProof    = () => router.push('/plus/proofs');
+  const goResolve = () => router.push('/plus/resolve'); // yeni sayfa
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 28 }}>
         {/* HEADER */}
         <View style={styles.header}>
-          <View style={{ flex: 1 }}>
+          <Image source={MASCOT_SRC} style={styles.mascot} />
+          <View style={{ alignItems:'center', flex:1 }}>
             <Text style={styles.title}>Dümenci</Text>
             <Text style={styles.subtitle}>{user.name}</Text>
             <View style={styles.xpPill}>
               <Text style={styles.xpPillTxt}>{user.xp.toLocaleString('tr-TR')} XP</Text>
             </View>
           </View>
-          <Image source={MASCOT_SRC} style={styles.mascot} />
         </View>
 
-        {/* GÜNLÜK GİRİŞ & MARKET ÖNCELİĞİ */}
-        <View style={{ flexDirection: 'row', gap: 12, marginBottom: 12 }}>
+        {/* KISA KISAYOLLAR */}
+        <View style={styles.shortRow}>
           <SmallCard title="Günlük Giriş" subtitle="XP toplama ödülleri" icon="📅" onPress={goDaily} />
           <SmallCard title="İndirimli XP"  subtitle="%10 Plus indirimi"  icon="💸" onPress={goShop} />
         </View>
@@ -87,17 +88,19 @@ export default function PlusHome() {
           <Text style={styles.cardTitle}>Kupon İşlemleri</Text>
 
           {/* Hak bilgisi */}
-          <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
-            <Text style={{ fontSize: 28, fontWeight: '900', color: BRAND }}>{quota?.remaining_last7 ?? 0}</Text>
+          <View style={styles.quotaRow}>
+            <Text style={styles.quotaBig}>{quota?.remaining_last7 ?? 0}</Text>
             <Text style={{ fontWeight: '800' }}>/ 1</Text>
             <Text style={{ color: '#666' }}>(kullanılan: {quota?.used_last7 ?? 0})</Text>
           </View>
 
           {/* Butonlar */}
           <View style={{ gap: 8 }}>
-            <PrimaryButton label="Kupon Ekle"        onPress={goCreate} />
+            <PrimaryButton label="Kupon Ekle" onPress={goCreate} />
             <GhostButton   label="Kuponlarımı Yönet" onPress={goManage} />
             <GhostButton   label="Kuponuma Kanıt Ekle" onPress={goProof} />
+             <GhostButton   label="Kazananı Belirle" onPress={goResolve} />
+             <GhostButton label="Oynadıklarım" onPress={() => router.push('/my-bets')} />
           </View>
         </View>
       </ScrollView>
@@ -125,8 +128,8 @@ function SmallCard({ title, subtitle, icon, onPress }:
   return (
     <TouchableOpacity onPress={onPress} style={styles.smallCard}>
       <Text style={{ fontSize: 20, marginBottom: 6 }}>{icon}</Text>
-      <Text style={{ fontWeight: '900' }}>{title}</Text>
-      <Text style={{ color: '#666' }}>{subtitle}</Text>
+      <Text style={{ fontWeight: '900', textAlign:'center' }}>{title}</Text>
+      <Text style={{ color: '#666', textAlign:'center' }}>{subtitle}</Text>
     </TouchableOpacity>
   );
 }
@@ -140,19 +143,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 12,
     marginBottom: 12,
   },
-  title: { fontSize: 22, fontWeight: '900', color: BRAND },
-  subtitle: { color: '#666', marginTop: 2, marginBottom: 8, fontWeight: '700' },
+  title: { fontSize: 22, fontWeight: '900', color: BRAND, textAlign:'center' },
+  subtitle: { color: '#666', marginTop: 2, marginBottom: 8, fontWeight: '700', textAlign:'center' },
   mascot: { width: 84, height: 84, borderRadius: 42, borderWidth: 2, borderColor: BORDER, backgroundColor: '#FFA24F' },
 
-  xpPill: { alignSelf: 'flex-start', backgroundColor: '#FFE0B2', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12 },
+  xpPill: { alignSelf: 'center', backgroundColor: '#FFE0B2', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12 },
   xpPillTxt: { color: BRAND, fontWeight: '800' },
+
+  shortRow: { flexDirection: 'row', gap: 12, marginBottom: 12 },
 
   card: {
     backgroundColor: '#fff', borderWidth: 1, borderColor: '#eee',
     borderRadius: 16, padding: 14,
     shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 6, elevation: 2,
   },
-  cardTitle: { fontWeight: '900', marginBottom: 8 },
+  cardTitle: { fontWeight: '900', marginBottom: 8, textAlign:'center' },
+
+  quotaRow: { flexDirection:'row', alignItems:'baseline', gap: 8, marginBottom: 8, justifyContent:'center' },
+  quotaBig: { fontSize: 28, fontWeight: '900', color: BRAND },
 
   primaryBtn: {
     backgroundColor: BRAND, alignItems: 'center',
@@ -166,5 +174,6 @@ const styles = StyleSheet.create({
     flex: 1, backgroundColor: '#fff', borderWidth: 1, borderColor: '#eee',
     borderRadius: 16, padding: 14,
     shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 6, elevation: 2,
+    alignItems:'center', justifyContent:'center'
   },
 });

@@ -1,38 +1,106 @@
-import { supabase } from '@/lib/supabaseClient'
-import { AntDesign } from '@expo/vector-icons'
-import { useRouter } from 'expo-router'
-import { useEffect, useState } from 'react'
+// app/register.tsx
+'use client';
+
+import { supabase } from '@/lib/supabaseClient';
+import { AntDesign } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
+import * as Crypto from 'expo-crypto';
+import { useRouter } from 'expo-router';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Image,
   Keyboard,
   KeyboardAvoidingView,
+  Modal,
   Platform,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   TouchableWithoutFeedback,
   View,
-} from 'react-native'
+} from 'react-native';
+
+/** ===== Versiyon & Metinler ===== */
+const CONSENT_VERSION = '2025-10-16'; // metin güncellerken artır
+
+const TEXT_KVKK = `
+DÜMENDEN – KVKK AYDINLATMA METNİ
+Son Güncelleme: 16 Ekim 2025
+
+Veri Sorumlusu: Dümenden Uygulaması
+Adres: Fenerbahçe, Iğrıp Sk. No:13, 34726 Kadıköy / İstanbul
+E-posta: dumenden.app@gmail.com
+
+1. İşlenen Veriler:
+- Kimlik & İletişim: Ad, soyad, e-posta, telefon
+- Hesap: Kullanıcı ID, XP puanı, abonelik bilgileri
+- İçerik: Kupon başlıkları, tahminler, yorumlar, yüklenen görseller/kanıtlar
+- Teknik: IP, cihaz bilgisi, işlem logları
+- Analitik: Kullanım istatistikleri, moderasyon kayıtları
+
+2. Amaçlar:
+Üyelik ve hesap yönetimi; kupon oluşturma/tahmin/kanıt yükleme; XP/ödül süreçleri; topluluk kuralları moderasyonu; kullanıcı deneyimi/analitik; yasal yükümlülükler.
+
+3. Aktarım:
+Yalnızca hizmet sağlayıcılar ve kanunen yetkili mercilerle sınırlıdır; yurtdışına aktarım yapılmaz.
+
+4. Saklama:
+Amaç ve mevzuatla sınırlı süreler boyunca saklanır; süre bitiminde silinir/yok edilir/anonimleştirilir.
+
+5. Haklar:
+KVKK m.11 uyarınca bilgi talebi, düzeltme/silme, itiraz vb. haklarınızı dumenden.app@gmail.com adresine yazılı başvurarak kullanabilirsiniz.
+
+6. Sorumluluk Reddi:
+Kullanıcı içerikleri (kuponlar, tahminler, görseller) kullanıcı sorumluluğundadır. Admin onayı verilmiş olsa dahi içeriklerin doğruluğu/gerçekliği Dümenden’in taahhüdü değildir.
+`;
+
+const TEXT_CONSENT = `
+DÜMENDEN – AÇIK RIZA METNİ
+Son Güncelleme: 16 Ekim 2025
+
+KVKK uyarınca; kimlik/iletişim, hesap, içerik, teknik ve analitik verilerimin; üyelik ve uygulama fonksiyonlarının sağlanması, moderasyon ve yasal yükümlülüklerin yerine getirilmesi, ödül/XP süreçlerinin yürütülmesi ve kullanıcı deneyiminin geliştirilmesi amaçlarıyla işlenmesine, bu kapsamda sınırlı olarak hizmet sağlayıcılarla paylaşılmasına ve kanuni süreler boyunca saklanmasına AÇIK RIZA veriyorum.
+
+Veri Sorumlusu: Dümenden Uygulaması
+Adres: Fenerbahçe, Iğrıp Sk. No:13, 34726 Kadıköy / İstanbul
+E-posta: dumenden.app@gmail.com
+`;
+
+async function sha256(s: string) {
+  return await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, s);
+}
 
 export default function RegisterPage() {
-  const router = useRouter()
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [confirmPassword, setConfirmPassword] = useState('')
-  const [fullName, setFullName] = useState('')
-  const [phone, setPhone] = useState('')
-  const [birthDate, setBirthDate] = useState('')
-  const [error, setError] = useState('')
-  const [success, setSuccess] = useState(false)
+  const router = useRouter();
 
+  // form
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [birthDate, setBirthDate] = useState(''); // "YYYY.MM.DD"
+
+  // ui
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState<null | 'verify'>(null);
+
+  // password rules
   const [rules, setRules] = useState({
     length: false,
     upper: false,
     lower: false,
     number: false,
     special: false,
-  })
+  });
+
+  // KVKK & Açık Rıza onayları + modal
+  const [acceptKvkk, setAcceptKvkk] = useState(false);
+  const [acceptConsent, setAcceptConsent] = useState(false);
+  const [showKvkk, setShowKvkk] = useState(false);
+  const [showConsent, setShowConsent] = useState(false);
 
   useEffect(() => {
     setRules({
@@ -41,116 +109,272 @@ export default function RegisterPage() {
       lower: /[a-z]/.test(password),
       number: /[0-9]/.test(password),
       special: /[^A-Za-z0-9]/.test(password),
-    })
-  }, [password])
+    });
+  }, [password]);
 
   const formatBirthDate = (text: string) => {
-    const cleaned = text.replace(/\D/g, '')
-    let formatted = cleaned
-    if (cleaned.length > 4) formatted = cleaned.slice(0, 4) + '.' + cleaned.slice(4)
-    if (cleaned.length > 6) formatted = formatted.slice(0, 7) + '.' + cleaned.slice(6, 8)
-    setBirthDate(formatted)
-  }
+    const cleaned = text.replace(/\D/g, '');
+    let formatted = cleaned;
+    if (cleaned.length > 4) formatted = cleaned.slice(0, 4) + '.' + cleaned.slice(4);
+    if (cleaned.length > 6) formatted = formatted.slice(0, 7) + '.' + cleaned.slice(6, 8);
+    setBirthDate(formatted);
+  };
+
+  const canSubmit = useMemo(() => {
+    const pwdOk = rules.length && rules.upper && rules.lower && rules.number && rules.special;
+    return pwdOk && acceptKvkk && acceptConsent;
+  }, [rules, acceptKvkk, acceptConsent]);
 
   const handleRegister = async () => {
-    setError('')
+    setError('');
     if (password !== confirmPassword) {
-      return setError('Şifreler uyuşmuyor.')
+      setError('Şifreler uyuşmuyor.');
+      return;
+    }
+    if (!acceptKvkk || !acceptConsent) {
+      setError('Devam etmek için KVKK ve Açık Rıza onaylarını vermelisin.');
+      return;
     }
 
-    // Kayıt işlemi
-    const { data, error: signUpError } = await supabase.auth.signUp({
+    // onay meta
+    const consentAt = new Date().toISOString();
+    const kvkkHash = await sha256(TEXT_KVKK.trim());
+    const explicitHash = await sha256(TEXT_CONSENT.trim());
+    const userAgentLike = `${Constants?.appOwnership || 'expo'}/${Constants?.nativeAppVersion || '1.0.0'} (${Platform.OS} ${Platform.Version})`;
+
+    // 1) Auth kaydı + metadata
+    const { error: signUpError } = await supabase.auth.signUp({
       email,
       password,
-    })
+      options: {
+        data: {
+          full_name: fullName || null,
+          phone_number: phone || null,
+          birth_date: birthDate || null, // "YYYY.MM.DD"
 
-    if (signUpError) return setError(signUpError.message)
-
-    const userId = data.user?.id || data.session?.user.id
-    console.log("Kayıt olan userId:", userId)
-
-    console.log('User ID (auth.uid()):', userId)
-    if (!userId) return setError('Kullanıcı oluşturulamadı.')
-
-    // Kullanıcı profili oluştur (upsert ile tekrar eklenmeyecek)
-    const { error: insertError } = await supabase.from('users').upsert([
-      {
-        id: userId,
-        full_name: fullName,
-        phone_number: phone,
-        birth_date: birthDate,
+          // kayıt üstü meta (gösterme amaçlı)
+          kvkk_consent: true,
+          kvkk_consent_version: CONSENT_VERSION,
+          kvkk_consent_at: consentAt,
+          explicit_consent: true,
+          explicit_consent_version: CONSENT_VERSION,
+          explicit_consent_at: consentAt,
+        },
       },
-    ])
+    });
 
-    if (insertError) return setError(insertError.message)
+    if (signUpError) {
+      setError(signUpError.message);
+      return;
+    }
 
-    setSuccess(true)
-    setTimeout(() => router.replace('/login'), 3000)
-  }
+    // 2) Fallback: metadata + onay taslakları local'e yaz
+    try {
+      // profil taslağı
+      await AsyncStorage.setItem(
+        `registerDraft:${email.toLowerCase()}`,
+        JSON.stringify({
+          full_name: fullName || null,
+          phone_number: phone || null,
+          birth_date: birthDate || null,
+          kvkk_consent: true,
+          kvkk_consent_version: CONSENT_VERSION,
+          kvkk_consent_at: consentAt,
+          explicit_consent: true,
+          explicit_consent_version: CONSENT_VERSION,
+          explicit_consent_at: consentAt,
+        })
+      );
+
+      // user_consents tablosu için onay taslağı
+      await AsyncStorage.setItem(
+        `consentDraft:${email.toLowerCase()}`,
+        JSON.stringify({
+          email: email.toLowerCase(),
+          version: CONSENT_VERSION,
+          consent_at: consentAt,
+          kvkk: true,
+          explicit: true,
+          text_kvkk_hash: kvkkHash,
+          text_explicit_hash: explicitHash,
+          user_agent: userAgentLike,
+        })
+      );
+    } catch {
+      // yutsun
+    }
+
+    // Mail onayı flow
+    setSuccess('verify');
+    setTimeout(() => router.replace('/login'), 2000);
+  };
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.wrapper}>
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <View style={styles.container}>
-          <Image source={require('../assets/images/logo.png')} style={styles.logo} />
-          <Text style={styles.title}>Kayıt Ol</Text>
+        <ScrollView contentContainerStyle={styles.scrollInner} keyboardShouldPersistTaps="handled">
+          <View style={styles.container}>
+            <Image source={require('../assets/images/logo.png')} style={styles.logo} />
+            <Text style={styles.title}>Kayıt Ol</Text>
 
-          {success ? (
-            <Text style={styles.success}>Tebrikler! Kaydınız başarıyla oluşturuldu.</Text>
-          ) : (
-            <>
-              <TextInput placeholder="Ad Soyad" value={fullName} onChangeText={setFullName} style={styles.input} />
-              <TextInput placeholder="Telefon" value={phone} onChangeText={setPhone} style={styles.input} keyboardType="phone-pad" />
-              <TextInput
-                placeholder="Doğum Tarihi (YYYY.MM.DD)"
-                value={birthDate}
-                onChangeText={formatBirthDate}
-                style={styles.input}
-                keyboardType="numeric"
-                maxLength={10}
-              />
-              <TextInput placeholder="E-posta" value={email} onChangeText={setEmail} style={styles.input} keyboardType="email-address" />
-              <TextInput placeholder="Şifre" value={password} onChangeText={setPassword} style={styles.input} secureTextEntry />
-              <TextInput placeholder="Şifre Tekrar" value={confirmPassword} onChangeText={setConfirmPassword} style={styles.input} secureTextEntry />
-
-              <View style={{ marginBottom: 10 }}>
-                <Text style={rules.length ? styles.valid : styles.invalid}>• En az 8 karakter</Text>
-                <Text style={rules.upper ? styles.valid : styles.invalid}>• Büyük harf</Text>
-                <Text style={rules.lower ? styles.valid : styles.invalid}>• Küçük harf</Text>
-                <Text style={rules.number ? styles.valid : styles.invalid}>• Rakam</Text>
-                <Text style={rules.special ? styles.valid : styles.invalid}>• Özel karakter (!@#)</Text>
+            {success === 'verify' ? (
+              <View style={styles.notice}>
+                <Text style={styles.noticeTitle}>E-postanı onayla</Text>
+                <Text style={styles.noticeText}>
+                  Kayıt oluşturuldu. Mailini onayla; birazdan giriş ekranına gideceksin.
+                </Text>
               </View>
+            ) : (
+              <>
+                <TextInput placeholder="Ad Soyad" value={fullName} onChangeText={setFullName} style={styles.input} />
+                <TextInput placeholder="Telefon" value={phone} onChangeText={setPhone} style={styles.input} keyboardType="phone-pad" />
+                <TextInput
+                  placeholder="Doğum Tarihi (YYYY.MM.DD)"
+                  value={birthDate}
+                  onChangeText={formatBirthDate}
+                  style={styles.input}
+                  keyboardType="numeric"
+                  maxLength={10}
+                />
+                <TextInput
+                  placeholder="E-posta"
+                  value={email}
+                  onChangeText={setEmail}
+                  style={styles.input}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+                <TextInput placeholder="Şifre" value={password} onChangeText={setPassword} style={styles.input} secureTextEntry />
+                <TextInput
+                  placeholder="Şifre Tekrar"
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  style={styles.input}
+                  secureTextEntry
+                />
 
-              {error ? <Text style={styles.error}>{error}</Text> : null}
-              <TouchableOpacity
-                style={[styles.button, !(rules.length && rules.upper && rules.lower && rules.number && rules.special) && { opacity: 0.5 }]}
-                onPress={handleRegister}
-                disabled={!(rules.length && rules.upper && rules.lower && rules.number && rules.special)}
-              >
-                <Text style={styles.buttonText}>Kayıt Ol</Text>
-              </TouchableOpacity>
+                {/* Şifre kuralları */}
+                <View style={{ marginBottom: 10 }}>
+                  <Text style={rules.length ? styles.valid : styles.invalid}>• En az 8 karakter</Text>
+                  <Text style={rules.upper ? styles.valid : styles.invalid}>• Büyük harf</Text>
+                  <Text style={rules.lower ? styles.valid : styles.invalid}>• Küçük harf</Text>
+                  <Text style={rules.number ? styles.valid : styles.invalid}>• Rakam</Text>
+                  <Text style={rules.special ? styles.valid : styles.invalid}>• Özel karakter (!@#)</Text>
+                </View>
 
-              <TouchableOpacity style={styles.googleButton}>
-                <AntDesign name="google" size={20} color="#444" style={{ marginRight: 8 }} />
-                <Text style={styles.googleText}>Google ile Kayıt Ol</Text>
-              </TouchableOpacity>
+                {/* KVKK ve Açık Rıza onayları */}
+                <View style={styles.checkRow}>
+                  <TouchableOpacity
+                    onPress={() => setAcceptKvkk((v) => !v)}
+                    style={[styles.checkBox, acceptKvkk && styles.checkBoxOn]}
+                  >
+                    {acceptKvkk && <AntDesign name="check" size={16} color="#fff" />}
+                  </TouchableOpacity>
+                  <Text style={styles.checkText}>
+                    <Text onPress={() => setShowKvkk(true)} style={styles.linkInline}>
+                      KVKK Aydınlatma Metni
+                    </Text>
+                    {' '}metnini okudum ve anladım.
+                  </Text>
+                </View>
 
-              <TouchableOpacity onPress={() => router.replace('/login')}>
-                <Text style={styles.link}>Zaten hesabın var mı? Giriş Yap</Text>
-              </TouchableOpacity>
-            </>
-          )}
-        </View>
+                <View style={styles.checkRow}>
+                  <TouchableOpacity
+                    onPress={() => setAcceptConsent((v) => !v)}
+                    style={[styles.checkBox, acceptConsent && styles.checkBoxOn]}
+                  >
+                    {acceptConsent && <AntDesign name="check" size={16} color="#fff" />}
+                  </TouchableOpacity>
+                  <Text style={styles.checkText}>
+                    Kişisel verilerimin işlenmesine{' '}
+                    <Text onPress={() => setShowConsent(true)} style={styles.linkInline}>
+                      Açık Rıza Metni
+                    </Text>
+                    {' '}kapsamında açık rıza veriyorum.
+                  </Text>
+                </View>
+
+                {error ? <Text style={styles.error}>{error}</Text> : null}
+
+                <TouchableOpacity
+                  style={[styles.button, !canSubmit && { opacity: 0.5 }]}
+                  onPress={handleRegister}
+                  disabled={!canSubmit}
+                >
+                  <Text style={styles.buttonText}>Kayıt Ol</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.googleButton}>
+                  <AntDesign name="google" size={20} color="#444" style={{ marginRight: 8 }} />
+                  <Text style={styles.googleText}>Google ile Kayıt Ol</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity onPress={() => router.replace('/login')}>
+                  <Text style={styles.link}>Zaten hesabın var mı? Giriş Yap</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        </ScrollView>
       </TouchableWithoutFeedback>
+
+      {/* KVKK Modal */}
+      <Modal visible={showKvkk} animationType="slide" onRequestClose={() => setShowKvkk(false)}>
+        <View style={styles.modalWrap}>
+          <Text style={styles.modalTitle}>KVKK Aydınlatma Metni</Text>
+          <ScrollView contentContainerStyle={styles.modalBody}>
+            <Text style={styles.modalText}>{TEXT_KVKK}</Text>
+          </ScrollView>
+          <View style={styles.modalFooter}>
+            <TouchableOpacity onPress={() => setShowKvkk(false)} style={styles.modalBtn}>
+              <Text style={styles.modalBtnText}>Kapat</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => {
+                setAcceptKvkk(true);
+                setShowKvkk(false);
+              }}
+              style={[styles.modalBtn, { backgroundColor: '#FF6B00' }]}
+            >
+              <Text style={[styles.modalBtnText, { color: '#fff' }]}>Okudum / Onaylıyorum</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Açık Rıza Modal */}
+      <Modal visible={showConsent} animationType="slide" onRequestClose={() => setShowConsent(false)}>
+        <View style={styles.modalWrap}>
+          <Text style={styles.modalTitle}>Açık Rıza Metni</Text>
+          <ScrollView contentContainerStyle={styles.modalBody}>
+            <Text style={styles.modalText}>{TEXT_CONSENT}</Text>
+          </ScrollView>
+          <View style={styles.modalFooter}>
+            <TouchableOpacity onPress={() => setShowConsent(false)} style={styles.modalBtn}>
+              <Text style={styles.modalBtnText}>Kapat</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => {
+                setAcceptConsent(true);
+                setShowConsent(false);
+              }}
+              style={[styles.modalBtn, { backgroundColor: '#FF6B00' }]}
+            >
+              <Text style={[styles.modalBtnText, { color: '#fff' }]}>Rıza Veriyorum</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
-  )
+  );
 }
 
 const styles = StyleSheet.create({
-  wrapper: { flex: 1 },
-  container: { flex: 1, justifyContent: 'center', padding: 24, backgroundColor: '#fff' },
-  logo: { width: 100, height: 100, alignSelf: 'center', marginBottom: 20 },
-  title: { fontSize: 26, fontWeight: 'bold', textAlign: 'center', marginBottom: 20 },
+  wrapper: { flex: 1, backgroundColor: '#fff' },
+  scrollInner: { flexGrow: 1, justifyContent: 'center', padding: 24, paddingBottom: 40 },
+  container: { width: '100%' },
+  logo: { width: 96, height: 96, alignSelf: 'center', marginBottom: 12, marginTop: 8 },
+  title: { fontSize: 26, fontWeight: 'bold', textAlign: 'center', marginBottom: 16 },
   input: {
     borderWidth: 1,
     borderColor: '#ccc',
@@ -160,24 +384,31 @@ const styles = StyleSheet.create({
     fontSize: 16,
     backgroundColor: '#f9f9f9',
   },
-  button: {
-    backgroundColor: '#FF6B00',
-    padding: 14,
-    borderRadius: 12,
+
+  // onay satırları
+  checkRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+  checkBox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: '#ccc',
     alignItems: 'center',
-    marginTop: 10,
+    justifyContent: 'center',
+    marginRight: 10,
+    backgroundColor: '#fff',
   },
+  checkBoxOn: { backgroundColor: '#FF6B00', borderColor: '#FF6B00' },
+  checkText: { flex: 1, color: '#333' },
+  linkInline: { color: '#0066cc', fontWeight: '700' },
+
+  button: { backgroundColor: '#FF6B00', padding: 14, borderRadius: 12, alignItems: 'center', marginTop: 6 },
   buttonText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
-  link: {
-    marginTop: 20,
-    textAlign: 'center',
-    color: '#0066cc',
-    fontSize: 14,
-  },
+  link: { marginTop: 20, textAlign: 'center', color: '#0066cc', fontSize: 14 },
   error: { color: 'red', textAlign: 'center', marginBottom: 10 },
-  success: { color: 'green', textAlign: 'center', marginBottom: 20, fontSize: 16 },
   valid: { color: 'green', fontSize: 14 },
   invalid: { color: 'gray', fontSize: 14 },
+
   googleButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -186,11 +417,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: 12,
     borderRadius: 12,
-    marginTop: 16,
+    marginTop: 14,
   },
-  googleText: {
-    color: '#444',
-    fontSize: 15,
-    fontWeight: '500',
-  },
-})
+  googleText: { color: '#444', fontSize: 15, fontWeight: '500' },
+
+  notice: { borderWidth: 1, borderColor: '#C8E6C9', backgroundColor: '#E8F5E9', padding: 14, borderRadius: 12 },
+  noticeTitle: { fontWeight: '900', color: '#2E7D32', marginBottom: 6, textAlign: 'center' },
+  noticeText: { color: '#2E7D32', textAlign: 'center' },
+
+  // Modals
+  modalWrap: { flex: 1, backgroundColor: '#fff', paddingTop: 54, paddingHorizontal: 18, paddingBottom: 18 },
+  modalTitle: { fontSize: 20, fontWeight: '900', marginBottom: 12, color: '#111' },
+  modalBody: { paddingBottom: 24 },
+  modalText: { color: '#333', lineHeight: 20 },
+  modalFooter: { flexDirection: 'row', gap: 10, justifyContent: 'flex-end', paddingTop: 8 },
+  modalBtn: { paddingVertical: 12, paddingHorizontal: 14, borderRadius: 10, backgroundColor: '#F3F4F6' },
+  modalBtnText: { fontWeight: '800', color: '#111' },
+});

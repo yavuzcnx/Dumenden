@@ -3,13 +3,22 @@
 
 import { supabase } from '@/lib/supabaseClient';
 import { useXp } from '@/src/contexts/XpProvider';
-import { showRewarded } from '@/src/contexts/ads/rewarded'; // 👈 ödüllü reklam helper'ı
 import { BlurView } from 'expo-blur';
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, SafeAreaView, Text, TouchableOpacity, View } from 'react-native';
 
 const BRAND = '#FF6B00';
 const SOFT = '#FFF2E8';
+
+/**
+ * Ads kapalı stub:
+ * - Google Mobile Ads paketi kaldırıldığı için burada hiçbir şey import etmiyoruz.
+ * - İlerde ads’i tekrar açınca yukarıdaki import’u geri ekleyip bu stub’u silebilirsin.
+ */
+async function showRewarded(): Promise<boolean> {
+  Alert.alert('Bilgi', 'Reklamlar geçici olarak devre dışı.');
+  return false; // XP vermeyelim; server cooldown/iş akışı bozulmasın.
+}
 
 export default function DailyEntryScreen() {
   const { xp, loading: xpLoading, refresh } = useXp();
@@ -19,10 +28,10 @@ export default function DailyEntryScreen() {
     if (granting) return;
     setGranting(true);
     try {
-      // 1) Reklamı göster (tam ekran açılır, kapanınca bu sayfaya geri döner)
+      // 1) Reklam (şimdilik kapalı)
       const ok = await showRewarded();
       if (!ok) {
-        Alert.alert('Bilgi', 'Reklam tamamlanmadı.');
+        // Reklam tamamlanmadı/kapalı
         return;
       }
 

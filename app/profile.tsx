@@ -1,4 +1,3 @@
-// app/profile.tsx
 'use client';
 
 import { supabase } from '@/lib/supabaseClient';
@@ -6,18 +5,28 @@ import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Alert, Image, LayoutAnimation, Platform,
-  ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View
+  ActivityIndicator,
+  Alert,
+  Image,
+  LayoutAnimation,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 /** ------------ theme ------------- **/
 const ORANGE = '#FF6B00';
-const BG     = '#FFFFFF';
-const CARD   = '#FFFFFF';
+const BG = '#FFFFFF';
+const CARD = '#FFFFFF';
 const BORDER = '#E9E9E9';
-const TEXT   = '#111111';
-const MUTED  = '#6B7280';
-const router = useRouter();
+const TEXT = '#111111';
+const MUTED = '#6B7280';
 
 type DBUser = {
   id: string;
@@ -26,7 +35,7 @@ type DBUser = {
   birth_date: string | null;
   created_at: string;
   is_plus: boolean | null;
-  xp: number | null;             // sadece okunur (yakında kaldırılabilir)
+  xp: number | null;
   avatar_url: string | null;
   avatar_path?: string | null;
   bio?: string | null;
@@ -40,6 +49,9 @@ function levelFromXp(xp: number) {
 }
 
 export default function ProfilePage() {
+  const router = useRouter();
+  const ins = useSafeAreaInsets();
+
   const [authUserId, setAuthUserId] = useState<string | null>(null);
   const [email, setEmail] = useState('');
   const [dbu, setDbu] = useState<DBUser | null>(null);
@@ -60,24 +72,24 @@ export default function ProfilePage() {
     ext === 'jpg' ? 'image/jpeg' : ext === 'heic' ? 'image/heic' : `image/${ext}`;
 
   // ui
-  const [uploading, setUploading]   = useState(false);
-  const [saving, setSaving]         = useState(false);
-  const [showEdit, setShowEdit]     = useState(false);
-  const [notifOn, setNotifOn]       = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
+  const [notifOn, setNotifOn] = useState(true);
 
   // password change
-  const [pwOpen, setPwOpen]         = useState(false);
-  const [newPw, setNewPw]           = useState('');
-  const [newPw2, setNewPw2]         = useState('');
-  const [pwSaving, setPwSaving]     = useState(false);
+  const [pwOpen, setPwOpen] = useState(false);
+  const [newPw, setNewPw] = useState('');
+  const [newPw2, setNewPw2] = useState('');
+  const [pwSaving, setPwSaving] = useState(false);
 
   // stats
-  const [playsCount, setPlaysCount]   = useState<number>(0);
+  const [playsCount, setPlaysCount] = useState<number>(0);
   const [topCategory, setTopCategory] = useState<string>('-');
 
   // XP — tek kaynak: xp_wallets.balance
   const [walletBalance, setWalletBalance] = useState<number>(0);
-  const [loadingData, setLoadingData]     = useState(true);
+  const [loadingData, setLoadingData] = useState(true);
 
   /** ---------- helpers ---------- **/
   const computePublicUrl = (path?: string | null) => {
@@ -94,7 +106,9 @@ export default function ProfilePage() {
       // users
       const { data: row } = await supabase
         .from('users')
-        .select('id, full_name, phone_number, birth_date, created_at, is_plus, xp, avatar_url, avatar_path, bio')
+        .select(
+          'id, full_name, phone_number, birth_date, created_at, is_plus, xp, avatar_url, avatar_path, bio'
+        )
         .eq('id', uid)
         .maybeSingle();
 
@@ -135,12 +149,19 @@ export default function ProfilePage() {
             const k = (r.category ?? 'Diğer') as string;
             map[k] = (map[k] ?? 0) + 1;
           }
-          let best = 'Diğer', bestN = 0;
-          Object.entries(map).forEach(([k, v]) => { if (v > bestN) { best = k; bestN = v; } });
+          let best = 'Diğer',
+            bestN = 0;
+          Object.entries(map).forEach(([k, v]) => {
+            if (v > bestN) {
+              best = k;
+              bestN = v;
+            }
+          });
           setTopCategory(best);
         } else setTopCategory('-');
-      } catch { setTopCategory('-'); }
-
+      } catch {
+        setTopCategory('-');
+      }
     } finally {
       setLoadingData(false);
     }
@@ -160,12 +181,18 @@ export default function ProfilePage() {
 
         walletChannel = supabase
           .channel('xp_wallets_changes')
-          .on('postgres_changes',
-              { event: '*', schema: 'public', table: 'xp_wallets', filter: `user_id=eq.${user.id}` },
-              (payload) => {
-                const bal = (payload.new as any)?.balance;
-                if (typeof bal === 'number') setWalletBalance(bal);
-              }
+          .on(
+            'postgres_changes',
+            {
+              event: '*',
+              schema: 'public',
+              table: 'xp_wallets',
+              filter: `user_id=eq.${user.id}`,
+            },
+            (payload) => {
+              const bal = (payload.new as any)?.balance;
+              if (typeof bal === 'number') setWalletBalance(bal);
+            }
           )
           .subscribe();
       } else {
@@ -175,20 +202,21 @@ export default function ProfilePage() {
 
     const { data: sub } = supabase.auth.onAuthStateChange(async (_e, sess) => {
       const u = sess?.user ?? null;
-      setAuthUserId(u?.id ?? null);
-      setEmail(u?.email ?? '');
-      if (u?.id) await loadAll.current!(u.id);
-      else {
-        setDbu(null);
-        setWalletBalance(0);
-        setAvatarUrl(null);
-        setFullName(''); setPhone(''); setBirth(''); setBio('');
+      // 🔥 Çıkışta state'i silmiyoruz ki UI kapanırken bozulmasın
+      if(u) {
+          setAuthUserId(u.id);
+          setEmail(u.email ?? '');
+          await loadAll.current!(u.id);
       }
     });
 
     return () => {
-      try { sub.subscription.unsubscribe(); } catch {}
-      try { supabase.removeChannel(walletChannel); } catch {}
+      try {
+        sub.subscription.unsubscribe();
+      } catch {}
+      try {
+        supabase.removeChannel(walletChannel);
+      } catch {}
     };
   }, []);
 
@@ -233,7 +261,11 @@ export default function ProfilePage() {
       if (upErr2) throw upErr2;
 
       const finalUrl = updated?.avatar_url || publicUrl || null;
-      if (finalUrl) { try { await Image.prefetch(finalUrl); } catch {} }
+      if (finalUrl) {
+        try {
+          await Image.prefetch(finalUrl);
+        } catch {}
+      }
       setAvatarUrl(finalUrl);
 
       Alert.alert('Tamam', 'Profil fotoğrafın güncellendi.');
@@ -261,7 +293,9 @@ export default function ProfilePage() {
         .from('users')
         .update(patch)
         .eq('id', authUserId)
-        .select('id, full_name, phone_number, birth_date, avatar_url, avatar_path, bio, xp, is_plus')
+        .select(
+          'id, full_name, phone_number, birth_date, avatar_url, avatar_path, bio, xp, is_plus'
+        )
         .single();
       if (error) throw error;
 
@@ -282,8 +316,14 @@ export default function ProfilePage() {
 
   /** ---------- change password ---------- **/
   const changePassword = async () => {
-    if (!newPw || newPw.length < 8) { Alert.alert('Uyarı', 'Şifre en az 8 karakter olmalı.'); return; }
-    if (newPw !== newPw2) { Alert.alert('Uyarı', 'Şifreler uyuşmuyor.'); return; }
+    if (!newPw || newPw.length < 8) {
+      Alert.alert('Uyarı', 'Şifre en az 8 karakter olmalı.');
+      return;
+    }
+    if (newPw !== newPw2) {
+      Alert.alert('Uyarı', 'Şifreler uyuşmuyor.');
+      return;
+    }
 
     setPwSaving(true);
     let finished = false;
@@ -293,7 +333,8 @@ export default function ProfilePage() {
       finished = true;
       setPwSaving(false);
       setPwOpen(false);
-      setNewPw(''); setNewPw2('');
+      setNewPw('');
+      setNewPw2('');
       Alert.alert('Tamam', 'Şifren başarıyla değiştirildi.');
     };
     const finishErr = (msg: string) => {
@@ -315,43 +356,61 @@ export default function ProfilePage() {
 
     setTimeout(async () => {
       if (finished) {
-        try { sub?.subscription?.unsubscribe?.(); } catch {}
+        try {
+          sub?.subscription?.unsubscribe?.();
+        } catch {}
         return;
       }
       try {
-        const { data, error } = await supabase.auth.signInWithPassword({ email, password: newPw });
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email,
+          password: newPw,
+        });
         if (!error && data?.user) finishOk();
         else {
           setPwSaving(false);
-          Alert.alert('Bilgi', 'Sunucu geç yanıt verdi. Şifren büyük ihtimalle değişti. Giriş yapmayı deneyebilirsin.');
+          Alert.alert(
+            'Bilgi',
+            'Sunucu geç yanıt verdi. Şifren büyük ihtimalle değişti. Giriş yapmayı deneyebilirsin.'
+          );
         }
       } catch (err: any) {
         setPwSaving(false);
         Alert.alert('Ağ hatası', err?.message ?? 'İşlem tamamlanamadı.');
       } finally {
-        try { sub?.subscription?.unsubscribe?.(); } catch {}
+        try {
+          sub?.subscription?.unsubscribe?.();
+        } catch {}
       }
     }, 7000);
   };
 
-  /** ---------- sign out ---------- **/
+  /** ---------- sign out (FIXED) ---------- **/
   const signOut = async () => {
-    try { await supabase.auth.signOut(); } catch {}
-    setAuthUserId(null);
-    setDbu(null);
-    setWalletBalance(0);
-    setAvatarUrl(null);
-    setFullName(''); setPhone(''); setBirth(''); setBio('');
+    // 🔥 Önce yönlendir, sonra işlemi yap.
+    // Bu sayede uygulama "kapanmış" gibi görünmez, login'e geçer.
     router.replace('/login');
+
+    try {
+      await supabase.auth.signOut();
+    } catch (e) {
+      console.warn("Çıkış hatası (önemsiz):", e);
+    }
   };
 
   /** ---------- ui ---------- **/
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: BG }} contentContainerStyle={{ paddingBottom: 64 }}>
+    <ScrollView
+      style={{ flex: 1, backgroundColor: BG }}
+      contentContainerStyle={{ paddingBottom: ins.bottom + 140 }}
+      keyboardShouldPersistTaps="handled"
+      contentInset={{ bottom: ins.bottom + 40 }}
+      scrollIndicatorInsets={{ bottom: ins.bottom + 40 }}
+    >
       {/* TOP BAR */}
       <View style={styles.topbar}>
-  <Text style={styles.brand}>DÜMENDEN</Text>
-</View>
+        <Text style={styles.brand}>DÜMENDEN</Text>
+      </View>
 
       {/* HEADER */}
       <View style={styles.header}>
@@ -367,7 +426,11 @@ export default function ProfilePage() {
             ) : (
               <TouchableOpacity onPress={pickImage} activeOpacity={0.85}>
                 <Image
-                  source={avatarUrl ? { uri: avatarUrl } : require('@/assets/images/dumendenci.png')}
+                  source={
+                    avatarUrl
+                      ? { uri: avatarUrl }
+                      : require('@/assets/images/dumendenci.png')
+                  }
                   style={styles.avatar}
                 />
               </TouchableOpacity>
@@ -384,7 +447,13 @@ export default function ProfilePage() {
 
       {/* LEVEL / XP */}
       <View style={styles.card}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+        <View
+          style={{
+            flexDirection: 'row',
+            justifyContent: 'space-between',
+            marginBottom: 8,
+          }}
+        >
           <Text style={styles.cardTitle}>Seviye {lvl}</Text>
           <Text style={styles.cardSub}>{xp.toLocaleString('tr-TR')} XP</Text>
         </View>
@@ -416,9 +485,25 @@ export default function ProfilePage() {
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Bilgiler</Text>
 
-        <Field label="İsim Soyisim" value={fullName} editable={showEdit} onChange={setFullName} />
-        <Field label="Telefon" value={phone} editable={showEdit} onChange={setPhone} keyboardType="phone-pad" />
-        <Field label="Doğum Tarihi (YYYY-AA-GG)" value={birth} editable={showEdit} onChange={setBirth} />
+        <Field
+          label="İsim Soyisim"
+          value={fullName}
+          editable={showEdit}
+          onChange={setFullName}
+        />
+        <Field
+          label="Telefon"
+          value={phone}
+          editable={showEdit}
+          onChange={setPhone}
+          keyboardType="phone-pad"
+        />
+        <Field
+          label="Doğum Tarihi (YYYY-AA-GG)"
+          value={birth}
+          editable={showEdit}
+          onChange={setBirth}
+        />
         <Field label="Bio" value={bio} editable={showEdit} onChange={setBio} multiline />
 
         <View style={{ height: 8 }} />
@@ -426,14 +511,24 @@ export default function ProfilePage() {
           onPress={() => setShowEdit((v) => !v)}
           style={[styles.actionBtn, { backgroundColor: showEdit ? '#F3F4F6' : ORANGE }]}
         >
-          <Text style={[styles.actionTxt, { color: showEdit ? TEXT : '#fff' }]}>
+          <Text
+            style={[styles.actionTxt, { color: showEdit ? TEXT : '#fff' }]}
+          >
             {showEdit ? 'Düzenlemeyi Kapat' : 'Profili Düzenle'}
           </Text>
         </TouchableOpacity>
 
         {showEdit && (
-          <TouchableOpacity onPress={save} disabled={saving} style={[styles.actionBtn, { backgroundColor: '#16a34a' }]}>
-            {saving ? <ActivityIndicator color="#fff" /> : <Text style={[styles.actionTxt, { color: '#fff' }]}>Kaydet</Text>}
+          <TouchableOpacity
+            onPress={save}
+            disabled={saving}
+            style={[styles.actionBtn, { backgroundColor: '#16a34a' }]}
+          >
+            {saving ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={[styles.actionTxt, { color: '#fff' }]}>Kaydet</Text>
+            )}
           </TouchableOpacity>
         )}
       </View>
@@ -452,24 +547,60 @@ export default function ProfilePage() {
         </View>
 
         {!pwOpen ? (
-          <TouchableOpacity onPress={() => setPwOpen(true)} style={[styles.actionBtn, { backgroundColor: '#334155' }]}>
-            <Text style={[styles.actionTxt, { color: '#fff' }]}>Şifre Değiştir</Text>
+          <TouchableOpacity
+            onPress={() => setPwOpen(true)}
+            style={[styles.actionBtn, { backgroundColor: '#334155' }]}
+          >
+            <Text style={[styles.actionTxt, { color: '#fff' }]}>
+              Şifre Değiştir
+            </Text>
           </TouchableOpacity>
         ) : (
           <>
-            <TextInput value={newPw} onChangeText={setNewPw} placeholder="Yeni şifre (min 8)" placeholderTextColor={MUTED} secureTextEntry style={styles.input} />
-            <TextInput value={newPw2} onChangeText={setNewPw2} placeholder="Yeni şifre (tekrar)" placeholderTextColor={MUTED} secureTextEntry style={styles.input} />
-            <TouchableOpacity onPress={changePassword} disabled={pwSaving} style={[styles.actionBtn, { backgroundColor: '#16a34a' }]}>
-              {pwSaving ? <ActivityIndicator color="#fff" /> : <Text style={[styles.actionTxt, { color: '#fff' }]}>Onayla</Text>}
+            <TextInput
+              value={newPw}
+              onChangeText={setNewPw}
+              placeholder="Yeni şifre (min 8)"
+              placeholderTextColor={MUTED}
+              secureTextEntry
+              style={styles.input}
+            />
+            <TextInput
+              value={newPw2}
+              onChangeText={setNewPw2}
+              placeholder="Yeni şifre (tekrar)"
+              placeholderTextColor={MUTED}
+              secureTextEntry
+              style={styles.input}
+            />
+            <TouchableOpacity
+              onPress={changePassword}
+              disabled={pwSaving}
+              style={[styles.actionBtn, { backgroundColor: '#16a34a' }]}
+            >
+              {pwSaving ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={[styles.actionTxt, { color: '#fff' }]}>
+                  Onayla
+                </Text>
+              )}
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => setPwOpen(false)} disabled={pwSaving} style={[styles.actionBtn, { backgroundColor: '#F3F4F6' }]}>
+            <TouchableOpacity
+              onPress={() => setPwOpen(false)}
+              disabled={pwSaving}
+              style={[styles.actionBtn, { backgroundColor: '#F3F4F6' }]}
+            >
               <Text style={[styles.actionTxt, { color: TEXT }]}>Vazgeç</Text>
             </TouchableOpacity>
           </>
         )}
 
         {/* ÇIKIŞ */}
-        <TouchableOpacity onPress={signOut} style={[styles.actionBtn, { backgroundColor: '#dc2626', marginTop: 6 }]}>
+        <TouchableOpacity
+          onPress={signOut}
+          style={[styles.actionBtn, { backgroundColor: '#dc2626', marginTop: 6 }]}
+        >
           <Text style={[styles.actionTxt, { color: '#fff' }]}>Çıkış Yap</Text>
         </TouchableOpacity>
       </View>
@@ -489,7 +620,12 @@ export default function ProfilePage() {
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Ödüllerim</Text>
         <Text style={styles.cardSub}>
-          Toplanan: {Number(playsCount >= 1) + Number(xp >= 100) + Number(xp >= 1000) + Number(isPlus)} / 4
+          Toplanan:{' '}
+          {Number(playsCount >= 1) +
+            Number(xp >= 100) +
+            Number(xp >= 1000) +
+            Number(isPlus)}{' '}
+          / 4
         </Text>
         <View style={{ height: 10 }} />
         <View style={styles.badges}>
@@ -498,30 +634,76 @@ export default function ProfilePage() {
           <Badge text="Kaptan Dumenci" active={xp >= 1000} />
           <Badge text="Plus Elit" active={isPlus} />
         </View>
-        <Text style={styles.cardHint}>Yakında: “Kanıt Ustası”, “Gündem Avcısı”, “Seri Yorumcu”…</Text>
+        <Text style={styles.cardHint}>
+          Yakında: “Kanıt Ustası”, “Gündem Avcısı”, “Seri Yorumcu”…
+        </Text>
       </View>
 
-      {/* SHORTCUTS */}
+      {/* SHORTCUTS – Kuponlarım + Market + Keşfet */}
       <View style={styles.rowCards}>
         <Shortcut title="Kuponlarım" onPress={() => router.push('/my-bets')} />
-        <Shortcut title="Favorilerim" onPress={() => Alert.alert('Bilgi', 'Favoriler sayfasına bağla.')} />
-        <Shortcut title="Kanıtlarım" onPress={() => Alert.alert('Bilgi', 'Kanıtlar sayfasına bağla.')} />
+        <Shortcut
+          title="Market"
+          onPress={() => router.push('/market') /* Market ekranın yolu */}
+        />
+        <Shortcut
+          title="Keşfet"
+          onPress={() => router.push('/explore') /* Keşfet ekranın yolu */}
+        />
       </View>
 
-      {/* FAQ */}
+      {/* FAQ – Dümenden'e özel sexy sorular */}
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Sıkça Sorulan Sorular</Text>
-        <Accordion q="Plus üyelik avantajları neler?" a="Reklamsız deneyim, özel kuponlar, profil rozeti ve erken erişim." />
-        <Accordion q="XP nasıl kazanırım?" a="Kuponlara katılarak, görevleri tamamlayarak ve kanıt ekleyerek." />
-        <Accordion q="Hesabımı nasıl doğrularım?" a="Profil > Güvenlik bölümünden talimatları izle." />
+        <Accordion
+          q="Dümenden'deki kuponlar gerçek para mı?"
+          a="Hayır. Dümenden tamamen eğlence ve sosyalleşme amaçlıdır. Kuponlar XP ile oynanır, gerçek para ile bahis oynanmaz ve gerçek para kazanılmaz."
+        />
+        <Accordion
+          q="XP ne işe yarıyor, sıfırlanıyor mu?"
+          a="XP; profil seviyeni, rozetlerini ve ilerlemeni temsil eder. Ödüller, rozetler, ileride gelecek özel özellikler XP’ye bağlıdır. Hesabını silmediğin sürece XP’in sıfırlanmaz."
+        />
+        <Accordion
+          q="Kanıt eklemek zorunlu mu?"
+          a="Hayır, zorunlu değil ama çok tavsiye ediyoruz. Kanıt eklenen kuponlar toplulukta daha güvenilir görünür, ileride 'Kanıt Ustası' gibi rozetler de bu sayede açılacak."
+        />
+        <Accordion
+          q="Bir kupon tutmazsa hesabımdan ne eksiliyor?"
+          a="Kupon tutmazsa sadece o kupona oynadığın XP düşer. Eksi bakiyeye düşmezsin, gerçek para kaybetmezsin. Dümenden'de amaç eğlence, sohbet ve mizah."
+        />
+        <Accordion
+          q="Plus üyelik bana ne kazandırıyor?"
+          a="Reklamsız deneyim, özel seçilmiş kuponlar, profilinde Plus rozeti, ileride gelecek kapalı beta özelliklere erken erişim ve daha fazlası."
+        />
+        <Accordion
+          q="Şüpheli ya da rahatsız edici bir içerik görürsem ne yapmalıyım?"
+          a="Kupon detayında veya yorumlarda 'Bildir' alanını kullanarak içeriği moderasyon ekibine iletebilirsin. İnceleme sonrasında ilgili içerik kaldırılabilir ve kullanıcı uyarılabilir."
+        />
       </View>
 
-      {/* PROCEDURES */}
+      {/* PROCEDURES – Dümenden prosedürleri */}
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Prosedürler</Text>
         <Text style={styles.cardBody}>
-          Topluluk kuralları, içerik politikası ve itiraz süreçleri bu alana eklenir. Metni ayırmak istersen buraya
-          Markdown ya da link çıkartabilirsin.
+          <Text style={{ fontWeight: '800' }}>1. Kupon Yayınlama Süreci:</Text> Adminler veya
+          yetkili içerik üreticileri tarafından eklenen kuponlar; dil, içerik ve topluluk
+          kurallarına uygunluk açısından kontrol edilir. Uygunsuz görülen kuponlar yayına alınmaz
+          veya sonradan kaldırılabilir.
+        </Text>
+        <Text style={styles.cardBody}>
+          <Text style={{ fontWeight: '800' }}>2. Kanıt Kontrolü:</Text> Kullanıcıların eklediği
+          kanıtlar (görsel/ekran görüntüsü vb.) otomatik ve manuel kontrole tabidir. Sahte, yanıltıcı
+          veya kişisel veri içeren kanıtlar reddedilir ve tekrar eden ihlallerde hesap kısıtlanabilir.
+        </Text>
+        <Text style={styles.cardBody}>
+          <Text style={{ fontWeight: '800' }}>3. Şikayet & İtiraz:</Text> Bir kupon, kullanıcı veya
+          karar hakkında itiraz etmek istersen uygulama içindeki “Bildir” veya destek kanallarını
+          kullanabilirsin. Talebin incelenir, gerekli durumlarda sonuç yeniden değerlendirilir.
+        </Text>
+        <Text style={styles.cardBody}>
+          <Text style={{ fontWeight: '800' }}>4. Topluluk Kuralları:</Text> Küfür, nefret söylemi,
+          ayrımcılık, taciz ve benzeri davranışlara tolerans yoktur. Bu tür davranışlar tespit
+          edildiğinde ilgili içerik kaldırılır, kullanıcı uyarılır veya kalıcı olarak engellenebilir.
         </Text>
       </View>
     </ScrollView>
@@ -529,8 +711,20 @@ export default function ProfilePage() {
 }
 
 /** ---------- small components ---------- **/
-function Field({ label, value, editable, onChange, keyboardType, multiline }:{
-  label: string; value: string; editable: boolean; onChange: (t: string) => void; keyboardType?: any; multiline?: boolean;
+function Field({
+  label,
+  value,
+  editable,
+  onChange,
+  keyboardType,
+  multiline,
+}: {
+  label: string;
+  value: string;
+  editable: boolean;
+  onChange: (t: string) => void;
+  keyboardType?: any;
+  multiline?: boolean;
 }) {
   if (!editable) {
     return (
@@ -558,7 +752,12 @@ function Field({ label, value, editable, onChange, keyboardType, multiline }:{
 
 function Badge({ text, active }: { text: string; active: boolean }) {
   return (
-    <View style={[styles.badge, { opacity: active ? 1 : 0.4, borderColor: active ? ORANGE : BORDER }]}>
+    <View
+      style={[
+        styles.badge,
+        { opacity: active ? 1 : 0.4, borderColor: active ? ORANGE : BORDER },
+      ]}
+    >
       <Text style={{ color: TEXT, fontSize: 12, fontWeight: '700' }}>{text}</Text>
     </View>
   );
@@ -566,7 +765,7 @@ function Badge({ text, active }: { text: string; active: boolean }) {
 
 function Shortcut({ title, onPress }: { title: string; onPress: () => void }) {
   return (
-    <TouchableOpacity onPress={onPress} style={styles.shortcut}>
+    <TouchableOpacity onPress={onPress} style={styles.shortcut} activeOpacity={0.85}>
       <Text style={{ color: TEXT, fontWeight: '900' }}>{title}</Text>
     </TouchableOpacity>
   );
@@ -576,7 +775,11 @@ function Accordion({ q, a }: { q: string; a: string }) {
   const [open, setOpen] = useState(false);
   return (
     <View style={{ borderTopWidth: 1, borderTopColor: BORDER, paddingVertical: 10 }}>
-      <TouchableOpacity onPress={() => setOpen((v) => !v)} style={{ paddingVertical: 6 }}>
+      <TouchableOpacity
+        onPress={() => setOpen((v) => !v)}
+        style={{ paddingVertical: 6 }}
+        activeOpacity={0.8}
+      >
         <Text style={{ color: TEXT, fontWeight: '800' }}>{q}</Text>
       </TouchableOpacity>
       {open && <Text style={styles.cardBody}>{a}</Text>}
@@ -586,49 +789,170 @@ function Accordion({ q, a }: { q: string; a: string }) {
 
 /** ---------- styles ---------- **/
 const styles = StyleSheet.create({
-  topbar: { height: 52, backgroundColor: ORANGE, alignItems: 'center', justifyContent: 'center' },
-  brand: { color: '#fff', fontSize: 26, fontWeight: '900', letterSpacing: 2, textTransform: 'uppercase', fontStyle: 'italic' },
+  topbar: {
+    height: 52,
+    backgroundColor: ORANGE,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  brand: {
+    color: '#fff',
+    fontSize: 26,
+    fontWeight: '900',
+    letterSpacing: 2,
+    textTransform: 'uppercase',
+    fontStyle: 'italic',
+  },
 
-  header: { height: 90, backgroundColor: BG, justifyContent: 'flex-end', paddingHorizontal: 18, paddingBottom: 8 },
+  header: {
+    height: 90,
+    backgroundColor: BG,
+    justifyContent: 'flex-end',
+    paddingHorizontal: 18,
+    paddingBottom: 8,
+  },
   title: { fontSize: 28, fontWeight: '900', color: TEXT },
 
-  inline: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingVertical: 6 },
+  inline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingVertical: 6,
+  },
   inlineLbl: { color: TEXT, fontWeight: '800' },
 
-  avatarBorder: { padding: 3, borderRadius: 28, borderWidth: 3, borderColor: ORANGE, backgroundColor: '#fff', elevation: 4, shadowColor: ORANGE, shadowOpacity: 0.15, shadowRadius: 10 },
-  avatarWrap: { width: 150, height: 150, borderRadius: 24, overflow: 'hidden', backgroundColor: '#f2f2f2' },
+  avatarBorder: {
+    padding: 3,
+    borderRadius: 28,
+    borderWidth: 3,
+    borderColor: ORANGE,
+    backgroundColor: '#fff',
+    elevation: 4,
+    shadowColor: ORANGE,
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+  },
+  avatarWrap: {
+    width: 150,
+    height: 150,
+    borderRadius: 24,
+    overflow: 'hidden',
+    backgroundColor: '#f2f2f2',
+  },
   avatar: { width: 150, height: 150 },
-  changeBtn: { position: 'absolute', bottom: 6, right: 6, backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(0,0,0,0.2)' },
+  changeBtn: {
+    position: 'absolute',
+    bottom: 6,
+    right: 6,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.2)',
+  },
   changeBtnTxt: { color: '#fff', fontWeight: '800', fontSize: 12 },
 
   nameTxt: { color: TEXT, fontSize: 18, fontWeight: '900', marginTop: 12 },
   emailTxt: { color: MUTED, marginTop: 4 },
 
-  card: { backgroundColor: CARD, borderWidth: 1, borderColor: BORDER, borderRadius: 16, padding: 14, marginHorizontal: 14, marginTop: 12, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 10 },
+  card: {
+    backgroundColor: CARD,
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 16,
+    padding: 14,
+    marginHorizontal: 14,
+    marginTop: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
+  },
   cardTitle: { color: TEXT, fontWeight: '900', marginBottom: 8, fontSize: 16 },
   cardSub: { color: '#374151', fontWeight: '800' },
   cardHint: { color: MUTED, marginTop: 8, fontSize: 12 },
   cardBody: { color: TEXT, marginTop: 6, lineHeight: 20 },
 
-  progressTrack: { height: 12, backgroundColor: '#F1F1F1', borderRadius: 999, overflow: 'hidden' },
+  progressTrack: {
+    height: 12,
+    backgroundColor: '#F1F1F1',
+    borderRadius: 999,
+    overflow: 'hidden',
+  },
   progressFill: { height: 12, backgroundColor: ORANGE },
 
-  rowCards: { flexDirection: 'row', gap: 10, paddingHorizontal: 14, marginTop: 12 },
-  miniCard: { flex: 1, backgroundColor: CARD, borderWidth: 1, borderColor: BORDER, borderRadius: 16, padding: 12, alignItems: 'center' },
+  rowCards: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 14,
+    marginTop: 12,
+  },
+  miniCard: {
+    flex: 1,
+    backgroundColor: CARD,
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 16,
+    padding: 12,
+    alignItems: 'center',
+  },
   miniVal: { color: TEXT, fontWeight: '900', fontSize: 18 },
   miniLbl: { color: MUTED, marginTop: 4, fontSize: 12 },
 
-  fieldRow: { borderWidth: 1, borderColor: BORDER, borderRadius: 12, padding: 12, marginTop: 6, backgroundColor: '#FFF' },
+  fieldRow: {
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 6,
+    backgroundColor: '#FFF',
+  },
   fieldLabel: { color: '#374151', fontWeight: '800', marginBottom: 6 },
   fieldValue: { color: TEXT, fontWeight: '600' },
 
-  input: { borderWidth: 1, borderColor: BORDER, backgroundColor: '#FFF', color: TEXT, borderRadius: 12, paddingHorizontal: 12, paddingVertical: Platform.OS === 'ios' ? 12 : 10, marginTop: 6 },
+  input: {
+    borderWidth: 1,
+    borderColor: BORDER,
+    backgroundColor: '#FFF',
+    color: TEXT,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: Platform.OS === 'ios' ? 12 : 10,
+    marginTop: 6,
+  },
 
-  actionBtn: { marginTop: 10, paddingVertical: 12, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(0,0,0,0.06)' },
+  actionBtn: {
+    marginTop: 10,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.06)',
+  },
   actionTxt: { color: TEXT, fontWeight: '900' },
 
-  badges: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 },
-  badge: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, borderWidth: 1, backgroundColor: '#FFF' },
+  badges: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 4,
+  },
+  badge: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    backgroundColor: '#FFF',
+  },
 
-  shortcut: { flex: 1, backgroundColor: CARD, borderWidth: 1, borderColor: BORDER, borderRadius: 14, paddingVertical: 16, alignItems: 'center' },
+  shortcut: {
+    flex: 1,
+    backgroundColor: CARD,
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 14,
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
 });

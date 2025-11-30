@@ -1,10 +1,11 @@
-// app/market.tsx (fix: double-purchase guard)
+// app/market.tsx
 'use client';
 
 import { supabase } from '@/lib/supabaseClient';
 import { useXp } from '@/src/contexts/XpProvider';
 import { buyItem, type PurchaseContact } from '@/src/contexts/services/purchaseService';
 import type { RealtimePostgresUpdatePayload } from '@supabase/supabase-js';
+import { useRouter } from 'expo-router';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -14,10 +15,12 @@ import {
   Dimensions,
   FlatList,
   Image,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
   SafeAreaView,
+  ScrollView,
   StatusBar,
   Text,
   TextInput,
@@ -42,16 +45,23 @@ const base = 375;
 const s = (n: number) => Math.round((n * width) / base);
 const ORANGE = '#FF6B00';
 const MUTED = '#6B7280';
+const INPUT_TEXT = '#111827';
+const INPUT_PLACEHOLDER = '#6B7280';
+const INPUT_BORDER = '#E5E7EB';
+const CARD_BG = '#fff';
 
 export default function Market() {
+  const router = useRouter();
+
   const ins = useSafeAreaInsets();
-  const topPad =
-    Platform.OS === 'ios' ? s(6) : (ins.top || StatusBar.currentHeight || 0) + s(6);
+  const topPad = Platform.OS === 'ios' ? s(6) : (ins.top || StatusBar.currentHeight || 0) + s(6);
 
   const [loading, setLoading] = useState(true);
   const [cats, setCats] = useState<Category[]>([]);
   const [rewards, setRewards] = useState<Reward[]>([]);
   const [active, setActive] = useState<string>('all');
+  const [marketLoading, setMarketLoading] = useState(true);
+  const [marketStatus, setMarketStatus] = useState<any>(null);
 
   // Detay + Satın alma formu
   const [detail, setDetail] = useState<Reward | null>(null);
@@ -69,11 +79,125 @@ export default function Market() {
 
   // satın alma bekleme/spinner
   const [pendingId, setPendingId] = useState<string | null>(null);
-  // **kritik**: hızlı çift basışa karşı kilit (render beklemeden anında çalışır)
   const purchasingRef = useRef(false);
 
-  // header progress bar için 3 sn'lik sayaç
+  // header progress bar
   const [cool, setCool] = useState(0);
+
+  // --------------- KAPALI MARKET EKRANI (REVİZE EDİLDİ) ---------------
+  const ClosedMarketScreen = () => {
+    const [timeLeft, setTimeLeft] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 });
+
+    useEffect(() => {
+        if (!marketStatus?.reopen_at) return;
+
+        const targetDate = new Date(marketStatus.reopen_at).getTime();
+
+        const interval = setInterval(() => {
+            const now = new Date().getTime();
+            const distance = targetDate - now;
+
+            if (distance < 0) {
+                clearInterval(interval);
+                setTimeLeft({ days: 0, hours: 0, minutes: 0, seconds: 0 });
+            } else {
+                setTimeLeft({
+                    days: Math.floor(distance / (1000 * 60 * 60 * 24)),
+                    hours: Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)),
+                    minutes: Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60)),
+                    seconds: Math.floor((distance % (1000 * 60)) / 1000),
+                });
+            }
+        }, 1000);
+
+        return () => clearInterval(interval);
+    }, [marketStatus]);
+
+    const TimeBox = ({ val, label }: { val: number, label: string }) => (
+        <View style={{ alignItems: 'center' }}>
+            <View style={{ 
+                width: s(60), height: s(60), 
+                backgroundColor: '#1E1E1E', 
+                borderRadius: 12, 
+                justifyContent: 'center', 
+                alignItems: 'center',
+                borderWidth: 1,
+                borderColor: '#333'
+            }}>
+                <Text style={{ color: ORANGE, fontSize: s(24), fontWeight: '900' }}>
+                    {val < 10 ? `0${val}` : val}
+                </Text>
+            </View>
+            <Text style={{ color: '#888', fontSize: s(10), marginTop: 6, fontWeight: '600', textTransform: 'uppercase' }}>
+                {label}
+            </Text>
+        </View>
+    );
+
+    return (
+      <SafeAreaView
+        style={{
+          flex: 1,
+          backgroundColor: "#000", // Varsayılan Siyah Arka Plan
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        {/* 🔥 SADECE EĞER GÖRSEL VARSA GÖSTER, YOKSA GÖSTERME (DÜZ RENK KALSIN) */}
+        {marketStatus?.bg_image && (
+            <Image 
+                source={{ uri: marketStatus.bg_image }} 
+                style={{ position:'absolute', width:'100%', height:'100%', opacity: 0.3 }} 
+                resizeMode="cover"
+            />
+        )}
+
+        <View style={{ width: '100%', paddingHorizontal: 30, alignItems: 'center', zIndex: 1 }}>
+          
+          <Text style={{ color: ORANGE, fontSize: s(14), fontWeight: "900", letterSpacing: 2, marginBottom: 10 }}>
+            LAUNCHING SOON
+          </Text>
+
+          <Text style={{ color: "#fff", fontSize: s(32), fontWeight: "900", textAlign: "center", lineHeight: s(40) }}>
+            MARKET ÇOK YAKINDA AÇILIYOR
+          </Text>
+
+          <Text style={{ color: "#aaa", fontSize: s(14), marginTop: 16, textAlign: "center", lineHeight: 22 }}>
+            {marketStatus?.close_message || "Hazırlıklarımız tüm hızıyla devam ediyor. En iyi ödüllerle geri dönüyoruz."}
+          </Text>
+
+          {marketStatus?.reopen_at && (
+              <View style={{ flexDirection: 'row', gap: s(12), marginTop: s(40) }}>
+                  <TimeBox val={timeLeft.days} label="GÜN" />
+                  <TimeBox val={timeLeft.hours} label="SAAT" />
+                  <TimeBox val={timeLeft.minutes} label="DAK" />
+                  <TimeBox val={timeLeft.seconds} label="SN" />
+              </View>
+          )}
+
+          <TouchableOpacity
+            onPress={() => router.replace('/home')}
+            style={{
+              marginTop: s(50),
+              backgroundColor: ORANGE,
+              paddingVertical: 16,
+              paddingHorizontal: 40,
+              borderRadius: 30,
+              shadowColor: ORANGE,
+              shadowOpacity: 0.4,
+              shadowRadius: 20,
+              elevation: 10
+            }}
+          >
+            <Text style={{ color: "#fff", fontWeight: "900", fontSize: 16 }}>
+              Ana Sayfaya Dön
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  };
+  // -------------------------------------------------------------
 
   useEffect(() => {
     (async () => {
@@ -116,6 +240,21 @@ export default function Market() {
     };
   }, []);
 
+  // Market Status Check
+  useEffect(() => {
+    (async () => {
+      const { data, error } = await supabase
+        .from("market_status")
+        .select("*")
+        .maybeSingle();
+
+      if (!error && data) {
+        setMarketStatus(data);
+      }
+      setMarketLoading(false);
+    })();
+  }, []);
+
   // cooldown sayaç
   useEffect(() => {
     if (cool <= 0) return;
@@ -123,14 +262,7 @@ export default function Market() {
     return () => clearInterval(t);
   }, [cool]);
 
-  type ShelfType =
-    | 'podium'
-    | 'hanger'
-    | 'aluminum'
-    | 'glass'
-    | 'mini_podiums'
-    | 'holo'
-    | 'xppacks';
+  type ShelfType = 'podium' | 'hanger' | 'aluminum' | 'glass' | 'mini_podiums' | 'holo' | 'xppacks';
 
   function detectShelfType(catName: string): ShelfType {
     const n = (catName || '').toLowerCase();
@@ -177,7 +309,7 @@ export default function Market() {
 
   // Satın al butonu -> form aç
   const openBuyForm = (item: Reward) => {
-    if (purchasingRef.current) return; // satın alma sırasında form açtırma
+    if (purchasingRef.current) return;
     setDetail(item);
     setContact({ full_name: '', email: '', phone: '', address: '', note: '' });
     setFormOpen(true);
@@ -186,8 +318,6 @@ export default function Market() {
   // Satın alma isteği (form gönder)
   const submitPurchase = async () => {
     if (!detail) return;
-
-    // *** KİLİT: ÇİFT ÇAĞRILMAYI KES ***
     if (purchasingRef.current) return;
     purchasingRef.current = true;
 
@@ -208,18 +338,16 @@ export default function Market() {
         return;
       }
 
-      // state tabanlı guard (UI disable) – ama asıl koruma purchasingRef
       if (pendingId) return;
 
       setPendingId(detail.id);
       setCool(3);
 
-      // iyimser: UI’da stok düş (tek kez)
+      // iyimser: UI’da stok düş
       setRewards(prev =>
         prev.map(r => (r.id === detail.id ? { ...r, stock: Math.max(0, (r.stock ?? 0) - 1) } : r)),
       );
 
-      // *** TEK RPC ÇAĞRISI ***
       await buyItem(user.id, detail.id, detail.int_price, contact);
 
       await refresh();
@@ -228,7 +356,6 @@ export default function Market() {
       setDetail(null);
       Alert.alert('Tamamlandı', 'Satın alma oluşturuldu. Ekibimiz sizinle iletişime geçecek.');
     } catch (err: any) {
-      // iyimser stok geri al
       if (detail) {
         setRewards(prev =>
           prev.map(r => (r.id === detail.id ? { ...r, stock: (r.stock ?? 0) + 1 } : r)),
@@ -241,7 +368,6 @@ export default function Market() {
     }
   };
 
-  // ortak: tükendi rozeti
   const SoldOut = () => (
     <View
       pointerEvents="none"
@@ -260,7 +386,6 @@ export default function Market() {
     </View>
   );
 
-  // ---------- Header ----------
   const Header = () => (
     <View
       style={{
@@ -353,7 +478,6 @@ export default function Market() {
     </View>
   );
 
-  // ---------- Common atoms ----------
   const Space = ({ w = 0, h = 0 }: { w?: number; h?: number }) => <View style={{ width: s(w), height: s(h) }} />;
   const RowWrap = ({ title, children }: { title: string; children: React.ReactNode }) => (
     <View style={{ paddingHorizontal: s(16), marginTop: s(18) }}>
@@ -364,7 +488,6 @@ export default function Market() {
   const Img = ({ uri }: { uri: string | null }) =>
     uri ? <Image source={{ uri }} style={{ width: '100%', height: '100%' }} /> : null;
 
-  // ---------- PODIUM ----------
   const PodiumRow = ({ items }: { items: Reward[] }) => (
     <RowWrap title="Büyük Ödül">
       <FlatList
@@ -464,7 +587,6 @@ export default function Market() {
     );
   };
 
-  // ---------- HANGER ----------
   const HangerRow = ({ title, items }: { title: string; items: Reward[] }) => (
     <RowWrap title={title}>
       <View style={{ height: s(12), borderRadius: s(8), backgroundColor: '#E6E7EB', marginBottom: s(10) }} />
@@ -548,7 +670,6 @@ export default function Market() {
     );
   };
 
-  // ---------- ALUMINUM ----------
   const AluminumRow = ({ title, items }: { title: string; items: Reward[] }) => (
     <RowWrap title={title}>
       <View style={{ height: s(10), borderRadius: s(8), backgroundColor: '#E8ECF2', marginBottom: s(12) }} />
@@ -619,7 +740,6 @@ export default function Market() {
     </RowWrap>
   );
 
-  // ---------- GLASS ----------
   const GlassRow = ({ title, items }: { title: string; items: Reward[] }) => (
     <RowWrap title={title}>
       <View style={{ height: s(10), borderRadius: s(8), backgroundColor: '#DBEEFF', opacity: 0.7, marginBottom: s(10) }} />
@@ -702,7 +822,6 @@ export default function Market() {
     );
   };
 
-  // ---------- MINI PODIUMS ----------
   const MiniPodiumsRow = ({ title, items }: { title: string; items: Reward[] }) => (
     <RowWrap title={title}>
       <FlatList
@@ -762,7 +881,6 @@ export default function Market() {
     </RowWrap>
   );
 
-  // ---------- HOLOGRAM ----------
   const HoloRow = ({ title, items }: { title: string; items: Reward[] }) => (
     <RowWrap title={title}>
       <FlatList
@@ -840,7 +958,6 @@ export default function Market() {
     );
   };
 
-  // ---------- XP PACKS ----------
   const XPPacksRow = ({ title, items }: { title: string; items: Reward[] }) => (
     <RowWrap title={title}>
       <FlatList
@@ -927,12 +1044,17 @@ export default function Market() {
     );
   };
 
-  if (loading) {
+  if (loading || marketLoading) {
     return (
       <SafeAreaView style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff' }}>
-        <ActivityIndicator />
+        <ActivityIndicator color={ORANGE} size="large" />
       </SafeAreaView>
     );
+  }
+
+  // 🔥 EĞER MARKET KAPALIYSA LANSMAN EKRANI GÖSTERİLİR 🔥
+  if (marketStatus && !marketStatus.is_open) {
+    return <ClosedMarketScreen />;
   }
 
   return (
@@ -943,7 +1065,10 @@ export default function Market() {
         ListHeaderComponent={Header}
         stickyHeaderIndices={[0]}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: s(32) }}
+        contentContainerStyle={{
+          paddingBottom: ins.bottom + s(60),
+        }}
+        scrollIndicatorInsets={{ bottom: ins.bottom + s(30) }}
         renderItem={({ item }) => {
           switch (item.type) {
             case 'podium':
@@ -966,7 +1091,7 @@ export default function Market() {
         }}
       />
 
-      {/* ÜRÜN DETAY (opsiyonel modal) */}
+      {/* ÜRÜN DETAY MODAL */}
       <Modal visible={!!detail && !formOpen} transparent animationType="fade" onRequestClose={() => setDetail(null)}>
         <Pressable
           onPress={() => (purchasingRef.current ? null : setDetail(null))}
@@ -978,7 +1103,7 @@ export default function Market() {
               style={{
                 width: width - 28,
                 maxHeight: height - 120,
-                backgroundColor: '#fff',
+                backgroundColor: CARD_BG,
                 borderRadius: 18,
                 overflow: 'hidden',
                 borderWidth: 2,
@@ -992,16 +1117,11 @@ export default function Market() {
                 {(detail.stock ?? 0) < 1 && <SoldOut />}
               </View>
               <View style={{ padding: 14 }}>
-                <Text style={{ fontSize: 18, fontWeight: '900', textAlign: 'center' }}>{detail.name}</Text>
+                <Text style={{ fontSize: 18, fontWeight: '900', textAlign: 'center', color: INPUT_TEXT }}>{detail.name}</Text>
                 {!!detail.description && (
                   <Text style={{ marginTop: 6, color: MUTED, textAlign: 'center' }}>{detail.description}</Text>
                 )}
-                <View
-                  style={{
-                    marginTop: 12,
-                    alignItems: 'center',
-                  }}
-                >
+                <View style={{ marginTop: 12, alignItems: 'center' }}>
                   <Text style={{ color: MUTED }}>Fiyat</Text>
                   <Text style={{ fontWeight: '900', color: ORANGE }}>
                     {detail.int_price.toLocaleString('tr-TR')} XP
@@ -1035,93 +1155,159 @@ export default function Market() {
       </Modal>
 
       {/* SATIN ALMA FORMU */}
-      <Modal visible={formOpen} transparent animationType="slide" onRequestClose={() => (purchasingRef.current ? null : setFormOpen(false))}>
-        
-        <Pressable
-          onPress={() => (purchasingRef.current ? null : setFormOpen(false))}
-          
-          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center' }}
-          
+      <Modal
+        visible={formOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => (purchasingRef.current ? null : setFormOpen(false))}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? s(40) : 0}
+          style={{ flex: 1 }}
         >
           <Pressable
-            onPress={e => e.stopPropagation()}
-            style={{
-              width: width - 28,
-              backgroundColor: '#fff',
-              borderRadius: 18,
-              overflow: 'hidden',
-              borderWidth: 2,
-              borderColor: ORANGE,
-              opacity: purchasingRef.current ? 0.8 : 1,
-            }}
-            pointerEvents={purchasingRef.current ? 'none' : 'auto'}
+            onPress={() => (purchasingRef.current ? null : setFormOpen(false))}
+            style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center' }}
           >
-            <View style={{ padding: 14 }}>
-              <Text style={{ fontSize: 18, fontWeight: '900', textAlign: 'center' }}>İletişim & Adres</Text>
-
-              <TextInput
-                placeholder="Ad Soyad *"
-                value={contact.full_name}
-                onChangeText={t => setContact(c => ({ ...c, full_name: t }))}
-                style={{ borderWidth: 1, borderColor: '#eee', borderRadius: 10, padding: 10, marginTop: 10 }}
-              />
-              <TextInput
-                placeholder="E-posta"
-                value={contact.email}
-                onChangeText={t => setContact(c => ({ ...c, email: t }))}
-                autoCapitalize="none"
-                keyboardType="email-address"
-                style={{ borderWidth: 1, borderColor: '#eee', borderRadius: 10, padding: 10, marginTop: 10 }}
-              />
-              <TextInput
-                placeholder="Telefon *"
-                value={contact.phone}
-                onChangeText={t => setContact(c => ({ ...c, phone: t }))}
-                keyboardType="phone-pad"
-                style={{ borderWidth: 1, borderColor: '#eee', borderRadius: 10, padding: 10, marginTop: 10 }}
-              />
-              <TextInput
-                placeholder="Adres *"
-                value={contact.address}
-                onChangeText={t => setContact(c => ({ ...c, address: t }))}
-                multiline
-                style={{
-                  borderWidth: 1,
-                  borderColor: '#eee',
-                  borderRadius: 10,
-                  padding: 10,
-                  marginTop: 10,
-                  minHeight: 80,
-                  textAlignVertical: 'top',
+            <Pressable
+              onPress={e => e.stopPropagation()}
+              style={{
+                width: width - 28,
+                backgroundColor: CARD_BG,
+                borderRadius: 18,
+                overflow: 'hidden',
+                borderWidth: 2,
+                borderColor: ORANGE,
+                opacity: purchasingRef.current ? 0.8 : 1,
+                maxHeight: height - 120,
+              }}
+              pointerEvents={purchasingRef.current ? 'none' : 'auto'}
+            >
+              <ScrollView
+                contentContainerStyle={{
+                  padding: 14,
+                  paddingBottom: 14 + ins.bottom + s(16),
                 }}
-              />
-              <TextInput
-                placeholder="Not (opsiyonel)"
-                value={contact.note}
-                onChangeText={t => setContact(c => ({ ...c, note: t }))}
-                style={{ borderWidth: 1, borderColor: '#eee', borderRadius: 10, padding: 10, marginTop: 10 }}
-              />
-
-              <TouchableOpacity
-                onPress={submitPurchase}
-                disabled={pendingId === detail?.id || purchasingRef.current}
-                style={{
-                  marginTop: 12,
-                  backgroundColor: ORANGE,
-                  paddingVertical: 12,
-                  borderRadius: 12,
-                  alignItems: 'center',
-                }}
+                keyboardShouldPersistTaps="handled"
               >
-                {pendingId === detail?.id || purchasingRef.current ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <Text style={{ color: '#fff', fontWeight: '900' }}>Onayla ve Satın Al</Text>
-                )}
-              </TouchableOpacity>
-            </View>
+                <Text style={{ fontSize: 18, fontWeight: '900', textAlign: 'center', color: INPUT_TEXT }}>
+                  İletişim & Adres
+                </Text>
+
+                <TextInput
+                  placeholder="Ad Soyad *"
+                  placeholderTextColor={INPUT_PLACEHOLDER}
+                  value={contact.full_name}
+                  onChangeText={t => setContact(c => ({ ...c, full_name: t }))}
+                  style={{
+                    borderWidth: 1,
+                    borderColor: INPUT_BORDER,
+                    borderRadius: 10,
+                    padding: 10,
+                    marginTop: 10,
+                    color: INPUT_TEXT,
+                    backgroundColor: '#fff',
+                  }}
+                  selectionColor={ORANGE}
+                  returnKeyType="next"
+                />
+                <TextInput
+                  placeholder="E-posta"
+                  placeholderTextColor={INPUT_PLACEHOLDER}
+                  value={contact.email}
+                  onChangeText={t => setContact(c => ({ ...c, email: t }))}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                  style={{
+                    borderWidth: 1,
+                    borderColor: INPUT_BORDER,
+                    borderRadius: 10,
+                    padding: 10,
+                    marginTop: 10,
+                    color: INPUT_TEXT,
+                    backgroundColor: '#fff',
+                  }}
+                  selectionColor={ORANGE}
+                  returnKeyType="next"
+                />
+                <TextInput
+                  placeholder="Telefon *"
+                  placeholderTextColor={INPUT_PLACEHOLDER}
+                  value={contact.phone}
+                  onChangeText={t => setContact(c => ({ ...c, phone: t }))}
+                  keyboardType="phone-pad"
+                  style={{
+                    borderWidth: 1,
+                    borderColor: INPUT_BORDER,
+                    borderRadius: 10,
+                    padding: 10,
+                    marginTop: 10,
+                    color: INPUT_TEXT,
+                    backgroundColor: '#fff',
+                  }}
+                  selectionColor={ORANGE}
+                  returnKeyType="next"
+                />
+                <TextInput
+                  placeholder="Adres *"
+                  placeholderTextColor={INPUT_PLACEHOLDER}
+                  value={contact.address}
+                  onChangeText={t => setContact(c => ({ ...c, address: t }))}
+                  multiline
+                  style={{
+                    borderWidth: 1,
+                    borderColor: INPUT_BORDER,
+                    borderRadius: 10,
+                    padding: 10,
+                    marginTop: 10,
+                    minHeight: 80,
+                    textAlignVertical: 'top',
+                    color: INPUT_TEXT,
+                    backgroundColor: '#fff',
+                  }}
+                  selectionColor={ORANGE}
+                  returnKeyType="done"
+                />
+                <TextInput
+                  placeholder="Not (opsiyonel)"
+                  placeholderTextColor={INPUT_PLACEHOLDER}
+                  value={contact.note}
+                  onChangeText={t => setContact(c => ({ ...c, note: t }))}
+                  style={{
+                    borderWidth: 1,
+                    borderColor: INPUT_BORDER,
+                    borderRadius: 10,
+                    padding: 10,
+                    marginTop: 10,
+                    color: INPUT_TEXT,
+                    backgroundColor: '#fff',
+                  }}
+                  selectionColor={ORANGE}
+                  returnKeyType="done"
+                />
+
+                <TouchableOpacity
+                  onPress={submitPurchase}
+                  disabled={pendingId === detail?.id || purchasingRef.current}
+                  style={{
+                    marginTop: 12,
+                    backgroundColor: ORANGE,
+                    paddingVertical: 12,
+                    borderRadius: 12,
+                    alignItems: 'center',
+                  }}
+                >
+                  {pendingId === detail?.id || purchasingRef.current ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={{ color: '#fff', fontWeight: '900' }}>Onayla ve Satın Al</Text>
+                  )}
+                </TouchableOpacity>
+              </ScrollView>
+            </Pressable>
           </Pressable>
-        </Pressable>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );

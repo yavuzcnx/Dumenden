@@ -1,7 +1,9 @@
 {
-  "cli": { "version": ">= 5.0.0", "appVersionSource": "remote" },
+ "cli": { "appVersionSource": "local" }
+,
   "build": {
     "production": {
+      "distribution": "store",
       "android": { "buildType": "app-bundle" },
       "developmentClient": false,
       "env": { "NODE_ENV": "production" }

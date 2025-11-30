@@ -1,34 +1,77 @@
 {
   "expo": {
-    "name": "dumenden",
+    "name": "Dümenden",
     "slug": "dumenden",
     "scheme": "dumenden",
-    "version": "1.0.0",
-    "orientation": "portrait",
+    "version": "1.2.8",
+    "orientation": "default",
+    "userInterfaceStyle": "light",
+
     "icon": "./assets/images/icon.png",
+
     "splash": {
       "image": "./assets/images/splash-icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
+
+    "androidStatusBar": {
+      "translucent": true,
+      "backgroundColor": "#00000000",
+      "barStyle": "dark-content"
+    },
+
+    "androidNavigationBar": {
+      "backgroundColor": "#00000000",
+      "barStyle": "dark-content",
+      "behavior": "inset-swipe"
+    },
+
     "android": {
       "package": "com.dumenden.app",
-      "versionCode": 1,
+      "versionCode": 30,
+      "permissions": [
+        "com.android.vending.BILLING",
+        "com.google.android.gms.permission.AD_ID"
+      ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#FFFFFF"
-      }
+      },
+      "softwareKeyboardLayoutMode": "resize"
     },
+
     "ios": {
       "bundleIdentifier": "com.dumenden.app",
-      "buildNumber": "1",
+      "buildNumber": "5",
       "infoPlist": {
-        "NSUserTrackingUsageDescription": "Reklamları daha alakalı gösterebilmek için izleme iznine ihtiyaç duyuyoruz."
+        "NSUserTrackingUsageDescription": "Reklamları daha alakalı gösterebilmek için izleme iznine ihtiyaç duyuyoruz.",
+        "SKAdNetworkItems": [
+          { "SKAdNetworkIdentifier": "cstr6suwn9.skadnetwork" }
+        ]
       }
     },
-    "plugins": ["expo-web-browser"],
+
+    "plugins": [
+      "expo-web-browser",
+      [
+        "react-native-google-mobile-ads",
+        {
+          "androidAppId": "ca-app-pub-3837426346942059~8256189809",
+          "iosAppId": "ca-app-pub-3940256099942544~1458002511"
+        }
+      ],
+      "expo-router",
+      "expo-secure-store",
+      "expo-navigation-bar"
+    ],
+
     "extra": {
       "eas": { "projectId": "b5bad7ff-9465-44fe-aaad-191ac9957eb7" }
-    }
+    },
+
+    "updates": { "enabled": false },
+    "runtimeVersion": { "policy": "appVersion" },
+    "experiments": { "typedRoutes": true }
   }
 }

@@ -2,13 +2,21 @@ import { supabase } from '@/lib/supabaseClient';
 import { usePlus } from '@/src/contexts/hooks/usePlus';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Image, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Image,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
+} from 'react-native';
 
 const BRAND  = '#FF6B00';
 const SOFT   = '#FFF2E8';
 const BORDER = '#F2D9C8';
 
-// 👇 dosya adın farklıysa değiştir
 const MASCOT_SRC = require('@/assets/images/dumendenci.png');
 
 type Quota = { is_plus: boolean; used_last7: number; remaining_last7: number };
@@ -18,7 +26,10 @@ export default function PlusHome() {
   const { isPlus, loading } = usePlus();
 
   const [busy, setBusy] = useState(true);
-  const [user, setUser] = useState<{ name: string; xp: number; avatar?: string | null }>({ name: 'Kullanıcı', xp: 0 });
+  const [user, setUser] = useState<{ name: string; xp: number; avatar?: string | null }>({
+    name: 'Kullanıcı',
+    xp: 0
+  });
   const [quota, setQuota] = useState<Quota | null>(null);
 
   useEffect(() => {
@@ -27,8 +38,12 @@ export default function PlusHome() {
       const uid = au?.user?.id;
       if (!uid) { setBusy(false); return; }
 
-      const { data } = await supabase.from('users')
-        .select('full_name,xp,avatar_url').eq('id', uid).single();
+      const { data } = await supabase
+        .from('users')
+        .select('full_name,xp,avatar_url')
+        .eq('id', uid)
+        .single();
+
       setUser({
         name: (data?.full_name || 'Kullanıcı').trim(),
         xp: data?.xp ?? 0,
@@ -55,16 +70,15 @@ export default function PlusHome() {
   }
 
   /* ---- ROUTES ---- */
-  const goDaily    = () => router.push('/dailyentry');
-  const goShop     = () => router.push('/xpshop');
   const goCreate   = () => router.push('/(modals)/create');
   const goManage   = () => router.push('/plus/manage');
   const goProof    = () => router.push('/plus/proofs');
-  const goResolve = () => router.push('/plus/resolve'); // yeni sayfa
+  const goResolve  = () => router.push('/plus/resolve');
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 28 }}>
+        
         {/* HEADER */}
         <View style={styles.header}>
           <Image source={MASCOT_SRC} style={styles.mascot} />
@@ -79,36 +93,39 @@ export default function PlusHome() {
 
         {/* KISA KISAYOLLAR */}
         <View style={styles.shortRow}>
-          <SmallCard title="Günlük Giriş" subtitle="XP toplama ödülleri" icon="📅" onPress={goDaily} />
-          <SmallCard title="İndirimli XP"  subtitle="%10 Plus indirimi"  icon="💸" onPress={goShop} />
+          <SmallCard title="Günlük Giriş" subtitle="XP toplama ödülleri" icon="📅" disabled={true} />
+          <SmallCard title="İndirimli XP" subtitle="%10 Plus indirimi" icon="💸" disabled={true} />
         </View>
 
         {/* KUPON İŞLERİ */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Kupon İşlemleri</Text>
 
-          {/* Hak bilgisi */}
+          {/* 🔥 KOTA: SABİT 5 HAK */}
           <View style={styles.quotaRow}>
             <Text style={styles.quotaBig}>{quota?.remaining_last7 ?? 0}</Text>
-            <Text style={{ fontWeight: '800' }}>/ 1</Text>
-            <Text style={{ color: '#666' }}>(kullanılan: {quota?.used_last7 ?? 0})</Text>
+            <Text style={{ fontWeight: '800' }}>/ 5</Text>
+            <Text style={{ color: '#666' }}>
+              (kullanılan: {quota?.used_last7 ?? 0})
+            </Text>
           </View>
 
-          {/* Butonlar */}
           <View style={{ gap: 8 }}>
             <PrimaryButton label="Kupon Ekle" onPress={goCreate} />
-            <GhostButton   label="Kuponlarımı Yönet" onPress={goManage} />
-            <GhostButton   label="Kuponuma Kanıt Ekle" onPress={goProof} />
-             <GhostButton   label="Kazananı Belirle" onPress={goResolve} />
-             <GhostButton label="Oynadıklarım" onPress={() => router.push('/my-bets')} />
+            <GhostButton label="Kuponlarımı Yönet" onPress={goManage} />
+            <GhostButton label="Kuponuma Kanıt Ekle" onPress={goProof} />
+            <GhostButton label="Kazananı Belirle" onPress={goResolve} />
+            <GhostButton label="Oynadıklarım" onPress={() => router.push('/my-bets')} />
           </View>
         </View>
+
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-/* ---- UI Primitives ---- */
+/* ---- UI ---- */
+
 function PrimaryButton({ label, onPress }: { label: string; onPress: () => void }) {
   return (
     <TouchableOpacity onPress={onPress} style={styles.primaryBtn}>
@@ -116,6 +133,7 @@ function PrimaryButton({ label, onPress }: { label: string; onPress: () => void 
     </TouchableOpacity>
   );
 }
+
 function GhostButton({ label, onPress }: { label: string; onPress: () => void }) {
   return (
     <TouchableOpacity onPress={onPress} style={styles.ghostBtn}>
@@ -123,18 +141,47 @@ function GhostButton({ label, onPress }: { label: string; onPress: () => void })
     </TouchableOpacity>
   );
 }
-function SmallCard({ title, subtitle, icon, onPress }:
-  { title: string; subtitle: string; icon: string; onPress: () => void }) {
+
+function SmallCard({
+  title,
+  subtitle,
+  icon,
+  onPress,
+  disabled = false
+}: {
+  title: string;
+  subtitle: string;
+  icon: string;
+  onPress?: () => void;
+  disabled?: boolean;
+}) {
   return (
-    <TouchableOpacity onPress={onPress} style={styles.smallCard}>
+    <TouchableOpacity
+      onPress={disabled ? undefined : onPress}
+      activeOpacity={disabled ? 1 : 0.8}
+      style={[styles.smallCard, disabled && { opacity: 0.35 }]}
+    >
       <Text style={{ fontSize: 20, marginBottom: 6 }}>{icon}</Text>
       <Text style={{ fontWeight: '900', textAlign:'center' }}>{title}</Text>
       <Text style={{ color: '#666', textAlign:'center' }}>{subtitle}</Text>
+
+      {disabled && (
+        <Text style={{
+          marginTop: 6,
+          fontSize: 12,
+          color: BRAND,
+          fontWeight: '900',
+          textAlign: 'center'
+        }}>
+          Yakında Açılıyor 🔒
+        </Text>
+      )}
     </TouchableOpacity>
   );
 }
 
 /* ---- STYLES ---- */
+
 const styles = StyleSheet.create({
   header: {
     backgroundColor: SOFT,
@@ -170,6 +217,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff', alignItems: 'center',
     paddingVertical: 12, borderRadius: 12, borderWidth: 2, borderColor: BRAND,
   },
+
   smallCard: {
     flex: 1, backgroundColor: '#fff', borderWidth: 1, borderColor: '#eee',
     borderRadius: 16, padding: 14,

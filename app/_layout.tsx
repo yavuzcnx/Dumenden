@@ -1,4 +1,3 @@
-// app/_layout.tsx
 if (__DEV__) {
   require('@/lib/dev/noRawTextGuard');
 }
@@ -7,16 +6,28 @@ import BottomBar from '@/components/BottomBar';
 import { supabase } from '@/lib/supabaseClient';
 import { XpProvider } from '@/src/contexts/XpProvider';
 import { Stack, usePathname, useRouter } from 'expo-router';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Platform, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+
+import { ensureBootstrapAndProfile } from '@/lib/bootstrap';
+import { useInterstitial } from '@/src/contexts/ads/interstitial';
+import { initAds } from '@/src/contexts/lib/ads';
 
 export default function RootLayout() {
   const pathname = usePathname();
   const router = useRouter();
   const didInit = useRef(false);
+  const [adsInitDone, setAdsInitDone] = useState(false);
 
-  // ——— auth guard ———
+  // Reklam başlangıç
+  useEffect(() => {
+    (async () => {
+      try { await initAds(); } catch {}
+      setAdsInitDone(true);
+    })();
+  }, []);
+
   useEffect(() => {
     let mounted = true;
 
@@ -27,58 +38,69 @@ export default function RootLayout() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!mounted) return;
 
-      const isAuthed = !!session?.user;
-      const onAuthScreen =
-        pathname?.startsWith('/login') || pathname?.startsWith('/register');
-
-      if (isAuthed && onAuthScreen) router.replace('/home');
-      else if (!isAuthed && !onAuthScreen) router.replace('/login');
+      if (session?.user) {
+        await ensureBootstrapAndProfile().catch(console.warn);
+      }
     })();
 
-    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
+    // Auth event listener
+    const { data: sub } = supabase.auth.onAuthStateChange(async (event, session) => {
+      
       if (event === 'SIGNED_IN') {
-        if (!pathname?.startsWith('/home')) router.replace('/home');
+        if (session?.user) {
+          await ensureBootstrapAndProfile().catch(console.warn);
+        }
+        // Yönlendirmeyi burada yapmıyoruz, Login sayfası veya ilgili sayfa kendi karar versin.
+        // Burası global state'i yönetir.
       }
+
       if (event === 'SIGNED_OUT') {
-        if (!pathname?.startsWith('/login')) router.replace('/login');
+        router.replace('/login');
       }
     });
 
     return () => {
       try { sub.subscription.unsubscribe(); } catch {}
+      mounted = false;
     };
   }, [pathname, router]);
 
-  // BottomBar’ı gizleyeceğin rotalar
+  // Alt bar görünmez sayfalar
+  // 🔥 DÜZELTME: /reset-password BURAYA EKLENDİ
   const hideOn = [
-    '/login','/register','/splash','/(modals)/create',
-    '/(modals)/plus-paywall','/admin','/edit-coupons'
+    '/login',
+    '/register',
+    '/google-auth',
+    '/splash',
+    '/reset-password', // <-- ARTIK ALT BAR BURADA ÇIKMAYACAK
+    '/admin',
+    
   ];
   const hide = hideOn.some((p) => pathname?.startsWith(p));
+
+  if (!adsInitDone) return null;
 
   return (
     <SafeAreaProvider>
       <XpProvider>
         <View style={{ flex: 1 }}>
-          {/* ——— Native Stack: iOS swipe-back burada çalışır ——— */}
+          <NavigationWatcher />
+          <GlobalAdTimer />
+
           <Stack
             screenOptions={{
               headerShown: false,
               gestureEnabled: true,
-              // iOS: kenarın tamamından geri çek
               fullScreenGestureEnabled: Platform.OS === 'ios',
-              // iOS yatay gesture, Android için hoş bir varsayılan animasyon
               gestureDirection: 'horizontal',
               animation:
                 Platform.OS === 'ios' ? 'slide_from_right' : 'fade_from_bottom',
             }}
           >
-            {/* Modalların iOS tarzı açılması için (grup adı klasörün) */}
             <Stack.Screen
               name="(modals)"
               options={{ presentation: 'modal', animation: 'fade_from_bottom' }}
             />
-            {/* Diğer ekranlar otomatik olarak eklenecek; ekstra belirtmen gerekmiyor */}
           </Stack>
 
           {!hide && <BottomBar />}
@@ -86,4 +108,46 @@ export default function RootLayout() {
       </XpProvider>
     </SafeAreaProvider>
   );
+}
+
+// ⭐ NAVIGATION WATCHER
+function NavigationWatcher() {
+  const pathname = usePathname();
+  const prevPathRef = useRef<string | null>(null);
+  const { registerNavTransition, showIfEligible } = useInterstitial();
+
+  useEffect(() => {
+    if (prevPathRef.current !== null && prevPathRef.current !== pathname) {
+      (async () => {
+        await registerNavTransition();
+        await showIfEligible("nav");
+      })();
+
+      (async () => {
+        await showIfEligible("home_enter");
+      })();
+    }
+
+    prevPathRef.current = pathname || null;
+  }, [pathname]);
+
+  return null;
+}
+
+// ⭐ GLOBAL TIMER
+function GlobalAdTimer() {
+  const { showIfEligible } = useInterstitial();
+  const intervalRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    intervalRef.current = setInterval(() => {
+      showIfEligible("home_enter");
+    }, 15000); 
+
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, []);
+
+  return null;
 }

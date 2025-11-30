@@ -1,145 +1,101 @@
 'use client';
 import { supabase } from '@/lib/supabaseClient';
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 
-type SetLike = number | ((prev: number) => number);
-
-type Ctx = {
+type XpContextType = {
   xp: number;
   loading: boolean;
-  /** sunucudan yeniden oku */
   refresh: () => Promise<void>;
-  /** ekranda anında güncellemek için (optimistik de kullanılabilir) */
-  setXp: (next: SetLike) => void;
+  setXp: (v: number | ((p: number) => number)) => void;
   uid?: string;
-  lastError?: string;
 };
 
-const XpCtx = createContext<Ctx>({
+const XpCtx = createContext<XpContextType>({
   xp: 0,
   loading: true,
   refresh: async () => {},
   setXp: () => {},
+  uid: undefined,
 });
 
 export function XpProvider({ children }: { children: React.ReactNode }) {
-  const [xp, _setXp] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [xp, _setXp] = useState<number>(0);
+  const [loading, setLoading] = useState<boolean>(true);
   const [uid, setUid] = useState<string | undefined>(undefined);
-  const [lastError, setLastError] = useState<string | undefined>(undefined);
 
-  const setXp = (next: SetLike) => {
-    _setXp((prev) => (typeof next === 'function' ? (next as any)(prev) : next));
+  const setXp = (v: number | ((p: number) => number)) => {
+    _setXp((prev) => (typeof v === 'function' ? (v as any)(prev) : v));
   };
 
+  // XP çekme işlemi
   const refresh = async () => {
-    try {
-      setLastError(undefined);
+    const { data: auth } = await supabase.auth.getUser();
+    const user = auth?.user;
 
-      const { data: auth } = await supabase.auth.getUser();
-      const u = auth?.user;
-      if (!u) {
-        setUid(undefined);
-        _setXp(0);
-        return;
-      }
-      setUid(u.id);
-
-      // ---- 1) Öncelik: get_user_xp RPC (varsa) ----
-      let rpcXp: number | null = null;
-      const r1 = await supabase.rpc('get_user_xp', { uid: u.id as any });
-      if (!r1.error && r1.data != null) {
-        rpcXp = Number(r1.data);
-      } else {
-        const r2 = await supabase.rpc('get_user_xp');
-        if (!r2.error && r2.data != null) rpcXp = Number(r2.data);
-      }
-      if (rpcXp !== null && !Number.isNaN(rpcXp)) {
-        _setXp(rpcXp);
-        return;
-      }
-
-      // ---- 2) Wallet ----
-      const wres = await supabase
-        .from('xp_wallets')
-        .select('balance')
-        .eq('user_id', u.id)
-        .single();
-
-      if (!wres.error && wres.data) {
-        _setXp(Number(wres.data.balance ?? 0));
-        return;
-      }
-
-      // ---- 3) Fallback: users.xp (eski alan) ----
-      const ures = await supabase.from('users').select('xp').eq('id', u.id).single();
-      if (!ures.error && ures.data) {
-        const ux = Number(ures.data?.xp ?? 0);
-        _setXp(Number.isNaN(ux) ? 0 : ux);
-      } else {
-        _setXp(0);
-        if (wres.error) setLastError(wres.error.message);
-        if (ures.error) setLastError((prev) => prev ?? ures.error.message);
-      }
-    } catch (e: any) {
-      setLastError(e?.message || String(e));
+    if (!user) {
+      setUid(undefined);
       _setXp(0);
+      return;
     }
+
+    setUid(user.id);
+
+    const { data } = await supabase
+      .from('xp_wallets')
+      .select('balance')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    _setXp(Number(data?.balance ?? 0));
   };
 
+  // İlk açılış
   useEffect(() => {
-    let mounted = true;
     (async () => {
       await refresh();
       setLoading(false);
-
-      const { data: auth } = await supabase.auth.getUser();
-      const me = auth?.user?.id;
-
-      // Realtime: önce wallet, sonra users (xp değişirse otomatik yansısın)
-      const ch = supabase
-        .channel('rt-users-xp')
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'xp_wallets', filter: me ? `user_id=eq.${me}` : undefined },
-          () => {
-            if (mounted) refresh();
-          },
-        )
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'users', filter: me ? `id=eq.${me}` : undefined },
-          () => {
-            if (mounted) refresh();
-          },
-        )
-        .subscribe();
-
-      const { data: authSub } = supabase.auth.onAuthStateChange((_e, session) => {
-        if (!mounted) return;
-        if (!session?.user) {
-          setUid(undefined);
-          _setXp(0);
-        } else {
-          refresh();
-        }
-      });
-
-      return () => {
-        mounted = false;
-        try {
-          supabase.removeChannel(ch);
-        } catch {}
-        try {
-          authSub?.subscription?.unsubscribe?.();
-        } catch {}
-      };
     })();
+
+    const { data: listener } = supabase.auth.onAuthStateChange(() => refresh());
+    return () => listener.subscription.unsubscribe();
   }, []);
 
+  // UID varsa realtime aç
+useEffect(() => {
+  if (!uid) return;
+
+  const channel = supabase
+    .channel('rt_xp_wallets')
+    .on(
+      'postgres_changes',
+      { schema: 'public', table: 'xp_wallets', event: '*' },
+      (payload: any) => {
+        if (payload?.new?.user_id === uid) {
+          _setXp(Number(payload.new.balance ?? 0));
+        }
+      }
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}, [uid]);
   const value = useMemo(
-    () => ({ xp, loading, refresh, setXp, uid, lastError }),
-    [xp, loading, uid, lastError],
+    () => ({
+      xp,
+      loading,
+      refresh,
+      setXp,
+      uid,
+    }),
+    [xp, loading, uid]
   );
 
   return <XpCtx.Provider value={value}>{children}</XpCtx.Provider>;

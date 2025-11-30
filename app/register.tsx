@@ -1,4 +1,3 @@
-// app/register.tsx
 'use client';
 
 import { supabase } from '@/lib/supabaseClient';
@@ -23,8 +22,21 @@ import {
   View,
 } from 'react-native';
 
-/** ===== Versiyon & Metinler ===== */
-const CONSENT_VERSION = '2025-10-16'; // metin güncellerken artır
+const COLORS = {
+  bg: '#FFFFFF',
+  text: '#111111',
+  sub: '#333333',
+  inputBg: '#FFFFFF',
+  border: '#E0E0E0',
+  placeholder: '#9AA0A6',
+  primary: '#FF6B00',
+  link: '#0066CC',
+  error: '#D32F2F',
+  valid: '#2E7D32',
+  invalid: '#888888',
+};
+
+const CONSENT_VERSION = '2025-10-16';
 
 const TEXT_KVKK = `
 DÜMENDEN – KVKK AYDINLATMA METNİ
@@ -81,7 +93,7 @@ export default function RegisterPage() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
-  const [birthDate, setBirthDate] = useState(''); // "YYYY.MM.DD"
+  const [birthDate, setBirthDate] = useState('');
 
   // ui
   const [error, setError] = useState('');
@@ -96,7 +108,7 @@ export default function RegisterPage() {
     special: false,
   });
 
-  // KVKK & Açık Rıza onayları + modal
+  // KVKK & Açık Rıza
   const [acceptKvkk, setAcceptKvkk] = useState(false);
   const [acceptConsent, setAcceptConsent] = useState(false);
   const [showKvkk, setShowKvkk] = useState(false);
@@ -136,23 +148,22 @@ export default function RegisterPage() {
       return;
     }
 
-    // onay meta
     const consentAt = new Date().toISOString();
     const kvkkHash = await sha256(TEXT_KVKK.trim());
     const explicitHash = await sha256(TEXT_CONSENT.trim());
     const userAgentLike = `${Constants?.appOwnership || 'expo'}/${Constants?.nativeAppVersion || '1.0.0'} (${Platform.OS} ${Platform.Version})`;
 
-    // 1) Auth kaydı + metadata
+    // Auth kaydı (emailRedirectTo opsiyonel, Supabase panelinden de yönetilebilir)
     const { error: signUpError } = await supabase.auth.signUp({
       email,
       password,
       options: {
+        emailRedirectTo: 'dumenden://login',
         data: {
           full_name: fullName || null,
           phone_number: phone || null,
-          birth_date: birthDate || null, // "YYYY.MM.DD"
+          birth_date: birthDate || null,
 
-          // kayıt üstü meta (gösterme amaçlı)
           kvkk_consent: true,
           kvkk_consent_version: CONSENT_VERSION,
           kvkk_consent_at: consentAt,
@@ -168,9 +179,8 @@ export default function RegisterPage() {
       return;
     }
 
-    // 2) Fallback: metadata + onay taslakları local'e yaz
+    // 3) Fallback (Draft kaydı)
     try {
-      // profil taslağı
       await AsyncStorage.setItem(
         `registerDraft:${email.toLowerCase()}`,
         JSON.stringify({
@@ -186,7 +196,6 @@ export default function RegisterPage() {
         })
       );
 
-      // user_consents tablosu için onay taslağı
       await AsyncStorage.setItem(
         `consentDraft:${email.toLowerCase()}`,
         JSON.stringify({
@@ -200,19 +209,21 @@ export default function RegisterPage() {
           user_agent: userAgentLike,
         })
       );
-    } catch {
-      // yutsun
-    }
+    } catch {}
 
-    // Mail onayı flow
     setSuccess('verify');
     setTimeout(() => router.replace('/login'), 2000);
   };
 
+  // GOOGLE REGISTER FONKSİYONU KALDIRILDI
+
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.wrapper}>
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <ScrollView contentContainerStyle={styles.scrollInner} keyboardShouldPersistTaps="handled">
+        <ScrollView
+          contentContainerStyle={styles.scrollInner}
+          keyboardShouldPersistTaps="handled"
+        >
           <View style={styles.container}>
             <Image source={require('../assets/images/logo.png')} style={styles.logo} />
             <Text style={styles.title}>Kayıt Ol</Text>
@@ -226,8 +237,25 @@ export default function RegisterPage() {
               </View>
             ) : (
               <>
-                <TextInput placeholder="Ad Soyad" value={fullName} onChangeText={setFullName} style={styles.input} />
-                <TextInput placeholder="Telefon" value={phone} onChangeText={setPhone} style={styles.input} keyboardType="phone-pad" />
+                <TextInput
+                  placeholder="Ad Soyad"
+                  value={fullName}
+                  onChangeText={setFullName}
+                  style={styles.input}
+                  placeholderTextColor={COLORS.placeholder}
+                  selectionColor={COLORS.primary}
+                />
+                <TextInput
+                  placeholder="Telefon"
+                  value={phone}
+                  onChangeText={setPhone}
+                  style={styles.input}
+                  keyboardType="phone-pad"
+                  placeholderTextColor={COLORS.placeholder}
+                  selectionColor={COLORS.primary}
+                  autoComplete="tel"
+                  textContentType="telephoneNumber"
+                />
                 <TextInput
                   placeholder="Doğum Tarihi (YYYY.MM.DD)"
                   value={birthDate}
@@ -235,6 +263,8 @@ export default function RegisterPage() {
                   style={styles.input}
                   keyboardType="numeric"
                   maxLength={10}
+                  placeholderTextColor={COLORS.placeholder}
+                  selectionColor={COLORS.primary}
                 />
                 <TextInput
                   placeholder="E-posta"
@@ -243,17 +273,34 @@ export default function RegisterPage() {
                   style={styles.input}
                   keyboardType="email-address"
                   autoCapitalize="none"
+                  placeholderTextColor={COLORS.placeholder}
+                  selectionColor={COLORS.primary}
+                  autoComplete="email"
+                  textContentType="emailAddress"
                 />
-                <TextInput placeholder="Şifre" value={password} onChangeText={setPassword} style={styles.input} secureTextEntry />
+                <TextInput
+                  placeholder="Şifre"
+                  value={password}
+                  onChangeText={setPassword}
+                  style={styles.input}
+                  secureTextEntry
+                  placeholderTextColor={COLORS.placeholder}
+                  selectionColor={COLORS.primary}
+                  autoComplete="password-new"
+                  textContentType="newPassword"
+                />
                 <TextInput
                   placeholder="Şifre Tekrar"
                   value={confirmPassword}
                   onChangeText={setConfirmPassword}
                   style={styles.input}
                   secureTextEntry
+                  placeholderTextColor={COLORS.placeholder}
+                  selectionColor={COLORS.primary}
+                  autoComplete="password-new"
+                  textContentType="newPassword"
                 />
 
-                {/* Şifre kuralları */}
                 <View style={{ marginBottom: 10 }}>
                   <Text style={rules.length ? styles.valid : styles.invalid}>• En az 8 karakter</Text>
                   <Text style={rules.upper ? styles.valid : styles.invalid}>• Büyük harf</Text>
@@ -262,7 +309,6 @@ export default function RegisterPage() {
                   <Text style={rules.special ? styles.valid : styles.invalid}>• Özel karakter (!@#)</Text>
                 </View>
 
-                {/* KVKK ve Açık Rıza onayları */}
                 <View style={styles.checkRow}>
                   <TouchableOpacity
                     onPress={() => setAcceptKvkk((v) => !v)}
@@ -273,8 +319,8 @@ export default function RegisterPage() {
                   <Text style={styles.checkText}>
                     <Text onPress={() => setShowKvkk(true)} style={styles.linkInline}>
                       KVKK Aydınlatma Metni
-                    </Text>
-                    {' '}metnini okudum ve anladım.
+                    </Text>{' '}
+                    metnini okudum ve anladım.
                   </Text>
                 </View>
 
@@ -289,8 +335,8 @@ export default function RegisterPage() {
                     Kişisel verilerimin işlenmesine{' '}
                     <Text onPress={() => setShowConsent(true)} style={styles.linkInline}>
                       Açık Rıza Metni
-                    </Text>
-                    {' '}kapsamında açık rıza veriyorum.
+                    </Text>{' '}
+                    kapsamında açık rıza veriyorum.
                   </Text>
                 </View>
 
@@ -304,10 +350,7 @@ export default function RegisterPage() {
                   <Text style={styles.buttonText}>Kayıt Ol</Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity style={styles.googleButton}>
-                  <AntDesign name="google" size={20} color="#444" style={{ marginRight: 8 }} />
-                  <Text style={styles.googleText}>Google ile Kayıt Ol</Text>
-                </TouchableOpacity>
+                {/* GOOGLE BUTONU KALDIRILDI */}
 
                 <TouchableOpacity onPress={() => router.replace('/login')}>
                   <Text style={styles.link}>Zaten hesabın var mı? Giriş Yap</Text>
@@ -318,7 +361,6 @@ export default function RegisterPage() {
         </ScrollView>
       </TouchableWithoutFeedback>
 
-      {/* KVKK Modal */}
       <Modal visible={showKvkk} animationType="slide" onRequestClose={() => setShowKvkk(false)}>
         <View style={styles.modalWrap}>
           <Text style={styles.modalTitle}>KVKK Aydınlatma Metni</Text>
@@ -334,7 +376,7 @@ export default function RegisterPage() {
                 setAcceptKvkk(true);
                 setShowKvkk(false);
               }}
-              style={[styles.modalBtn, { backgroundColor: '#FF6B00' }]}
+              style={[styles.modalBtn, { backgroundColor: COLORS.primary }]}
             >
               <Text style={[styles.modalBtnText, { color: '#fff' }]}>Okudum / Onaylıyorum</Text>
             </TouchableOpacity>
@@ -342,7 +384,6 @@ export default function RegisterPage() {
         </View>
       </Modal>
 
-      {/* Açık Rıza Modal */}
       <Modal visible={showConsent} animationType="slide" onRequestClose={() => setShowConsent(false)}>
         <View style={styles.modalWrap}>
           <Text style={styles.modalTitle}>Açık Rıza Metni</Text>
@@ -358,7 +399,7 @@ export default function RegisterPage() {
                 setAcceptConsent(true);
                 setShowConsent(false);
               }}
-              style={[styles.modalBtn, { backgroundColor: '#FF6B00' }]}
+              style={[styles.modalBtn, { backgroundColor: COLORS.primary }]}
             >
               <Text style={[styles.modalBtnText, { color: '#fff' }]}>Rıza Veriyorum</Text>
             </TouchableOpacity>
@@ -370,67 +411,93 @@ export default function RegisterPage() {
 }
 
 const styles = StyleSheet.create({
-  wrapper: { flex: 1, backgroundColor: '#fff' },
-  scrollInner: { flexGrow: 1, justifyContent: 'center', padding: 24, paddingBottom: 40 },
-  container: { width: '100%' },
+  wrapper: { flex: 1, backgroundColor: COLORS.bg },
+  scrollInner: { flexGrow: 1, justifyContent: 'center', padding: 24, paddingBottom: 80 },
+  container: { width: '100%', backgroundColor: COLORS.bg },
   logo: { width: 96, height: 96, alignSelf: 'center', marginBottom: 12, marginTop: 8 },
-  title: { fontSize: 26, fontWeight: 'bold', textAlign: 'center', marginBottom: 16 },
+  title: { fontSize: 26, fontWeight: 'bold', textAlign: 'center', marginBottom: 16, color: COLORS.text },
+
   input: {
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: COLORS.border,
     borderRadius: 12,
     padding: 12,
     marginBottom: 14,
     fontSize: 16,
-    backgroundColor: '#f9f9f9',
+    backgroundColor: COLORS.inputBg,
+    color: COLORS.text,
   },
 
-  // onay satırları
   checkRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
   checkBox: {
     width: 22,
     height: 22,
     borderRadius: 6,
     borderWidth: 1.5,
-    borderColor: '#ccc',
+    borderColor: COLORS.border,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 10,
-    backgroundColor: '#fff',
+    backgroundColor: COLORS.bg,
   },
-  checkBoxOn: { backgroundColor: '#FF6B00', borderColor: '#FF6B00' },
-  checkText: { flex: 1, color: '#333' },
-  linkInline: { color: '#0066cc', fontWeight: '700' },
+  checkBoxOn: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
+  checkText: { flex: 1, color: COLORS.sub },
+  linkInline: { color: COLORS.link, fontWeight: '700' },
 
-  button: { backgroundColor: '#FF6B00', padding: 14, borderRadius: 12, alignItems: 'center', marginTop: 6 },
-  buttonText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
-  link: { marginTop: 20, textAlign: 'center', color: '#0066cc', fontSize: 14 },
-  error: { color: 'red', textAlign: 'center', marginBottom: 10 },
-  valid: { color: 'green', fontSize: 14 },
-  invalid: { color: 'gray', fontSize: 14 },
-
-  googleButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderColor: '#ccc',
-    borderWidth: 1,
-    padding: 12,
+  button: {
+    backgroundColor: COLORS.primary,
+    padding: 14,
     borderRadius: 12,
-    marginTop: 14,
+    alignItems: 'center',
+    marginTop: 6,
   },
-  googleText: { color: '#444', fontSize: 15, fontWeight: '500' },
+  buttonText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
 
-  notice: { borderWidth: 1, borderColor: '#C8E6C9', backgroundColor: '#E8F5E9', padding: 14, borderRadius: 12 },
-  noticeTitle: { fontWeight: '900', color: '#2E7D32', marginBottom: 6, textAlign: 'center' },
-  noticeText: { color: '#2E7D32', textAlign: 'center' },
+  link: {
+    marginTop: 20,
+    marginBottom: 32,
+    textAlign: 'center',
+    color: COLORS.link,
+    fontSize: 14,
+  },
 
-  // Modals
-  modalWrap: { flex: 1, backgroundColor: '#fff', paddingTop: 54, paddingHorizontal: 18, paddingBottom: 18 },
-  modalTitle: { fontSize: 20, fontWeight: '900', marginBottom: 12, color: '#111' },
+  error: { color: COLORS.error, textAlign: 'center', marginBottom: 10 },
+  valid: { color: COLORS.valid, fontSize: 14 },
+  invalid: { color: COLORS.invalid, fontSize: 14 },
+
+  // googleButton ve googleText stilleri artık kullanılmıyor, silebilirsin veya kalabilir, zararı yok.
+  
+  notice: {
+    borderWidth: 1,
+    borderColor: '#C8E6C9',
+    backgroundColor: '#E8F5E9',
+    padding: 14,
+    borderRadius: 12,
+  },
+  noticeTitle: {
+    fontWeight: '900',
+    color: COLORS.valid,
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  noticeText: { color: COLORS.valid, textAlign: 'center' },
+
+  modalWrap: {
+    flex: 1,
+    backgroundColor: COLORS.bg,
+    paddingTop: 54,
+    paddingHorizontal: 18,
+    paddingBottom: 18,
+  },
+  modalTitle: { fontSize: 20, fontWeight: '900', marginBottom: 12, color: COLORS.text },
   modalBody: { paddingBottom: 24 },
-  modalText: { color: '#333', lineHeight: 20 },
+  modalText: { color: COLORS.sub, lineHeight: 20 },
   modalFooter: { flexDirection: 'row', gap: 10, justifyContent: 'flex-end', paddingTop: 8 },
-  modalBtn: { paddingVertical: 12, paddingHorizontal: 14, borderRadius: 10, backgroundColor: '#F3F4F6' },
-  modalBtnText: { fontWeight: '800', color: '#111' },
+  modalBtn: {
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    backgroundColor: '#F3F4F6',
+  },
+  modalBtnText: { fontWeight: '800', color: COLORS.text },
 });

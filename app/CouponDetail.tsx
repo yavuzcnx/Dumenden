@@ -8,7 +8,6 @@ import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActionSheetIOS,
   Alert,
   Animated,
   Easing,
@@ -17,6 +16,7 @@ import {
   Keyboard,
   Modal,
   Platform,
+  Pressable,
   StyleSheet,
   Text,
   TextInput,
@@ -256,7 +256,7 @@ export default function CouponDetail() {
         .eq('id', couponId)
         .single();
 
-    if (error || !data) return;
+      if (error || !data) return;
 
       // ana görsel
       const resolvedHero = await resolveStorageUrlSmart((data as any).image_url ?? null);
@@ -425,6 +425,10 @@ export default function CouponDetail() {
   const [commentImagePath, setCommentImagePath] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  // REPORT MODAL state
+  const [reportingComment, setReportingComment] = useState<VComment | null>(null);
+  const [reportSending, setReportSending] = useState(false);
 
   const pickCommentImage = async () => {
     Keyboard.dismiss();
@@ -720,51 +724,35 @@ export default function CouponDetail() {
     </>
   );
 
-  const reportComment = (c: VComment) => {
-    const openSheet = () => {
-      const doInsert = async (reason: string, extra?: string) => {
-        try {
-          const { data: auth } = await supabase.auth.getUser();
-          const uid = auth?.user?.id;
-          if (!uid) return Alert.alert('Giriş gerekli', 'Şikayet etmek için giriş yap.');
-          await supabase.from('comment_reports').insert({
-            comment_id: c.id, reporter_id: uid, reason, extra: extra ?? null,
-          });
-          Alert.alert('Teşekkürler', 'Şikayetin alındı.');
-        } catch (e: any) {
-          Alert.alert('Hata', e?.message ?? 'Şikayet kaydedilemedi');
-        }
-      };
-
-      if (Platform.OS === 'ios') {
-        ActionSheetIOS.showActionSheetWithOptions(
-          {
-            options: ['İptal', 'Hakaret/nefret', 'Spam', 'Yasadışı içerik', 'Diğer…'],
-            cancelButtonIndex: 0,
-            destructiveButtonIndex: -1,
-            title: 'Bu yorumu bildir',
-            message: 'Sebep seç',
-          },
-          (i) => {
-            const map = ['','Hakaret/nefret','Spam','Yasadışı içerik','Diğer…'] as const;
-            const sel = map[i] as string;
-            if (!sel || sel === 'Diğer…') {
-              if (sel) Alert.prompt?.('Sebep yaz', '', (txt) => doInsert('Diğer', txt || ''));
-              return;
-            }
-            doInsert(sel);
-          }
-        );
-      } else {
-        Alert.alert('Bu yorumu bildir', 'Sebep seç', [
-          { text: 'Hakaret/nefret', onPress: () => doInsert('Hakaret/nefret') },
-          { text: 'Spam', onPress: () => doInsert('Spam') },
-          { text: 'Yasadışı içerik', onPress: () => doInsert('Yasadışı içerik') },
-          { text: 'İptal', style: 'cancel' },
-        ]);
+  // ---- YORUM BİLDİR ----
+  const submitReport = async (reason: string) => {
+    if (!reportingComment) return;
+    setReportSending(true);
+    try {
+      const { data: auth } = await supabase.auth.getUser();
+      const uid = auth?.user?.id;
+      if (!uid) {
+        Alert.alert('Giriş gerekli', 'Şikayet etmek için giriş yap.');
+        setReportSending(false);
+        return;
       }
-    };
-    openSheet();
+      await supabase.from('comment_reports').insert({
+        comment_id: reportingComment.id,
+        reporter_id: uid,
+        reason,
+        extra: null,
+      });
+      Alert.alert('Teşekkürler', 'Şikayetin alındı.');
+      setReportingComment(null);
+    } catch (e: any) {
+      Alert.alert('Hata', e?.message ?? 'Şikayet kaydedilemedi');
+    } finally {
+      setReportSending(false);
+    }
+  };
+
+  const reportComment = (c: VComment) => {
+    setReportingComment(c);
   };
 
   const CommentRow = ({ c, isChild }: { c: VComment; isChild: boolean }) => {
@@ -875,21 +863,21 @@ export default function CouponDetail() {
 
             <SectionTag title="Yorumlar" />
             {roots.length === 0 && (
-            <View style={styles.emptyHint}>
-  {me?.avatar ? (
-    <Image source={{ uri: me.avatar }} style={[styles.avatar, { marginRight: 10 }]} />
-  ) : (
-    <View style={[styles.avatar, { backgroundColor: '#eee', marginRight: 10, alignItems: 'center', justifyContent: 'center' }]}>
-      <Text style={{ fontWeight: '800', color: '#888' }}>
-        {(me?.name ?? 'S')[0]?.toUpperCase?.() ?? 'S'}
-      </Text>
-    </View>
-  )}
-  <View style={{ flex: 1 }}>
-    <Text style={{ fontWeight: '800' }}>{me?.name || 'Sen'}</Text>
-    <Text style={{ color: '#666', marginTop: 2 }}>İlk yorumu sen yaz! </Text>
-  </View>
-</View>
+              <View style={styles.emptyHint}>
+                {me?.avatar ? (
+                  <Image source={{ uri: me.avatar }} style={[styles.avatar, { marginRight: 10 }]} />
+                ) : (
+                  <View style={[styles.avatar, { backgroundColor: '#eee', marginRight: 10, alignItems: 'center', justifyContent: 'center' }]}>
+                    <Text style={{ fontWeight: '800', color: '#888' }}>
+                      {(me?.name ?? 'S')[0]?.toUpperCase?.() ?? 'S'}
+                    </Text>
+                  </View>
+                )}
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontWeight: '800' }}>{me?.name || 'Sen'}</Text>
+                  <Text style={{ color: '#666', marginTop: 2 }}>İlk yorumu sen yaz! </Text>
+                </View>
+              </View>
             )}
           </>
         }
@@ -912,15 +900,15 @@ export default function CouponDetail() {
           )}
 
           <View style={{ flex: 1 }}>
-           <TextInput
-  ref={inputRef}
-  value={newComment}
-  onChangeText={setNewComment}
-  placeholder="Yorumunu yaz…"
-  style={styles.input}
-  placeholderTextColor="#999"
-  multiline
-/>
+            <TextInput
+              ref={inputRef}
+              value={newComment}
+              onChangeText={setNewComment}
+              placeholder="Yorumunu yaz…"
+              style={styles.input}
+              placeholderTextColor="#999"
+              multiline
+            />
 
             {replyTo && (
               <View style={styles.replyBar}>
@@ -972,6 +960,85 @@ export default function CouponDetail() {
             </TouchableOpacity>
           )}
         </View>
+      </Modal>
+
+      {/* REPORT MODAL */}
+      <Modal
+        visible={!!reportingComment}
+        transparent
+        animationType="fade"
+        onRequestClose={() => { if (!reportSending) setReportingComment(null); }}
+      >
+        <Pressable
+          onPress={() => { if (!reportSending) setReportingComment(null); }}
+          style={{
+            flex: 1,
+            backgroundColor: 'rgba(0,0,0,0.45)',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Pressable
+            onPress={e => e.stopPropagation()}
+            style={{
+              width: '86%',
+              borderRadius: 16,
+              backgroundColor: '#fff',
+              padding: 16,
+            }}
+          >
+            <Text style={{ fontWeight: '900', fontSize: 18, marginBottom: 4 }}>
+              Bu yorumu bildir
+            </Text>
+            {reportingComment?.content ? (
+              <Text
+                style={{
+                  color: '#555',
+                  marginBottom: 12,
+                }}
+                numberOfLines={3}
+              >
+                “{reportingComment.content}”
+              </Text>
+            ) : null}
+
+            <Text style={{ color: '#777', marginBottom: 10 }}>
+              Sebep seç:
+            </Text>
+
+            {['Hakaret/nefret', 'Spam', 'Yasadışı içerik', 'Yanlış bilgi'].map((reason) => (
+              <TouchableOpacity
+                key={reason}
+                disabled={reportSending}
+                onPress={() => submitReport(reason)}
+                style={{
+                  paddingVertical: 10,
+                  paddingHorizontal: 10,
+                  borderRadius: 10,
+                  borderWidth: 1,
+                  borderColor: '#eee',
+                  marginBottom: 8,
+                  backgroundColor: '#fafafa',
+                }}
+              >
+                <Text style={{ fontWeight: '800', color: '#333' }}>{reason}</Text>
+              </TouchableOpacity>
+            ))}
+
+            <TouchableOpacity
+              disabled={reportSending}
+              onPress={() => { if (!reportSending) setReportingComment(null); }}
+              style={{
+                marginTop: 8,
+                paddingVertical: 10,
+                borderRadius: 10,
+                alignItems: 'center',
+              }}
+            >
+              <Text style={{ fontWeight: '800', color: '#666' }}>Vazgeç</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
       </Modal>
 
       <SpinnerLogo visible={uploading} />

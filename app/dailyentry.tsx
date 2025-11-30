@@ -1,63 +1,169 @@
-// app/dailyentry.tsx
+// app/(modals)/daily-entry.tsx
 'use client';
 
 import { supabase } from '@/lib/supabaseClient';
+import { adsReady, onAdsReady } from '@/src/contexts/lib/ads';
 import { useXp } from '@/src/contexts/XpProvider';
 import { BlurView } from 'expo-blur';
-import { useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, SafeAreaView, Text, TouchableOpacity, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  SafeAreaView,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import {
+  AdEventType,
+  RewardedAd,
+  RewardedAdEventType,
+  TestIds,
+} from 'react-native-google-mobile-ads';
 
 const BRAND = '#FF6B00';
 const SOFT = '#FFF2E8';
 
-/**
- * Ads kapalı stub:
- * - Google Mobile Ads paketi kaldırıldığı için burada hiçbir şey import etmiyoruz.
- * - İlerde ads’i tekrar açınca yukarıdaki import’u geri ekleyip bu stub’u silebilirsin.
- */
+const PROD_REWARDED = 'ca-app-pub-3837426346942059/6751536443';
+const TEST_REWARDED = TestIds.REWARDED;
+
+function createRewarded() {
+  const adUnitId = __DEV__ ? TEST_REWARDED : PROD_REWARDED;
+  return RewardedAd.createForAdRequest(adUnitId, {
+    requestNonPersonalizedAdsOnly: false,
+  });
+}
+
 async function showRewarded(): Promise<boolean> {
-  Alert.alert('Bilgi', 'Reklamlar geçici olarak devre dışı.');
-  return false; // XP vermeyelim; server cooldown/iş akışı bozulmasın.
+  return new Promise((resolve) => {
+    if (!adsReady()) {
+      onAdsReady(() => showRewarded().then(resolve));
+      return;
+    }
+
+    const ad = createRewarded();
+    let earned = false;
+    let finished = false;
+
+    const clean = () => {
+      try {
+        u1();
+        u2();
+        u3();
+        u4();
+      } catch {}
+    };
+
+    const timeout = setTimeout(() => {
+      if (!finished) {
+        finished = true;
+        clean();
+        resolve(false);
+      }
+    }, 20000);
+
+    const u1 = ad.addAdEventListener(RewardedAdEventType.LOADED, () => {
+      ad.show().catch(() => {
+        if (!finished) {
+          finished = true;
+          clean();
+          clearTimeout(timeout);
+          resolve(false);
+        }
+      });
+    });
+
+    const u2 = ad.addAdEventListener(RewardedAdEventType.EARNED_REWARD, () => {
+      earned = true;
+    });
+
+    const u3 = ad.addAdEventListener(AdEventType.CLOSED, () => {
+      if (!finished) {
+        finished = true;
+        clean();
+        clearTimeout(timeout);
+        resolve(earned);
+      }
+    });
+
+    const u4 = ad.addAdEventListener(AdEventType.ERROR, () => {
+      if (!finished) {
+        finished = true;
+        clean();
+        clearTimeout(timeout);
+        resolve(false);
+      }
+    });
+
+    ad.load();
+  });
 }
 
 export default function DailyEntryScreen() {
   const { xp, loading: xpLoading, refresh } = useXp();
   const [granting, setGranting] = useState(false);
+  const [cooldownMinutes, setCooldownMinutes] = useState<number | null>(0);
+
+  // cooldown sayacını azalt
+  useEffect(() => {
+    if (cooldownMinutes === null || cooldownMinutes <= 0) return;
+    const t = setInterval(() => {
+      setCooldownMinutes((prev) => (prev && prev > 0 ? prev - 1 : 0));
+    }, 60000);
+    return () => clearInterval(t);
+  }, [cooldownMinutes]);
 
   const onPress = async () => {
     if (granting) return;
+
+    if ((cooldownMinutes ?? 0) > 0) {
+      const h = Math.floor((cooldownMinutes ?? 0) / 60);
+      const m = (cooldownMinutes ?? 0) % 60;
+      Alert.alert('Üzgünüz 😔', `Yeni XP alımı için ${h} saat ${m} dakika daha bekle.`);
+      return;
+    }
+
     setGranting(true);
     try {
-      // 1) Reklam (şimdilik kapalı)
+      // 1) Reklamı izlet
       const ok = await showRewarded();
       if (!ok) {
-        // Reklam tamamlanmadı/kapalı
+        Alert.alert('Hata', 'Reklam ödülü alınamadı. Biraz sonra tekrar dene.');
         return;
       }
 
-      // 2) Ödül kazanıldı → 50 XP yükle (3 saat cooldown server’da)
-      const { data, error } = await supabase.rpc('grant_xp', {
-        amount: 50,
-        reason: 'rewarded',
-      });
+      // 2) Kullanıcı ID’sini al
+      const { data: auth } = await supabase.auth.getUser();
+      const uid = auth?.user?.id;
+      if (!uid) {
+        Alert.alert('Hata', 'Oturum bulunamadı.');
+        return;
+      }
+
+      // 3) Supabase tarafında 3 saatlik bonusu iste
+      const { data, error } = await supabase.rpc('claim_ad_bonus', { p_user: uid });
       if (error) throw error;
 
-      const row = Array.isArray(data) ? data[0] : (data as any);
-      if (row?.status === 'ok') {
+      const row = Array.isArray(data) ? data[0] : data;
+      const granted = !!row?.granted;
+      const remaining = Number(row?.remaining_seconds ?? 0);
+
+      if (granted) {
+        // XP verildi
         await refresh();
-        Alert.alert('Tebrikler', '50 XP yüklendi 🎉');
-      } else if (row?.status === 'cooldown') {
-        const t = new Date(row.next_allowed_at);
-        const mins = Math.max(0, Math.ceil((+t - Date.now()) / 60000));
-        const h = Math.floor(mins / 60), m = mins % 60;
-        Alert.alert('Bekleme', `Tekrar ${h}s ${m}dk sonra alabilirsin.`);
-      } else if (row?.status === 'auth_required') {
-        Alert.alert('Giriş gerekli', 'Ödül için giriş yap.');
+        Alert.alert('Tebrikler 🎉', '100 XP kazandın!');
+        // 3 saatlik local sayaç (server zaten saklıyor, biz sadece UI için tutuyoruz)
+        setCooldownMinutes(Math.ceil(remaining / 60) || 180);
       } else {
-        Alert.alert('Hata', 'İşlem tamamlanamadı.');
+        // Cooldown’da
+        const mins = Math.max(0, Math.ceil(remaining / 60));
+        setCooldownMinutes(mins);
+        const h = Math.floor(mins / 60);
+        const m = mins % 60;
+        Alert.alert('Üzgünüz 😔', `Yeni XP alımı için ${h} saat ${m} dakika kaldı.`);
       }
     } catch (e: any) {
-      Alert.alert('Hata', e?.message ?? 'Bilinmeyen hata');
+      Alert.alert('Hata', e?.message ?? 'Bilinmeyen hata.');
     } finally {
       setGranting(false);
     }
@@ -65,12 +171,13 @@ export default function DailyEntryScreen() {
 
   const title = useMemo(
     () => (xpLoading ? '...' : `${xp.toLocaleString('tr-TR')} XP`),
-    [xp, xpLoading]
+    [xp, xpLoading],
   );
+  const h = Math.floor((cooldownMinutes ?? 0) / 60);
+  const m = (cooldownMinutes ?? 0) % 60;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#fff', padding: 16 }}>
-      {/* Header */}
       <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 14 }}>
         <Text style={{ fontSize: 24, fontWeight: '900', color: BRAND }}>Günlük Giriş</Text>
         <View
@@ -89,7 +196,7 @@ export default function DailyEntryScreen() {
       </View>
 
       <Text style={{ color: '#6B7280', marginBottom: 16 }}>
-        Reklamı tamamlayınca 50 XP kazanırsın. 3 saatte bir kullanılabilir.
+        Reklamı izleyerek 100 XP kazan. 3 saatte bir yenilenir.
       </Text>
 
       <TouchableOpacity
@@ -105,15 +212,22 @@ export default function DailyEntryScreen() {
       >
         {granting ? (
           <ActivityIndicator color="#fff" />
+        ) : (cooldownMinutes ?? 0) > 0 ? (
+          <Text style={{ color: '#fff', fontWeight: '900' }}>
+            Üzgünüz, {h}s {m}dk sonra tekrar dene
+          </Text>
         ) : (
-          <Text style={{ color: '#fff', fontWeight: '900' }}>XP Al</Text>
+          <Text style={{ color: '#fff', fontWeight: '900' }}>XP Al (Reklam İzle)</Text>
         )}
       </TouchableOpacity>
 
-      {/* işlem devam ederken blur + spinner */}
       {granting && (
         <View style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }}>
-          <BlurView intensity={30} tint="light" style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <BlurView
+            intensity={30}
+            tint="light"
+            style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}
+          >
             <ActivityIndicator size="large" color={BRAND} />
             <Text style={{ marginTop: 10, fontWeight: '700' }}>XP yükleniyor…</Text>
           </BlurView>

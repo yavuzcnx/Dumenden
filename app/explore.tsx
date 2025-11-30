@@ -22,6 +22,7 @@ type Row = {
   description: string | null;
   category: string | null;
   created_at: string;
+  created_by: string | null; // 🔥 EKLENDİ: Sahibi kim?
   closing_date: string;
   yes_price: number | null;
   no_price: number | null;
@@ -78,6 +79,7 @@ export default function Explore() {
 
   const [cat, setCat] = useState('Tümü');
   const [rows, setRows] = useState<Row[]>([]);
+  const [myId, setMyId] = useState<string | null>(null); // 🔥 EKLENDİ: Benim ID'm
 
   // Sepet
   type BasketItem = { coupon_id: string | number; title: string; side: 'YES' | 'NO'; price: number; stake: number; };
@@ -86,7 +88,7 @@ export default function Explore() {
   const totalStake = useMemo(() => basket.reduce((a, b) => a + b.stake, 0), [basket]);
   const [busy, setBusy] = useState(false);
 
-  // Kanıt (seksi modal)
+  // Kanıt
   const [proofSheet, setProofSheet] = useState<{ couponId: string | number; title: string } | null>(null);
   const [proofs, setProofs] = useState<Proof[]>([]);
   const [loadingProofs, setLoadingProofs] = useState(false);
@@ -97,13 +99,21 @@ export default function Explore() {
   // Confetti
   const [boom, setBoom] = useState(0);
 
+  // 🔥 ID'yi al
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+        if(data?.user) setMyId(data.user.id);
+    });
+  }, []);
+
   const load = async () => {
     setLoading(true);
 
+    // 🔥 created_by EKLENDİ
     let q = supabase
       .from('coupons')
       .select(`
-        id, title, description, category, created_at, closing_date, yes_price, no_price, image_url, is_open,
+        id, title, description, category, created_at, created_by, closing_date, yes_price, no_price, image_url, is_open,
         users:created_by(full_name,avatar_url),
         coupon_proofs:coupon_proofs!coupon_proofs_coupon_id_fkey(count),
         coupon_submissions:coupon_submissions!coupon_submissions_approved_coupon_id_fkey(image_path)
@@ -139,7 +149,7 @@ export default function Explore() {
   useEffect(() => { load(); }, [cat]);
   useEffect(() => { refresh().catch(() => {}); }, []);
 
-  // realtime – bir şey olursa yeniden yükle
+  // realtime
   useEffect(() => {
     const channel = supabase
       .channel('explore-coupons')
@@ -148,7 +158,7 @@ export default function Explore() {
     return () => { supabase.removeChannel(channel); };
   }, [cat]);
 
-  // süre dolanları ekrandan at (yalnızca gerçekten değişirse set et; 20sn'de bir)
+  // süre dolanları at
   useEffect(() => {
     const tick = () => {
       setRows(prev => {
@@ -201,6 +211,13 @@ export default function Explore() {
   const addOnceToBasket = (row: Row, side: 'YES' | 'NO') => {
     if (!row.yes_price && side === 'YES') return;
     if (!row.no_price && side === 'NO') return;
+    
+    // 🔥 KENDİ KUPONU İSE ENGELLE (Frontend Güvenliği)
+    if (myId && row.created_by === myId) {
+        Alert.alert("Hata", "Kendi oluşturduğun kupona bahis oynayamazsın.");
+        return;
+    }
+
     const exists = basket.some((b) => b.coupon_id === row.id);
     if (exists) { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); return; }
     const price = side === 'YES' ? row.yes_price! : row.no_price!;
@@ -243,6 +260,9 @@ export default function Explore() {
     const proofCount = item.coupon_proofs?.[0]?.count ?? 0;
     const hasProof = proofCount > 0;
     const locked = basket.some((b) => b.coupon_id === item.id);
+    
+    // 🔥 BU KUPON BENİM Mİ?
+    const isMine = myId && item.created_by === myId;
 
     const scale = useRef(new Animated.Value(1)).current;
     const pressIn = () => Animated.spring(scale, { toValue: 0.96, useNativeDriver: true, friction: 6 }).start();
@@ -264,28 +284,41 @@ export default function Explore() {
           </TouchableOpacity>
         )}
 
+        {/* 🔥 SENİN KUPONUN ETİKETİ */}
+        {isMine && (
+            <View style={{ position: 'absolute', top: 10, right: 10, backgroundColor: '#FF6B00', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12 }}>
+                <Text style={{ color: '#fff', fontWeight: '900', fontSize: 10 }}>SANA AİT 👑</Text>
+            </View>
+        )}
+
         <View style={{ padding: 12, gap: 8 }}>
           <Text numberOfLines={2} style={{ fontWeight: '900', fontSize: 16 }}>{item.title}</Text>
 
           <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
             {!!item.category && <Pill><Text style={{ color: '#FF6B00', fontWeight: '900' }}>{item.category}</Text></Pill>}
-            <Pill><Ionicons name="calendar-outline" size={14} color="#6B7280" style={{ marginRight: 6 }} /><Text style={{ color: '#6B7280', fontWeight: '700' }}>{new Date(item.closing_date).toLocaleDateString()}</Text></Pill>
             <Pill><Ionicons name="time-outline" size={14} color="#6B7280" style={{ marginRight: 6 }} /><Text style={{ color: '#6B7280', fontWeight: '700' }}>{new Date(item.closing_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text></Pill>
           </View>
 
-          <View style={{ flexDirection: 'row', gap: 10 }}>
-            <TouchableOpacity disabled={locked || !item.yes_price} onPress={() => addOnceToBasket(item, 'YES')}
-              style={{ flex: 1, backgroundColor: '#E8F1FF', borderWidth: 1, borderColor: '#C9E0FF', paddingVertical: 10, borderRadius: 14, alignItems: 'center', opacity: locked ? 0.45 : 1 }}>
-              <Text style={{ color: '#1B66FF', fontWeight: '900' }}>Yes</Text>
-              <Text style={{ fontWeight: '900' }}>{item.yes_price?.toFixed(2) ?? '-'}</Text>
-            </TouchableOpacity>
+          {/* 🔥 EĞER BENİMSE BUTONLARI GİZLE */}
+          {!isMine ? (
+              <View style={{ flexDirection: 'row', gap: 10 }}>
+                <TouchableOpacity disabled={locked || !item.yes_price} onPress={() => addOnceToBasket(item, 'YES')}
+                  style={{ flex: 1, backgroundColor: '#E8F1FF', borderWidth: 1, borderColor: '#C9E0FF', paddingVertical: 10, borderRadius: 14, alignItems: 'center', opacity: locked ? 0.45 : 1 }}>
+                  <Text style={{ color: '#1B66FF', fontWeight: '900' }}>Yes</Text>
+                  <Text style={{ fontWeight: '900' }}>{item.yes_price?.toFixed(2) ?? '-'}</Text>
+                </TouchableOpacity>
 
-            <TouchableOpacity disabled={locked || !item.no_price} onPress={() => addOnceToBasket(item, 'NO')}
-              style={{ flex: 1, backgroundColor: '#FFE6EF', borderWidth: 1, borderColor: '#FFC7DA', paddingVertical: 10, borderRadius: 14, alignItems: 'center', opacity: locked ? 0.45 : 1 }}>
-              <Text style={{ color: '#D61C7B', fontWeight: '900' }}>No</Text>
-              <Text style={{ fontWeight: '900' }}>{item.no_price?.toFixed(2) ?? '-'}</Text>
-            </TouchableOpacity>
-          </View>
+                <TouchableOpacity disabled={locked || !item.no_price} onPress={() => addOnceToBasket(item, 'NO')}
+                  style={{ flex: 1, backgroundColor: '#FFE6EF', borderWidth: 1, borderColor: '#FFC7DA', paddingVertical: 10, borderRadius: 14, alignItems: 'center', opacity: locked ? 0.45 : 1 }}>
+                  <Text style={{ color: '#D61C7B', fontWeight: '900' }}>No</Text>
+                  <Text style={{ fontWeight: '900' }}>{item.no_price?.toFixed(2) ?? '-'}</Text>
+                </TouchableOpacity>
+              </View>
+          ) : (
+              <View style={{ padding: 10, backgroundColor: '#FFF3E0', borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: '#FFE0B2' }}>
+                  <Text style={{ color: '#E65100', fontWeight: '800', fontSize: 12 }}>Kendi kuponuna oynayamazsın</Text>
+              </View>
+          )}
 
           {locked && (
             <View style={{ marginTop: 6, alignSelf: 'flex-start', backgroundColor: '#E8FFF2', borderColor: '#BDEED0', borderWidth: 1, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12 }}>
@@ -337,7 +370,7 @@ export default function Explore() {
 
       {boom > 0 && <EmojiBurst onDone={() => setBoom(0)} />}
 
-      {/* ====== SEPET MODAL (GERİ EKLENDİ) ====== */}
+      {/* ====== SEPET MODAL ====== */}
       <Modal visible={showBasket} transparent animationType="fade" onRequestClose={() => setShowBasket(false)}>
         <View style={{ flex: 1 }}>
           <Pressable style={{ flex: 1 }} onPress={() => setShowBasket(false)}>
@@ -391,91 +424,87 @@ export default function Explore() {
         </View>
       </Modal>
 
-      {/* ====== KANIT MODAL (ORTADA SEXY) ====== */}
+      {/* ====== KANIT MODAL ====== */}
       <Modal
-  transparent
-  visible={!!proofSheet}
-  animationType="fade"
-  onRequestClose={() => setProofSheet(null)}
->
-  <View style={{ flex: 1, justifyContent: 'flex-end' }}>
-    {/* arkayı bulanıklaştır + tıklayınca kapat */}
-    <Pressable style={{ flex: 1 }} onPress={() => setProofSheet(null)}>
-      <BlurView intensity={40} tint="light" style={{ position: 'absolute', inset: 0 }} />
-    </Pressable>
+        transparent
+        visible={!!proofSheet}
+        animationType="fade"
+        onRequestClose={() => setProofSheet(null)}
+      >
+        <View style={{ flex: 1, justifyContent: 'flex-end' }}>
+          <Pressable style={{ flex: 1 }} onPress={() => setProofSheet(null)}>
+            <BlurView intensity={40} tint="light" style={{ position: 'absolute', inset: 0 }} />
+          </Pressable>
 
-    {/* bottom sheet */}
-    <View
-      style={{
-        backgroundColor: '#fff',
-        borderTopLeftRadius: 22,
-        borderTopRightRadius: 22,
-        paddingTop: 10,
-        paddingHorizontal: 16,
-        paddingBottom: 20,
-        maxHeight: height * 0.75,
-        shadowColor: '#000',
-        shadowOpacity: 0.2,
-        shadowRadius: 12,
-        elevation: 12,
-      }}
-    >
-      {/* handle */}
-      <View style={{ alignItems: 'center', marginBottom: 10 }}>
-        <View style={{ width: 48, height: 5, borderRadius: 3, backgroundColor: '#E5E7EB' }} />
-      </View>
+          <View
+            style={{
+              backgroundColor: '#fff',
+              borderTopLeftRadius: 22,
+              borderTopRightRadius: 22,
+              paddingTop: 10,
+              paddingHorizontal: 16,
+              paddingBottom: 20,
+              maxHeight: height * 0.75,
+              shadowColor: '#000',
+              shadowOpacity: 0.2,
+              shadowRadius: 12,
+              elevation: 12,
+            }}
+          >
+            <View style={{ alignItems: 'center', marginBottom: 10 }}>
+              <View style={{ width: 48, height: 5, borderRadius: 3, backgroundColor: '#E5E7EB' }} />
+            </View>
 
-      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-        <Text style={{ fontWeight: '900', fontSize: 18 }} numberOfLines={1}>
-         {proofSheet?.title}
-        </Text>
-        <TouchableOpacity onPress={() => setProofSheet(null)} style={{ marginLeft: 'auto' }}>
-          <Text style={{ fontWeight: '800' }}>Kapat</Text>
-        </TouchableOpacity>
-      </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+              <Text style={{ fontWeight: '900', fontSize: 18 }} numberOfLines={1}>
+               {proofSheet?.title}
+              </Text>
+              <TouchableOpacity onPress={() => setProofSheet(null)} style={{ marginLeft: 'auto' }}>
+                <Text style={{ fontWeight: '800' }}>Kapat</Text>
+              </TouchableOpacity>
+            </View>
 
-      {loadingProofs ? (
-        <ActivityIndicator />
-      ) : proofs.length === 0 ? (
-        <Text style={{ color: '#666' }}>Onaylı kanıt yok.</Text>
-      ) : (
-        <ScrollView>
-          {/* tek kolon – foto ortada ve büyük */}
-          <View style={{ gap: 12, paddingBottom: 12 }}>
-            {proofs.map((p) => (
-              <View
-                key={p.id}
-                style={{
-                  borderRadius: 16,
-                  overflow: 'hidden',
-                  borderWidth: 1,
-                  borderColor: '#eee',
-                  backgroundColor: '#f9fafb',
-                }}
-              >
-                {!!p.image_url && (
-                  <Image
-                    source={{ uri: p.image_url }}
-                    style={{
-                      width: '100%',
-                      height: Math.min(height * 0.38, 340), // büyük
-                    }}
-                    resizeMode="cover"
-                  />
-                )}
-                {!!p.title && (
-                  <Text style={{ padding: 10, fontWeight: '800' }} numberOfLines={2}>
-                    {p.title}
-                  </Text>
-                )}
-              </View>
-            ))}
+            {loadingProofs ? (
+              <ActivityIndicator />
+            ) : proofs.length === 0 ? (
+              <Text style={{ color: '#666' }}>Onaylı kanıt yok.</Text>
+            ) : (
+              <ScrollView>
+                <View style={{ gap: 12, paddingBottom: 12 }}>
+                  {proofs.map((p) => (
+                    <View
+                      key={p.id}
+                      style={{
+                        borderRadius: 16,
+                        overflow: 'hidden',
+                        borderWidth: 1,
+                        borderColor: '#eee',
+                        backgroundColor: '#f9fafb',
+                      }}
+                    >
+                      {!!p.image_url && (
+                        <Image
+                          source={{ uri: p.image_url }}
+                          style={{
+                            width: '100%',
+                            height: Math.min(height * 0.38, 340),
+                          }}
+                          resizeMode="cover"
+                        />
+                      )}
+                      {!!p.title && (
+                        <Text style={{ padding: 10, fontWeight: '800' }} numberOfLines={2}>
+                          {p.title}
+                        </Text>
+                      )}
+                    </View>
+                  ))}
+                </View>
+              </ScrollView>
+            )}
           </View>
-        </ScrollView>
-      )}
-    </View>
-  </View>
-</Modal>
+        </View>
+      </Modal>
 
       {/* Focus card */}
       <Modal visible={!!focusCard} transparent animationType="fade" onRequestClose={() => setFocusCard(null)}>
@@ -494,16 +523,24 @@ export default function Explore() {
                     <Pill><Ionicons name="calendar-outline" size={16} color="#6B7280" style={{ marginRight: 6 }} /><Text style={{ color: '#6B7280', fontWeight: '700' }}>{new Date(focusCard.closing_date).toLocaleDateString()}</Text></Pill>
                     <Pill><Ionicons name="alarm-outline"  size={16} color="#6B7280" style={{ marginRight: 6 }} /><Text style={{ color: '#6B7280', fontWeight: '700' }}>{new Date(focusCard.closing_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text></Pill>
                   </View>
-                  <View style={{ flexDirection: 'row', gap: 10, marginTop: 12 }}>
-                    <TouchableOpacity disabled={basket.length === 0 || busy} onPress={confirmBasket}
-                      style={{ flex: 1, backgroundColor: (basket.length === 0 || busy) ? '#f3a774' : '#FF6B00', padding: 14, borderRadius: 14, alignItems: 'center' }}>
-                      <Text style={{ color: '#fff', fontWeight: '900' }}>{busy ? 'İşleniyor…' : 'Onayla / Oyna'}</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity disabled={basket.length === 0 || busy} onPress={() => setBasket([])}
-                      style={{ flex: 1, backgroundColor: '#F0F1F4', padding: 14, borderRadius: 14, alignItems: 'center', opacity: (basket.length === 0 || busy) ? 0.6 : 1 }}>
-                      <Text style={{ fontWeight: '900' }}>Sepeti Temizle</Text>
-                    </TouchableOpacity>
-                  </View>
+                  
+                  {/* MODAL İÇİNDE DE BUTON GİZLEME */}
+                  {myId && focusCard.created_by === myId ? (
+                      <View style={{ padding: 12, backgroundColor: '#FFF3E0', borderRadius: 12, alignItems: 'center', marginTop:12, borderWidth: 1, borderColor: '#FFE0B2' }}>
+                          <Text style={{ color: '#E65100', fontWeight: '800', fontSize: 14 }}>Sana ait kupon (Bahis Kapalı)</Text>
+                      </View>
+                  ) : (
+                      <View style={{ flexDirection: 'row', gap: 10, marginTop: 12 }}>
+                        <TouchableOpacity disabled={basket.length === 0 || busy} onPress={confirmBasket}
+                          style={{ flex: 1, backgroundColor: (basket.length === 0 || busy) ? '#f3a774' : '#FF6B00', padding: 14, borderRadius: 14, alignItems: 'center' }}>
+                          <Text style={{ color: '#fff', fontWeight: '900' }}>{busy ? 'İşleniyor…' : 'Onayla / Oyna'}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity disabled={basket.length === 0 || busy} onPress={() => setBasket([])}
+                          style={{ flex: 1, backgroundColor: '#F0F1F4', padding: 14, borderRadius: 14, alignItems: 'center', opacity: (basket.length === 0 || busy) ? 0.6 : 1 }}>
+                          <Text style={{ fontWeight: '900' }}>Sepeti Temizle</Text>
+                        </TouchableOpacity>
+                      </View>
+                  )}
                 </View>
               </View>
             </View>

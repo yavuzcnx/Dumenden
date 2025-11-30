@@ -4,6 +4,8 @@ import CartRibbon from '@/components/CartRibbon';
 import MarketCard, { type Market } from '@/components/MarketCard';
 import { resolveStorageUrlSmart } from '@/lib/resolveStorageUrlSmart';
 import { supabase } from '@/lib/supabaseClient';
+import { useInterstitial } from '@/src/contexts/ads/interstitial';
+import { usePlus } from '@/src/contexts/hooks/usePlus';
 import { useXp } from '@/src/contexts/XpProvider';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
@@ -31,6 +33,15 @@ import {
   TouchableWithoutFeedback,
   View,
 } from 'react-native';
+
+// 🔽 Daily-entry mantığı için eklenen importlar
+import { adsReady, onAdsReady } from '@/src/contexts/lib/ads';
+import {
+  AdEventType,
+  RewardedAd,
+  RewardedAdEventType,
+  TestIds,
+} from 'react-native-google-mobile-ads';
 
 const CATS = ['Tümü', 'Gündem', 'Spor', 'Magazin', 'Politika', 'Absürt'];
 const PAGE = 12;
@@ -135,9 +146,106 @@ async function playParlay(items: BasketItem[], stake: number) {
   return typeof newBal === 'number' ? (newBal as number) : undefined;
 }
 
+/* ===================== DAILY ENTRY (REKLAM) HELPER ===================== */
+
+const PROD_REWARDED = 'ca-app-pub-3837426346942059/6751536443';
+const TEST_REWARDED = TestIds.REWARDED;
+
+function createRewarded() {
+  const adUnitId = __DEV__ ? TEST_REWARDED : PROD_REWARDED;
+  return RewardedAd.createForAdRequest(adUnitId, {
+    requestNonPersonalizedAdsOnly: false,
+  });
+}
+
+async function showRewarded(): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (!adsReady()) {
+      onAdsReady(() => showRewarded().then(resolve));
+      return;
+    }
+
+    const ad = createRewarded();
+    let earned = false;
+    let finished = false;
+
+    const clean = () => {
+      try {
+        u1();
+        u2();
+        u3();
+        u4();
+      } catch {}
+    };
+
+    const timeout = setTimeout(() => {
+      if (!finished) {
+        finished = true;
+        clean();
+        resolve(false);
+      }
+    }, 20000);
+
+    const u1 = ad.addAdEventListener(RewardedAdEventType.LOADED, () => {
+      ad.show().catch(() => {
+        if (!finished) {
+          finished = true;
+          clean();
+          clearTimeout(timeout);
+          resolve(false);
+        }
+      });
+    });
+
+    const u2 = ad.addAdEventListener(RewardedAdEventType.EARNED_REWARD, () => {
+      earned = true;
+    });
+
+    const u3 = ad.addAdEventListener(AdEventType.CLOSED, () => {
+      if (!finished) {
+        finished = true;
+        clean();
+        clearTimeout(timeout);
+        resolve(earned);
+      }
+    });
+
+    const u4 = ad.addAdEventListener(AdEventType.ERROR, () => {
+      if (!finished) {
+        finished = true;
+        clean();
+        clearTimeout(timeout);
+        resolve(false);
+      }
+    });
+
+    ad.load();
+  });
+}
+
 export default function HomeScreen() {
   const router = useRouter();
   const { xp, loading: xpLoading, refresh } = useXp();
+  const { isPlus } = usePlus();
+
+  // 🔸 Interstitial: hazırla
+  const {
+    loaded: interLoaded,
+    show: showInter,
+    showIfEligible,
+    registerNavTransition,
+  } = useInterstitial();
+  const interShownOnce = useRef(false);
+
+  // Home açılınca (Plus değilse) 4dk kuralına göre uygun ise göster
+  useEffect(() => {
+    (async () => {
+      if (!isPlus && interLoaded && !interShownOnce.current) {
+        interShownOnce.current = true;
+        await showIfEligible('home_enter');
+      }
+    })();
+  }, [isPlus, interLoaded, showIfEligible]);
 
   /* -------- XP Topla cooldown + shimmer -------- */
   const [cooldownEnd, setCooldownEnd] = useState<Date | null>(null);
@@ -187,6 +295,70 @@ export default function HomeScreen() {
     ).start();
   }, [toplaReady, shimmer]);
 
+  // 🔥 XP TOPLA BUTONU CLICK — artık burada reklam + RPC
+  const handleXpToplaPress = useCallback(async () => {
+    if (busyTopla) return;
+
+    if (!toplaReady && cooldownEnd) {
+      const ms = cooldownEnd.getTime() - Date.now();
+      const mins = Math.max(0, Math.ceil(ms / 60000));
+      const h = Math.floor(mins / 60);
+      const m = mins % 60;
+      Alert.alert('Üzgünüz 😔', `Yeni XP alımı için ${h} saat ${m} dakika daha bekle.`);
+      return;
+    }
+
+    setBusyTopla(true);
+    try {
+      // 1) Reklam
+      const ok = await showRewarded();
+      if (!ok) {
+        Alert.alert('Hata', 'Reklam ödülü alınamadı. Biraz sonra tekrar dene.');
+        return;
+      }
+
+      // 2) Kullanıcı
+      const { data: auth } = await supabase.auth.getUser();
+      const uid = auth?.user?.id;
+      if (!uid) {
+        Alert.alert('Hata', 'Oturum bulunamadı.');
+        return;
+      }
+
+      // 3) Supabase RPC (claim_ad_bonus)
+      const { data, error } = await supabase.rpc('claim_ad_bonus', { p_user: uid });
+      if (error) throw error;
+
+      const row = Array.isArray(data) ? data[0] : data;
+      const granted = !!row?.granted;
+      const remaining = Number(row?.remaining_seconds ?? 0);
+
+      if (granted) {
+        await refresh(); // XP’yi yenile
+        Alert.alert('Tebrikler 🎉', '100 XP kazandın!');
+
+        // server remaining_seconds dönüyorsa ona göre, yoksa direkt 3 saat
+        const end =
+          remaining > 0
+            ? new Date(Date.now() + remaining * 1000)
+            : new Date(Date.now() + 3 * 60 * 60 * 1000);
+        setCooldownEnd(end);
+      } else {
+        const mins = Math.max(0, Math.ceil(remaining / 60));
+        const h = Math.floor(mins / 60);
+        const m = mins % 60;
+        if (remaining > 0) {
+          setCooldownEnd(new Date(Date.now() + remaining * 1000));
+        }
+        Alert.alert('Üzgünüz 😔', `Yeni XP alımı için ${h} saat ${m} dakika kaldı.`);
+      }
+    } catch (e: any) {
+      Alert.alert('Hata', e?.message ?? 'Bilinmeyen hata.');
+    } finally {
+      setBusyTopla(false);
+    }
+  }, [busyTopla, toplaReady, cooldownEnd, refresh]);
+
   /* -------- USER (ad + avatar) -------- */
   const [user, setUser] = useState<{ name: string; avatar: string | null }>({
     name: 'Kullanıcı',
@@ -223,85 +395,83 @@ export default function HomeScreen() {
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
 
- const toNum = (v: any) =>
-  typeof v === 'number' ? v : v == null ? undefined : parseFloat(String(v).replace(',', '.'));
+  const toNum = (v: any) =>
+    typeof v === 'number' ? v : v == null ? undefined : parseFloat(String(v).replace(',', '.'));
 
-const fetchMore = useCallback(
-  async (reset: boolean = false) => {
-    if (!hasMore && !reset) return;
-    setLoadingMore(true);
-    try {
-      let q = supabase
-        .from('coupons')
-        .select(
-          `
+  const fetchMore = useCallback(
+    async (reset: boolean = false) => {
+      if (!hasMore && !reset) return;
+      setLoadingMore(true);
+      try {
+        let q = supabase
+          .from('coupons')
+          .select(
+            `
           id, title, description, category, closing_date,
           market_type, lines,
           yes_price, no_price, image_url,
           is_open, is_user_generated, created_at,
           yes_liquidity, no_liquidity, liquidity
         `
-        )
-        .eq('is_open', true)
-        .eq('is_user_generated', false)
-        .gt('closing_date', new Date().toISOString())
-        .order('created_at', { ascending: false });
+          )
+          .eq('is_open', true)
+          .eq('is_user_generated', false)
+          .gt('closing_date', new Date().toISOString())
+          .order('created_at', { ascending: false });
 
-      if (category !== 'Tümü') q = q.eq('category', category);
+        if (category !== 'Tümü') q = q.eq('category', category);
 
-      const from = reset ? 0 : page * PAGE;
-      const to = from + PAGE - 1;
-      const { data, error } = await q.range(from, to);
-      if (error) throw error;
+        const from = reset ? 0 : page * PAGE;
+        const to = from + PAGE - 1;
+        const { data, error } = await q.range(from, to);
+        if (error) throw error;
 
-      // normalize + url resolve (hem market resmi hem de aday resimleri)
-      const normalized: MarketRow[] = (data ?? []).map((m: any) => ({
-        ...m,
-        image: m.image ?? m.image_url ?? null,
-        yes_liquidity: m.yes_liquidity ?? 0,
-        no_liquidity: m.no_liquidity ?? 0,
-        liquidity: m.liquidity ?? 0,
-        // lines içindeki farklı key isimlerini tek tipe çevir
-        lines: Array.isArray(m.lines)
-          ? m.lines.map((ln: any) => ({
-              name: String(ln.name ?? ''),
-              yesPrice: toNum(ln.yesPrice ?? ln.yes_price ?? ln.y ?? ln.yes),
-              noPrice: toNum(ln.noPrice ?? ln.no_price ?? ln.no),
-              imageUrl: ln.imageUrl ?? ln.image_url ?? ln.image ?? null,
-            }))
-          : [],
-      }));
-
-      // public url çöz
-      await Promise.all(
-        normalized.map(async (it) => {
-          it.image = await resolveStorageUrlSmart(it.image ?? it.image_url ?? null);
-          it.image_url = it.image; // kart burada bunu okuyor
-          if (Array.isArray(it.lines)) {
-            it.lines = await Promise.all(
-              it.lines.map(async (ln: any) => ({
-                ...ln,
-                imageUrl: await resolveStorageUrlSmart(ln.imageUrl ?? null),
+        // normalize + url resolve
+        const normalized: MarketRow[] = (data ?? []).map((m: any) => ({
+          ...m,
+          image: m.image ?? m.image_url ?? null,
+          yes_liquidity: m.yes_liquidity ?? 0,
+          no_liquidity: m.no_liquidity ?? 0,
+          liquidity: m.liquidity ?? 0,
+          lines: Array.isArray(m.lines)
+            ? m.lines.map((ln: any) => ({
+                name: String(ln.name ?? ''),
+                yesPrice: toNum(ln.yesPrice ?? ln.yes_price ?? ln.y ?? ln.yes),
+                noPrice: toNum(ln.noPrice ?? ln.no_price ?? ln.no),
+                imageUrl: ln.imageUrl ?? ln.image_url ?? ln.image ?? null,
               }))
-            );
-          }
-        })
-      );
+            : [],
+        }));
 
-      const merged = reset ? normalized : [...markets, ...normalized];
-      const unique = Array.from(new Map(merged.map((m) => [m.id, m])).values()) as MarketRow[];
+        await Promise.all(
+          normalized.map(async (it) => {
+            it.image = await resolveStorageUrlSmart(it.image ?? it.image_url ?? null);
+            it.image_url = it.image;
+            if (Array.isArray(it.lines)) {
+              it.lines = await Promise.all(
+                it.lines.map(async (ln: any) => ({
+                  ...ln,
+                  imageUrl: await resolveStorageUrlSmart(ln.imageUrl ?? null),
+                }))
+              );
+            }
+          })
+        );
 
-      setMarkets(unique);
-      setPage((p) => (reset ? 1 : p + 1));
-      setHasMore((data?.length ?? 0) === PAGE);
-    } catch (e) {
-      console.log('fetchMore error:', e);
-    } finally {
-      setLoadingMore(false);
-    }
-  },
-  [hasMore, category, page, markets]
-);
+        const merged = reset ? normalized : [...markets, ...normalized];
+        const unique = Array.from(new Map(merged.map((m) => [m.id, m])).values()) as MarketRow[];
+
+        setMarkets(unique);
+        setPage((p) => (reset ? 1 : p + 1));
+        setHasMore((data?.length ?? 0) === PAGE);
+      } catch (e) {
+        console.log('fetchMore error:', e);
+      } finally {
+        setLoadingMore(false);
+      }
+    },
+    [hasMore, category, page, markets]
+  );
 
   /* -------- GLOBAL TICK -------- */
   const [, setTick] = useState(0);
@@ -495,12 +665,11 @@ const fetchMore = useCallback(
     setBasketOpen(true);
   };
 
-  /* -------- SLIDER (sabit, karıştırma yok) -------- */
+  /* -------- SLIDER -------- */
   const { width } = Dimensions.get('window');
   const SLIDER_W = Math.round(width * 0.78);
   const [sliderIdx, setSliderIdx] = useState(0);
 
-  // ÖNEMLİ: rastgele karıştırmayı kaldırdık. Sadece ilk 5 market.
   const sliderData = useMemo(() => markets.slice(0, 5), [markets]);
 
   const marketState = (m: MarketRow) => {
@@ -532,7 +701,17 @@ const fetchMore = useCallback(
               <MarketCard
                 compact
                 item={item}
-                onPress={() => router.push(`/CouponDetail?id=${item.id}`)}
+           onPress={() => {
+  if (!isPlus) {
+    (async () => {
+      await registerNavTransition();
+      const shown = await showIfEligible('nav');
+      if (!shown) router.push(`/CouponDetail?id=${item.id}`);
+    })();
+  } else {
+    router.push(`/CouponDetail?id=${item.id}`);
+  }
+}}
                 onTapYes={(m, label, price) => openPill(m as MarketRow, label, 'YES', price)}
                 onTapNo={(m, label, price) => openPill(m as MarketRow, label, 'NO', price)}
                 timeLeftLabel={st.label}
@@ -546,7 +725,10 @@ const fetchMore = useCallback(
       {sliderData.length > 1 && (
         <View style={styles.dotsRow}>
           {sliderData.map((_, i) => (
-            <View key={`dot-${i}-${sliderData.length}`} style={[styles.dot, i === sliderIdx && styles.dotActive]} />
+            <View
+              key={`dot-${i}-${sliderData.length}`}
+              style={[styles.dot, i === sliderIdx && styles.dotActive]}
+            />
           ))}
         </View>
       )}
@@ -555,7 +737,9 @@ const fetchMore = useCallback(
 
   /* -------- UI -------- */
   return (
-    <SafeAreaView style={[styles.safe, Platform.OS === 'android' && { paddingTop: StatusBar.currentHeight || 0 }]}>
+    <SafeAreaView
+      style={[styles.safe, Platform.OS === 'android' && { paddingTop: StatusBar.currentHeight || 0 }]}
+    >
       <View style={{ flex: 1, backgroundColor: '#fff' }}>
         {/* HEADER */}
         <View style={styles.appHeader}>
@@ -563,7 +747,7 @@ const fetchMore = useCallback(
 
           {/* XP Topla */}
           <TouchableOpacity
-            onPress={() => router.push('/dailyentry')}
+            onPress={handleXpToplaPress}
             disabled={busyTopla}
             activeOpacity={0.9}
             style={{ borderRadius: 14, flexShrink: 1, marginHorizontal: 8 }}
@@ -605,7 +789,7 @@ const fetchMore = useCallback(
                 }}
               >
                 <Text style={{ color: '#FF6B00', fontWeight: '900' }}>
-                  {toplaReady ? 'XP Topla' : remainLabel}
+                  {busyTopla ? 'Yükleniyor…' : toplaReady ? 'XP Topla' : remainLabel}
                 </Text>
               </View>
             </View>
@@ -616,8 +800,15 @@ const fetchMore = useCallback(
             {user.avatar ? (
               <Image source={{ uri: user.avatar }} style={styles.avatarMini} />
             ) : (
-              <View style={[styles.avatarMini, { backgroundColor: '#eee', alignItems: 'center', justifyContent: 'center' }]}>
-                <Text style={{ fontWeight: '900', color: '#999' }}>{user.name[0]?.toUpperCase() || 'K'}</Text>
+              <View
+                style={[
+                  styles.avatarMini,
+                  { backgroundColor: '#eee', alignItems: 'center', justifyContent: 'center' },
+                ]}
+              >
+                <Text style={{ fontWeight: '900', color: '#999' }}>
+                  {user.name[0]?.toUpperCase() || 'K'}
+                </Text>
               </View>
             )}
           </TouchableOpacity>
@@ -626,12 +817,14 @@ const fetchMore = useCallback(
         {/* XP ROZETİ */}
         <View style={{ paddingHorizontal: 16, marginTop: 6 }}>
           <View style={styles.xpPill}>
-            <Text style={styles.xpPillTxt}>{xpLoading ? '...' : xp.toLocaleString('tr-TR')} XP</Text>
+            <Text style={styles.xpPillTxt}>
+              {xpLoading ? '...' : xp.toLocaleString('tr-TR')} XP
+            </Text>
           </View>
         </View>
 
         {/* KATEGORİ BAR */}
-        <View style={styles.catBarWrap}>
+        <View className="catBarWrap" style={styles.catBarWrap}>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -643,7 +836,12 @@ const fetchMore = useCallback(
               return (
                 <TouchableOpacity
                   key={c}
-                  onPress={() => setCategory(c)}
+                  onPress={() => {
+                    setCategory(c);
+                    setPage(0);
+                    setHasMore(true);
+                    fetchMore(true);
+                  }}
                   style={[styles.catPill, active && styles.catPillActive]}
                 >
                   <Text style={[styles.catTxt, active && styles.catTxtActive]}>{c}</Text>
@@ -662,7 +860,9 @@ const fetchMore = useCallback(
           onEndReachedThreshold={0.4}
           onEndReached={() => fetchMore()}
           ListFooterComponent={
-            loadingMore ? <Text style={{ textAlign: 'center', color: '#888', padding: 10 }}>Yükleniyor…</Text> : null
+            loadingMore ? (
+              <Text style={{ textAlign: 'center', color: '#888', padding: 10 }}>Yükleniyor…</Text>
+            ) : null
           }
           renderItem={({ item }) => {
             const st = marketState(item);
@@ -670,7 +870,17 @@ const fetchMore = useCallback(
               <View style={{ marginBottom: 12 }}>
                 <MarketCard
                   item={item}
-                  onPress={() => router.push(`/CouponDetail?id=${item.id}`)}
+                 onPress={() => {
+  if (!isPlus) {
+    (async () => {
+      await registerNavTransition();
+      const shown = await showIfEligible('nav');
+      if (!shown) router.push(`/CouponDetail?id=${item.id}`);
+    })();
+  } else {
+    router.push(`/CouponDetail?id=${item.id}`);
+  }
+}}
                   onTapYes={(m, label, price) => openPill(m as MarketRow, label, 'YES', price)}
                   onTapNo={(m, label, price) => openPill(m as MarketRow, label, 'NO', price)}
                   timeLeftLabel={st.label}
@@ -687,7 +897,7 @@ const fetchMore = useCallback(
           <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
             <View style={styles.modalWrap}>
               <KeyboardAvoidingView
-                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
                 keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
                 style={{ width: '100%' }}
               >
@@ -717,7 +927,11 @@ const fetchMore = useCallback(
                       />
                       <View style={styles.quickRow}>
                         {[25, 50, 100, 250, 500].map((q) => (
-                          <TouchableOpacity key={`q-${q}`} style={styles.quickBtn} onPress={() => setStake(String(q))}>
+                          <TouchableOpacity
+                            key={`q-${q}`}
+                            style={styles.quickBtn}
+                            onPress={() => setStake(String(q))}
+                          >
                             <Text style={{ fontWeight: '700' }}>{q}×</Text>
                           </TouchableOpacity>
                         ))}
@@ -756,66 +970,93 @@ const fetchMore = useCallback(
           fabDiameter={84}
         />
 
-        {/* Sepet Modal */}
+        {/* Sepet Modal – KLAVYE FIXLİ */}
         <Modal visible={basketOpen} transparent animationType="slide">
-          <View style={styles.modalWrap}>
-            <View style={[styles.modalCard, { maxHeight: '72%' }]}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
-                <Text style={styles.modalTitle}>Sepet</Text>
-                <Pressable onPress={() => setBasketOpen(false)}>
-                  <Text style={{ fontWeight: 'bold' }}>Kapat</Text>
-                </Pressable>
-              </View>
-
-              {basket.map((it, i) => (
-                <View key={`${it.coupon_id}-${i}`} style={styles.basketItem}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontWeight: '700' }}>{it.title}</Text>
-                    <Text style={{ color: '#666' }}>
-                      {it.label} • {it.side} • Fiyat: {it.price.toFixed(2)}
-                    </Text>
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+            <View style={styles.modalWrap}>
+              <KeyboardAvoidingView
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
+                style={{ flex: 1, justifyContent: 'flex-end' }}
+              >
+                <View
+                  style={[
+                    styles.modalCard,
+                    {
+                      maxHeight: '72%',
+                      paddingBottom: 16 + (Platform.OS === 'android' ? 24 : 0), // 🔥 alt boşluk
+                    },
+                  ]}
+                >
+                  <View
+                    style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}
+                  >
+                    <Text style={styles.modalTitle}>Sepet</Text>
+                    <Pressable onPress={() => setBasketOpen(false)}>
+                      <Text style={{ fontWeight: 'bold' }}>Kapat</Text>
+                    </Pressable>
                   </View>
-                  {!parlayMode && (
-                    <>
-                      <TextInput
-                        value={String(it.stake)}
-                        onChangeText={(v) => updateBasketStake(i, v)}
-                        keyboardType="numeric"
-                        style={styles.basketStakeInput}
-                      />
-                      <TouchableOpacity onPress={() => removeBasketItem(i)} style={styles.trashBtn}>
-                        <Text style={{ color: '#fff', fontWeight: '700' }}>Sil</Text>
-                      </TouchableOpacity>
-                    </>
-                  )}
-                  {parlayMode && (
-                    <TouchableOpacity onPress={() => removeBasketItem(i)} style={styles.trashBtn}>
-                      <Text style={{ color: '#fff', fontWeight: '700' }}>Sil</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              ))}
 
-              <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
-                <TouchableOpacity
-                  style={[styles.tradeBtn, { flex: 1, backgroundColor: '#FF6B00', opacity: submitting ? 0.7 : 1 }]}
-                  onPress={parlayMode ? confirmPlayParlay : confirmPlaySingles}
-                  disabled={submitting}
-                >
-                  <Text style={{ color: '#fff', fontWeight: 'bold', textAlign: 'center' }}>
-                    {submitting ? 'Gönderiliyor…' : parlayMode ? 'Parlay Oyna' : 'Onayla / Oyna'}
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.tradeBtn, { flex: 1, backgroundColor: '#757575' }]}
-                  onPress={clearBasket}
-                  disabled={submitting}
-                >
-                  <Text style={{ color: '#fff', fontWeight: 'bold', textAlign: 'center' }}>Sepeti Temizle</Text>
-                </TouchableOpacity>
-              </View>
+                  {basket.map((it, i) => (
+                    <View key={`${it.coupon_id}-${i}`} style={styles.basketItem}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontWeight: '700' }}>{it.title}</Text>
+                        <Text style={{ color: '#666' }}>
+                          {it.label} • {it.side} • Fiyat: {it.price.toFixed(2)}
+                        </Text>
+                      </View>
+                      {!parlayMode && (
+                        <>
+                          <TextInput
+                            value={String(it.stake)}
+                            onChangeText={(v) => updateBasketStake(i, v)}
+                            keyboardType="numeric"
+                            style={styles.basketStakeInput}
+                          />
+                          <TouchableOpacity onPress={() => removeBasketItem(i)} style={styles.trashBtn}>
+                            <Text style={{ color: '#fff', fontWeight: '700' }}>Sil</Text>
+                          </TouchableOpacity>
+                        </>
+                      )}
+                      {parlayMode && (
+                        <TouchableOpacity onPress={() => removeBasketItem(i)} style={styles.trashBtn}>
+                          <Text style={{ color: '#fff', fontWeight: '700' }}>Sil</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  ))}
+
+                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
+                    <TouchableOpacity
+                      style={[
+                        styles.tradeBtn,
+                        { flex: 1, backgroundColor: '#FF6B00', opacity: submitting ? 0.7 : 1 },
+                      ]}
+                      onPress={parlayMode ? confirmPlayParlay : confirmPlaySingles}
+                      disabled={submitting}
+                    >
+                      <Text
+                        style={{ color: '#fff', fontWeight: 'bold', textAlign: 'center' }}
+                      >
+                        {submitting ? 'Gönderiliyor…' : parlayMode ? 'Parlay Oyna' : 'Onayla / Oyna'}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.tradeBtn, { flex: 1, backgroundColor: '#757575' }]}
+                      onPress={clearBasket}
+                      disabled={submitting}
+                    >
+                      <Text
+                        style={{ color: '#fff', fontWeight: 'bold', textAlign: 'center' }}
+                      >
+                        Sepeti Temizle
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </KeyboardAvoidingView>
             </View>
-          </View>
+          </TouchableWithoutFeedback>
         </Modal>
       </View>
     </SafeAreaView>
@@ -862,21 +1103,60 @@ const styles = StyleSheet.create({
   catTxt: { color: '#333', fontWeight: '700' },
   catTxtActive: { color: '#fff' },
 
-  dotsRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6, marginTop: 6, marginBottom: 6 },
+  dotsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 6,
+    marginBottom: 6,
+  },
   dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#ddd' },
   dotActive: { backgroundColor: '#999' },
 
-  modalWrap: { flex: 1, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'flex-end' },
-  modalCard: { backgroundColor: '#fff', padding: 16, borderTopLeftRadius: 16, borderTopRightRadius: 16 },
+  modalWrap: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    justifyContent: 'flex-end',
+  },
+  modalCard: {
+    backgroundColor: '#fff',
+    padding: 16,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+  },
   modalTitle: { fontSize: 16, fontWeight: '700' },
   modalSub: { color: '#666', marginBottom: 8 },
-  stakeInput: { borderWidth: 1, borderColor: '#FF6B00', borderRadius: 10, padding: 10, marginTop: 8, marginBottom: 6 },
+  stakeInput: {
+    borderWidth: 1,
+    borderColor: '#FF6B00',
+    borderRadius: 10,
+    padding: 10,
+    marginTop: 8,
+    marginBottom: 6,
+  },
   quickRow: { flexDirection: 'row', gap: 8, marginTop: 10, marginBottom: 6 },
-  quickBtn: { backgroundColor: '#f0f0f0', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10 },
-  tradeBtn: { backgroundColor: '#FF6B00', padding: 12, alignItems: 'center', borderRadius: 10, marginTop: 4 },
+  quickBtn: {
+    backgroundColor: '#f0f0f0',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+  },
+  tradeBtn: {
+    backgroundColor: '#FF6B00',
+    padding: 12,
+    alignItems: 'center',
+    borderRadius: 10,
+    marginTop: 4,
+  },
   closeBtn: { alignItems: 'center', padding: 10, marginTop: 8 },
 
-  basketItem: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8 },
+  basketItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 8,
+  },
   basketStakeInput: {
     borderWidth: 1,
     borderColor: '#ddd',
@@ -886,5 +1166,10 @@ const styles = StyleSheet.create({
     width: 110,
     textAlign: 'center',
   },
-  trashBtn: { backgroundColor: '#E53935', paddingHorizontal: 10, paddingVertical: 10, borderRadius: 10 },
+  trashBtn: {
+    backgroundColor: '#E53935',
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
 });

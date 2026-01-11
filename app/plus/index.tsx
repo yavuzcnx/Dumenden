@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
+  Platform, // 🔥 Platform eklendi
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -12,6 +13,8 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+// 🔥 Safe Area eklendi
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const BRAND  = '#FF6B00';
 const SOFT   = '#FFF2E8';
@@ -19,10 +22,12 @@ const BORDER = '#F2D9C8';
 
 const MASCOT_SRC = require('@/assets/images/dumendenci.png');
 
-type Quota = { is_plus: boolean; used_last7: number; remaining_last7: number };
+type Quota = { used_last7: number; remaining_last7: number };
 
 export default function PlusHome() {
   const router = useRouter();
+  const insets = useSafeAreaInsets(); // 🔥 Insets kancası
+  
   const { isPlus, loading } = usePlus();
 
   const [busy, setBusy] = useState(true);
@@ -38,6 +43,7 @@ export default function PlusHome() {
       const uid = au?.user?.id;
       if (!uid) { setBusy(false); return; }
 
+      // 1. Kullanıcı verisi
       const { data } = await supabase
         .from('users')
         .select('full_name,xp,avatar_url')
@@ -50,18 +56,31 @@ export default function PlusHome() {
         avatar: data?.avatar_url ?? null,
       });
 
+      // 2. Kota verisi (Dizi/Obje kontrolü ile sağlamlaştırma)
       const { data: q } = await supabase.rpc('my_submission_quota');
-      if (q) setQuota(q as Quota);
+      if (q) {
+        const row = Array.isArray(q) ? q[0] : q;
+        setQuota({
+            used_last7: row.used_last7 ?? 0,
+            remaining_last7: row.remaining_last7 ?? 0
+        });
+      }
 
       setBusy(false);
     })();
   }, []);
 
+  // Yönlendirme ve Auth Kontrolü
   useEffect(() => {
-    if (!loading && !isPlus) router.replace('/(modals)/plus-paywall');
+    if (loading || isPlus) return;
+    supabase.auth.getSession().then(({ data }) => {
+      if (data.session) {
+        router.replace('/(modals)/plus-paywall');
+      }
+    });
   }, [loading, isPlus]);
 
-  if (loading || !isPlus || busy) {
+  if (loading || busy) {
     return (
       <SafeAreaView style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator color={BRAND} />
@@ -77,7 +96,14 @@ export default function PlusHome() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 28 }}>
+      <ScrollView 
+        contentContainerStyle={{ 
+            paddingHorizontal: 16, 
+            paddingBottom: 28,
+            // 🔥 HİZALAMA FIX: Android'de status bar kadar aşağı itiyoruz
+            paddingTop: Platform.OS === 'android' ? (insets.top + 16) : 16 
+        }}
+      >
         
         {/* HEADER */}
         <View style={styles.header}>
@@ -101,9 +127,9 @@ export default function PlusHome() {
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Kupon İşlemleri</Text>
 
-          {/* 🔥 KOTA: SABİT 5 HAK */}
+          {/* KOTA BİLGİSİ (FIXED) */}
           <View style={styles.quotaRow}>
-            <Text style={styles.quotaBig}>{quota?.remaining_last7 ?? 0}</Text>
+            <Text style={styles.quotaBig}>{quota?.remaining_last7 ?? '-'}</Text>
             <Text style={{ fontWeight: '800' }}>/ 5</Text>
             <Text style={{ color: '#666' }}>
               (kullanılan: {quota?.used_last7 ?? 0})

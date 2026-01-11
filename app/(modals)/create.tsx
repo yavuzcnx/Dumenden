@@ -22,6 +22,93 @@ const TAB_BAR_HEIGHT = 72;
 
 const CATS = ['Gündem', 'Spor', 'Magazin', 'Politika', 'Absürt'];
 
+/* Sexy Live Preview Component */
+function LivePreview({ title, yes, no, cat, img, closing }) {
+  return (
+    <View style={{
+      marginTop: 35,
+      padding: 16,
+      borderRadius: 16,
+      backgroundColor: '#fff',
+      borderWidth: 1,
+      borderColor: '#e0e0e0',
+      shadowColor: '#000',
+      shadowOpacity: 0.08,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 3 },
+      elevation: 4
+    }}>
+
+      <Text style={{ fontWeight:'900', fontSize:16, marginBottom: 4 }}>
+        Canlı Önizleme
+      </Text>
+      <Text style={{ fontSize:12, color:'#888', marginBottom: 12 }}>
+        Kuponun kullanıcıya böyle görünecek 👇
+      </Text>
+
+      {img?.uri ? (
+        <Image
+          source={{ uri: img.uri }}
+          style={{
+            width: '100%',
+            height: 170,
+            borderRadius: 12,
+            marginBottom: 12,
+          }}
+        />
+      ) : (
+        <View style={{
+          width:'100%',
+          height:170,
+          borderRadius:12,
+          backgroundColor:'#f2f2f2',
+          alignItems:'center',
+          justifyContent:'center',
+          marginBottom:12
+        }}>
+          <Ionicons name="image" size={36} color="#bbb" />
+          <Text style={{ color:'#aaa', marginTop:4 }}>Görsel seçilmedi</Text>
+        </View>
+      )}
+
+      <View style={{
+        alignSelf:'flex-start',
+        paddingHorizontal:12,
+        paddingVertical:6,
+        backgroundColor:'#FFEEDE',
+        borderRadius:20,
+        marginBottom:10
+      }}>
+        <Text style={{ fontWeight:'800', color:'#D45F00', fontSize:12 }}>{cat}</Text>
+      </View>
+
+      <Text style={{ fontWeight:'900', fontSize:15, marginBottom:12 }}>
+        {title || 'Başlık buraya gelecek…'}
+      </Text>
+
+      <View style={{ flexDirection:'row', gap:10 }}>
+        <View style={{ flex:1, backgroundColor:'#E8FFF1', padding:10, borderRadius:10 }}>
+          <Text style={{ color:'#1B8E3F', fontWeight:'900', fontSize:12 }}>YES</Text>
+          <Text style={{ fontWeight:'900', fontSize:18 }}>{yes || '--'}</Text>
+        </View>
+
+        <View style={{ flex:1, backgroundColor:'#FFECEC', padding:10, borderRadius:10 }}>
+          <Text style={{ color:'#C62828', fontWeight:'900', fontSize:12 }}>NO</Text>
+          <Text style={{ fontWeight:'900', fontSize:18 }}>{no || '--'}</Text>
+        </View>
+      </View>
+
+      <Text style={{ marginTop:12, color:'#555', fontWeight:'700', fontSize:12 }}>
+        Kapanış: {closing.toLocaleDateString()} - {closing.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
+      </Text>
+    </View>
+  );
+}
+
+/* ------------------------------------ */
+/* ANA COMPONENT BAŞLIYOR                */
+/* ------------------------------------ */
+
 function formatOdds(next: string) {
   let s = next.replace(',', '.').replace(/[^0-9.]/g, '');
   if (/^\d{2,}$/.test(s) && !s.includes('.')) s = `${s[0]}.${s.slice(1)}`;
@@ -35,21 +122,18 @@ export default function CreateCouponModal() {
   const router = useRouter();
   const { xp, loading: xpLoading } = useXp();
   const isPlus = xp > 0;
-  const insets = useSafeAreaInsets();
+  const insets = useSafeAreaInsets(); // 🔥 Bu değeri aşağıda padding olarak kullanacağız
 
   const [uid, setUid] = useState<string | null>(null);
   const [remaining, setRemaining] = useState<number | null>(null);
   const [used, setUsed] = useState<number>(0);
   const [quotaLoading, setQuotaLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
 
-  // İzinler
   useEffect(() => {
     ImagePicker.requestMediaLibraryPermissionsAsync().catch(() => {});
     ImagePicker.requestCameraPermissionsAsync().catch(() => {});
   }, []);
 
-  // Kota Çek
   useEffect(() => {
     (async () => {
       try {
@@ -67,7 +151,6 @@ export default function CreateCouponModal() {
     })();
   }, []);
 
-  // Paywall Check
   useEffect(() => {
     if (!xpLoading && !isPlus) router.replace('/(modals)/plus-paywall');
   }, [xpLoading, isPlus, router]);
@@ -79,13 +162,11 @@ export default function CreateCouponModal() {
   const [yes, setYes]       = useState('1.80');
   const [no,  setNo ]       = useState('2.10');
   const [img, setImg]       = useState<{ uri: string; w: number; h: number } | null>(null);
-  const [submitting, setSubmitting] = useState(false);
 
-  // Sheets
   const [mediaSheet, setMediaSheet] = useState(false);
-  const [dateSheet, setDateSheet] = useState(false);
   const [showCalendar, setShowCalendar] = useState(false);
   const [showClock, setShowClock] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   const errors = useMemo(() => {
     const e: string[] = [];
@@ -96,25 +177,37 @@ export default function CreateCouponModal() {
     if (!CATS.includes(cat)) e.push('Kategori geçersiz.');
     if (!Number.isFinite(y) || y < 1.01 || y > 10) e.push('Yes oranı 1.01–10 aralığında olmalı.');
     if (!Number.isFinite(n) || n < 1.01 || n > 10) e.push('No oranı 1.01–10 aralığında olmalı.');
-    if (!(closing instanceof Date) || isNaN(closing.getTime())) e.push('Kapanış tarihi hatalı.');
     if (closing.getTime() <= Date.now() + 3600 * 1000) e.push('Kapanış en az 1 saat sonrası olmalı.');
-    
-    // 🔥 KOTA KONTROLÜ
-    if (!quotaLoading && (remaining ?? 0) <= 0) {
-        e.push('Haftalık gönderim hakkın (5 adet) doldu.');
-    }
+    if (!quotaLoading && (remaining ?? 0) <= 0) e.push('Haftalık gönderim hakkın doldu.');
     return e;
-  }, [title, cat, closing, yes, no, remaining, quotaLoading]);
+  }, [title, yes, no, closing, cat, remaining, quotaLoading]);
 
-  const canSubmit = errors.length === 0 && !!uid && !submitting;
+  const canSubmit = errors.length === 0 && uid && !submitting;
+
+  const onDateChange = (event: any, selectedDate?: Date) => {
+    if (Platform.OS === 'android') {
+        setShowCalendar(false); 
+        setShowClock(false);
+    }
+    if (selectedDate) {
+        const d = new Date(closing);
+        if (showClock) {
+            d.setHours(selectedDate.getHours());
+            d.setMinutes(selectedDate.getMinutes());
+        } else {
+            d.setFullYear(selectedDate.getFullYear());
+            d.setMonth(selectedDate.getMonth());
+            d.setDate(selectedDate.getDate());
+        }
+        setClosing(new Date(d));
+    }
+  };
 
   const normalizeAsset = async (assetUri: string, width?: number) => {
-    const maxW = 1400;
-    if (!width || width <= maxW) return assetUri;
-    const ratio = maxW / width;
+    if (!width || width <= 1400) return assetUri;
     const out = await ImageManipulator.manipulateAsync(
       assetUri,
-      [{ resize: { width: Math.round(width * ratio) } }],
+      [{ resize: { width: 1400 } }],
       { compress: 0.82, format: ImageManipulator.SaveFormat.JPEG }
     );
     return out.uri;
@@ -124,10 +217,12 @@ export default function CreateCouponModal() {
     const perm = await ImagePicker.requestCameraPermissionsAsync();
     if (perm.status !== 'granted') return;
     const r = await ImagePicker.launchCameraAsync({ quality: 0.9, allowsEditing: true });
-    if (r.canceled || !r.assets?.[0]?.uri) return;
-    const a = r.assets[0];
-    const uri = await normalizeAsset(a.uri, a.width);
-    setImg({ uri, w: a.width ?? 0, h: a.height ?? 0 });
+    if (!r.canceled && r.assets) {
+      const a = r.assets[0];
+      const uri = await normalizeAsset(a.uri, a.width);
+      setImg({ uri, w: a.width ?? 0, h: a.height ?? 0 });
+      setMediaSheet(false);
+    }
   };
 
   const pickFromGallery = async () => {
@@ -135,209 +230,337 @@ export default function CreateCouponModal() {
     if (perm.status !== 'granted') return;
     const r = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.9,
       allowsEditing: true,
       selectionLimit: 1,
-      exif: false,
-      presentationStyle: ImagePicker.UIImagePickerPresentationStyle.FULL_SCREEN,
+      quality: 0.9,
     });
-    if (r.canceled || !r.assets?.[0]?.uri) return;
-    const a = r.assets[0];
-    const uri = await normalizeAsset(a.uri, a.width);
-    setImg({ uri, w: a.width ?? 0, h: a.height ?? 0 });
+    if (!r.canceled && r.assets) {
+      const a = r.assets[0];
+      const uri = await normalizeAsset(a.uri, a.width);
+      setImg({ uri, w: a.width ?? 0, h: a.height ?? 0 });
+      setMediaSheet(false);
+    }
   };
 
   const removeImage = () => setImg(null);
 
-  async function uploadToStorage(localUri: string, userId: string) {
+  const uploadToStorage = async (localUri: string, userId: string) => {
     const fileName = `${Math.random().toString(36).slice(2)}-${Date.now()}.jpg`;
-    const destPath = `submissions/${userId}/${fileName}`;
-    await uploadImage(localUri, destPath, { bucket: 'Media', contentType: 'image/jpeg' });
-    return destPath;
-  }
+    const dest = `submissions/${userId}/${fileName}`;
+    await uploadImage(localUri, dest, { bucket: 'Media', contentType: 'image/jpeg' });
+    return dest;
+  };
 
   const submit = async () => {
-    if (!uid) return;
-    if (!canSubmit) return Alert.alert('Form Hatalı', errors.join('\n'));
-
+    if (!canSubmit) {
+      return Alert.alert("Form Hatalı", errors.join("\n"));
+    }
     try {
       setSubmitting(true);
       let image_path: string | null = null;
       if (img?.uri) {
-        const safeUri = await normalizeAsset(img.uri);
-        image_path = await uploadToStorage(safeUri, uid);
+        const safe = await normalizeAsset(img.uri);
+        image_path = await uploadToStorage(safe, uid!);
       }
+
       const payload = {
         user_id: uid,
         title: title.trim(),
         description: desc.trim() || null,
         category: cat,
-        yes_price: Number(yes.replace(',', '.')),
-        no_price:  Number(no.replace(',', '.')),
+        yes_price: Number(yes),
+        no_price: Number(no),
         closing_date: closing.toISOString(),
         image_path,
-        status: 'pending' as const,
+        status: 'pending'
       };
-      const { error } = await supabase.from('coupon_submissions').insert(payload);
+
+      const { error } = await supabase.from("coupon_submissions").insert(payload);
       if (error) throw error;
-      Alert.alert('Gönderildi', 'Önerin admin onayına gönderildi.');
+
+      Alert.alert("Gönderildi", "Kupon admin onayına gönderildi.");
       router.back();
-    } catch (e: any) {
-      Alert.alert('Gönderilemedi', e?.message ?? 'Bilinmeyen hata');
+    } catch (err: any) {
+      Alert.alert("Hata", err.message || "Bilinmeyen hata");
     } finally {
       setSubmitting(false);
     }
   };
 
-  if (xpLoading || quotaLoading) {
+  if (quotaLoading || xpLoading) {
     return (
-      <SafeAreaView style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator color={BRAND} />
-        <Text style={{marginTop: 10, color:'#666'}}>Haftalık hak kontrol ediliyor...</Text>
+      <SafeAreaView style={{ flex:1, justifyContent:'center', alignItems:'center' }}>
+        <ActivityIndicator color={BRAND} size="large" />
       </SafeAreaView>
     );
   }
 
-  const bottomPad = insets.bottom + TAB_BAR_HEIGHT + 24;
-
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={insets.top + 48} style={{ flex: 1 }}>
-        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: bottomPad }}>
-          
-          {/* KOTA GÖSTERGESİ */}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        keyboardVerticalOffset={insets.top + 48}
+        style={{ flex: 1 }}
+      >
+        <ScrollView contentContainerStyle={{ 
+            paddingHorizontal: 16, 
+            paddingBottom: 260,
+            // 🔥 FİXLENEN KISIM: Android'de status bar altına girmemesi için dinamik padding
+            paddingTop: Platform.OS === 'android' ? (insets.top + 20) : 16
+        }}>
+
+          {/* Kota */}
           <View style={styles.quota}>
-            <Text style={{ color: '#8d6e63', fontWeight: '900' }}>
-              Haftalık hak:
-              <Text style={{ color: BRAND }}>
-                 {` ${remaining ?? 0}/5 `}
-              </Text>
-              <Text style={{ color: '#8d6e63' }}> (kullanılan: {used})</Text>
+            <Text style={{ fontWeight:'900', color:'#5a463f' }}>
+              Haftalık hak: <Text style={{ color:BRAND }}>{remaining}/5</Text>  
+              <Text style={{ color:'#5a463f' }}> (kullanılan: {used})</Text>
             </Text>
           </View>
 
-          {/* Form Alanları */}
+          {/* Başlık */}
           <Text style={styles.label}>Başlık</Text>
-          <TextInput placeholder="Örn: X takımı bu hafta kazanır mı?" value={title} onChangeText={setTitle} style={styles.input} maxLength={120} />
+          <TextInput style={styles.input} value={title} onChangeText={setTitle} placeholder="Örn: Bu hafta X takımı kazanır mı?" />
 
+          {/* Açıklama */}
           <Text style={styles.label}>Açıklama (opsiyonel)</Text>
-          <TextInput placeholder="Gerekçe, kaynak linki vs." value={desc} onChangeText={setDesc} style={[styles.input, { height: 90, textAlignVertical: 'top' }]} multiline />
+          <TextInput
+            style={[styles.input, { height: 90, textAlignVertical:'top' }]}
+            value={desc}
+            onChangeText={setDesc}
+            placeholder="Kaynak, gerekçe vs."
+            multiline
+          />
 
+          {/* Kategori */}
           <Text style={styles.label}>Kategori</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-            {CATS.map((c) => (
-              <Pressable key={c} onPress={() => setCat(c)} style={[styles.chip, { backgroundColor: cat === c ? BRAND : '#eee' }]}>
-                <Text style={{ color: cat === c ? '#fff' : '#333', fontWeight: '800' }}>{c}</Text>
+          <ScrollView horizontal contentContainerStyle={{ gap:10 }}>
+            {CATS.map(c => (
+              <Pressable
+                key={c}
+                onPress={() => setCat(c)}
+                style={[styles.chip, { backgroundColor: cat === c ? BRAND : '#eee' }]}
+              >
+                <Text style={{ color: cat === c ? '#fff' : '#333', fontWeight:'800' }}>{c}</Text>
               </Pressable>
             ))}
           </ScrollView>
 
-          <Text style={[styles.label, { marginTop: 16 }]}>Oranlar</Text>
-          
-          {/* Hızlı Seçimler */}
-          <View style={{ flexDirection:'row', gap:8, marginBottom:8 }}>
-            {['1.50','1.80','2.10','3.00'].map(v => (
-              <TouchableOpacity key={'Y'+v} onPress={() => setYes(v)} style={{ paddingVertical:8, paddingHorizontal:12, borderRadius:14, backgroundColor:'#E8F1FF', borderWidth:1, borderColor:'#C9E0FF' }}>
-                <Text style={{ color:'#1B66FF', fontWeight:'900' }}>Yes {v}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-          <View style={{ flexDirection:'row', gap:8, marginBottom:8 }}>
-            {['1.50','1.80','2.10','3.00'].map(v => (
-              <TouchableOpacity key={'N'+v} onPress={() => setNo(v)} style={{ paddingVertical:8, paddingHorizontal:12, borderRadius:14, backgroundColor:'#FFE6EF', borderWidth:1, borderColor:'#FFC7DA' }}>
-                <Text style={{ color:'#D61C7B', fontWeight:'900' }}>No {v}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          <View style={{ flexDirection: 'row', gap: 10 }}>
-            <View style={{ flex: 1 }}>
+          {/* Oranlar */}
+          <Text style={[styles.label, { marginTop:16 }]}>Oranlar</Text>
+          <View style={{ flexDirection:'row', gap:10 }}>
+            <View style={{ flex:1 }}>
               <Text style={styles.smallMut}>Yes</Text>
-              <TextInput keyboardType="decimal-pad" value={yes} onChangeText={(t) => setYes(formatOdds(t))} style={styles.input} />
+              <TextInput keyboardType="decimal-pad" style={styles.input} value={yes} onChangeText={(t)=>setYes(formatOdds(t))} />
             </View>
-            <View style={{ flex: 1 }}>
+            <View style={{ flex:1 }}>
               <Text style={styles.smallMut}>No</Text>
-              <TextInput keyboardType="decimal-pad" value={no} onChangeText={(t) => setNo(formatOdds(t))} style={styles.input} />
+              <TextInput keyboardType="decimal-pad" style={styles.input} value={no} onChangeText={(t)=>setNo(formatOdds(t))} />
             </View>
           </View>
 
-          <Text style={[styles.label, { marginTop: 16 }]}>Kapanış</Text>
-          <TouchableOpacity onPress={() => setDateSheet(true)} style={styles.input}>
-            <Text style={{ fontWeight: '700' }}>{closing.toLocaleString()}</Text>
-          </TouchableOpacity>
+          {/* HIZLI ORANLAR */}
+          <View style={{ flexDirection:'row', gap:10, marginTop:10, flexWrap:'wrap' }}>
+            {['1.20','1.50','2.00','3.00'].map(v => (
+              <TouchableOpacity
+                key={v}
+                onPress={()=>{
+                  setYes(v);
+                  setNo((Number(v)+0.30).toFixed(2));
+                }}
+                style={{ paddingHorizontal:12, paddingVertical:8, backgroundColor:'#ffe8cc', borderRadius:10 }}
+              >
+                <Text style={{ fontWeight:'900', color:'#d35400' }}>+{v}</Text>
+              </TouchableOpacity>
+            ))}
 
-          <Text style={[styles.label, { marginTop: 16 }]}>Kapak Görseli</Text>
+            <TouchableOpacity
+              onPress={()=>{ setYes('1.80'); setNo('2.10'); }}
+              style={{ paddingHorizontal:12, paddingVertical:8, backgroundColor:'#ffdddd', borderRadius:10 }}
+            >
+              <Text style={{ fontWeight:'900', color:'#c0392b' }}>Sıfırla</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Kapanış */}
+          <Text style={[styles.label, { marginTop:16 }]}>Kapanış</Text>
+          <View style={{ flexDirection:'row', gap:10 }}>
+            <TouchableOpacity
+              onPress={()=>setShowCalendar(true)}
+              style={[styles.input,{ flex:1, alignItems:'center', justifyContent:'center' }]}
+            >
+              <Ionicons name="calendar" size={20} color={BRAND} />
+              <Text style={{ marginTop:4, fontWeight:'700' }}>{closing.toLocaleDateString()}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={()=>setShowClock(true)}
+              style={[styles.input,{ flex:1, alignItems:'center', justifyContent:'center' }]}
+            >
+              <Ionicons name="time" size={20} color={BRAND} />
+              <Text style={{ marginTop:4, fontWeight:'700' }}>
+                {closing.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {showCalendar || showClock ? (
+            <DateTimePicker
+              value={closing}
+              mode={showCalendar ? 'date' : 'time'}
+              onChange={onDateChange}
+              minimumDate={new Date()}
+            />
+          ) : null}
+
+          {/* HIZLI GÜNLER */}
+          <View style={{ flexDirection:'row', gap:8, marginTop:10, flexWrap:'wrap' }}>
+            {[
+              {label:'+1g', val:1},
+              {label:'+3g', val:3},
+              {label:'+7g', val:7},
+              {label:'-1g', val:-1},
+              {label:'-6g', val:-6},
+            ].map(btn=>(
+              <TouchableOpacity
+                key={btn.label}
+                onPress={()=>{
+                  const d = new Date(closing);
+                  d.setDate(d.getDate()+btn.val);
+                  setClosing(new Date(d));
+                }}
+                style={{ paddingVertical:6, paddingHorizontal:12, backgroundColor:'#eee', borderRadius:10 }}
+              >
+                <Text style={{ fontWeight:'800' }}>{btn.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {/* HIZLI SAATLER */}
+          <View style={{ flexDirection:'row', gap:8, marginTop:10, flexWrap:'wrap' }}>
+            {[
+              {label:'+1s', val:1},
+              {label:'+6s', val:6},
+              {label:'-1s', val:-1},
+              {label:'-6s', val:-6},
+            ].map(btn=>(
+              <TouchableOpacity
+                key={btn.label}
+                onPress={()=>{
+                  const d = new Date(closing);
+                  d.setHours(d.getHours()+btn.val);
+                  setClosing(new Date(d));
+                }}
+                style={{ paddingVertical:6, paddingHorizontal:12, backgroundColor:'#ddf0ff', borderRadius:10 }}
+              >
+                <Text style={{ fontWeight:'800', color:'#1565c0' }}>{btn.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {/* Kapak Görseli */}
+          <Text style={[styles.label,{ marginTop:16 }]}>Kapak Görseli</Text>
+
           {!img ? (
-            <TouchableOpacity onPress={() => setMediaSheet(true)} style={styles.imagePick}>
-              <Text style={{ color: BRAND, fontWeight: '900' }}>Kamera / Galeri</Text>
+            <TouchableOpacity onPress={()=>setMediaSheet(true)} style={styles.imagePick}>
+              <Text style={{ color:BRAND, fontWeight:'900' }}>Kamera / Galeri</Text>
             </TouchableOpacity>
           ) : (
             <View style={styles.imageWrap}>
-              <Image source={{ uri: img.uri }} style={{ width: '100%', height: 180, borderRadius: 12 }} />
-              <Pressable onPress={removeImage} style={styles.removeBtn}><Text style={{ color: '#fff', fontWeight: '900' }}>Sil</Text></Pressable>
+              <Image source={{ uri: img.uri }} style={{ width:'100%', height:170, borderRadius:12 }} />
+              <Pressable onPress={removeImage} style={styles.removeBtn}>
+                <Text style={{ color:'#fff', fontWeight:'900' }}>Sil</Text>
+              </Pressable>
             </View>
           )}
+
+          {/* Canlı Önizleme Burada */}
+          <LivePreview
+            title={title}
+            yes={yes}
+            no={no}
+            cat={cat}
+            img={img}
+            closing={closing}
+          />
 
           {errors.length > 0 && (
             <View style={styles.errorBox}>
-              {errors.map((e) => <Text key={e} style={{ color: '#b71c1c' }}>• {e}</Text>)}
+              {errors.map(e=>(
+                <Text key={e} style={{ color:'#c0392b' }}>• {e}</Text>
+              ))}
             </View>
           )}
 
-          <TouchableOpacity disabled={!canSubmit} onPress={submit} style={[styles.submitBtn, { opacity: canSubmit ? 1 : 0.5, marginTop: 12 }]}>
-            {submitting ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontWeight: '900' }}>Gönder (Onaya)</Text>}
+          <TouchableOpacity
+            disabled={!canSubmit}
+            onPress={submit}
+            style={[styles.submitBtn, { opacity: canSubmit ? 1 : 0.5 }]}
+          >
+            {submitting ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={{ color:'#fff', fontWeight:'900' }}>Gönder (Onaya)</Text>
+            )}
           </TouchableOpacity>
 
-          <View style={{ height: insets.bottom + 8 }} />
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* Modals */}
-      <Modal visible={mediaSheet} transparent animationType="fade" onRequestClose={() => setMediaSheet(false)}>
-        <Pressable style={{ flex:1, backgroundColor:'rgba(0,0,0,0.35)' }} onPress={() => setMediaSheet(false)}>
-          <View style={{ position:'absolute', left:0, right:0, bottom:0, backgroundColor:'#fff', borderTopLeftRadius:18, borderTopRightRadius:18, padding:16, paddingBottom:24 }}>
-            <Text style={{ fontWeight:'900', fontSize:16, marginBottom:10 }}>Görsel Kaynağı</Text>
+      {/* MEDIA SHEET */}
+      <Modal visible={mediaSheet} transparent animationType="fade" onRequestClose={()=>setMediaSheet(false)}>
+        <Pressable style={{ flex:1, backgroundColor:'rgba(0,0,0,0.4)' }} onPress={()=>setMediaSheet(false)}>
+          <View style={{
+            position:'absolute',
+            left:0, right:0, bottom:0,
+            backgroundColor:'#fff',
+            borderTopLeftRadius:20,
+            borderTopRightRadius:20,
+            padding:20,
+            paddingBottom: insets.bottom + 30
+          }}>
+
+            <Text style={{ fontWeight:'900', fontSize:16, marginBottom:12 }}>Görsel Kaynağı</Text>
+
             <View style={{ flexDirection:'row', gap:12 }}>
-              <TouchableOpacity onPress={async () => { try { await pickFromCamera(); } finally { setMediaSheet(false); } }} style={{ flex:1, borderWidth:1, borderColor:'#FFD4B8', backgroundColor:'#FFF3EC', borderRadius:12, padding:16, alignItems:'center' }}><Ionicons name="camera" size={20} color={BRAND} /><Text style={{ marginTop:6, fontWeight:'900', color:'#C24E14' }}>Kamera</Text></TouchableOpacity>
-              <TouchableOpacity onPress={async () => { try { await pickFromGallery(); } finally { setMediaSheet(false); } }} style={{ flex:1, borderWidth:1, borderColor:'#C9E7FF', backgroundColor:'#EEF6FF', borderRadius:12, padding:16, alignItems:'center' }}><Ionicons name="image" size={20} color="#1B66FF" /><Text style={{ marginTop:6, fontWeight:'900', color:'#1B66FF' }}>Galeri</Text></TouchableOpacity>
+              <TouchableOpacity onPress={pickFromCamera} style={styles.sheetBtnCamera}>
+                <Ionicons name="camera" size={22} color={BRAND} />
+                <Text style={styles.sheetLabelCamera}>Kamera</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity onPress={pickFromGallery} style={styles.sheetBtnGallery}>
+                <Ionicons name="image" size={22} color="#1B66FF" />
+                <Text style={styles.sheetLabelGallery}>Galeri</Text>
+              </TouchableOpacity>
             </View>
+
           </View>
         </Pressable>
       </Modal>
 
-      <Modal visible={dateSheet} transparent animationType="fade" onRequestClose={() => setDateSheet(false)}>
-        <Pressable style={{ flex:1, backgroundColor:'rgba(0,0,0,0.35)' }} onPress={() => setDateSheet(false)}>
-          <View style={{ position:'absolute', left:0, right:0, bottom:0, backgroundColor:'#fff', borderTopLeftRadius:20, borderTopRightRadius:20, padding:16, paddingBottom:24 }}>
-            <Text style={{ fontWeight:'900', fontSize:16 }}>Kapanış Tarihi</Text>
-            <View style={{ flexDirection:'row', flexWrap:'wrap', gap:8, marginBottom:10 }}>
-              {[['+1s', 3600e3], ['+6s', 6*3600e3], ['+1g', 24*3600e3], ['+3g', 3*24*3600e3], ['-1s', -3600e3], ['-6s', -6*3600e3], ['-1g', -24*3600e3]].map(([l, d]) => (
-                <TouchableOpacity key={String(l)} onPress={() => setClosing(new Date(closing.getTime() + (d as number)))} style={{ paddingVertical:10, paddingHorizontal:12, borderRadius:10, backgroundColor:'#F3F4F6' }}><Text style={{ fontWeight:'800' }}>{l}</Text></TouchableOpacity>
-              ))}
-            </View>
-            <View style={{ flexDirection:'row', gap:10, marginBottom:8 }}>
-              <TouchableOpacity onPress={() => { setShowCalendar(v => !v); setShowClock(false); }} style={{ flex:1, backgroundColor:'#FFF3EC', borderWidth:1, borderColor:'#FFD3B7', borderRadius:12, padding:12, alignItems:'center' }}><Ionicons name="calendar" size={16} color={BRAND} /><Text style={{ fontWeight:'900', color:'#C24E14', marginTop:4 }}>Takvim Aç</Text></TouchableOpacity>
-              <TouchableOpacity onPress={() => { setShowClock(v => !v); setShowCalendar(false); }} style={{ flex:1, backgroundColor:'#EEF6FF', borderWidth:1, borderColor:'#C9E7FF', borderRadius:12, padding:12, alignItems:'center' }}><Ionicons name="time" size={16} color="#1B66FF" /><Text style={{ fontWeight:'900', color:'#1B66FF', marginTop:4 }}>Saat Seç</Text></TouchableOpacity>
-            </View>
-            {showCalendar && <DateTimePicker value={closing} mode="date" display={Platform.OS === 'ios' ? 'inline' : 'calendar'} onChange={(_, d) => { if (!d) return; const x = new Date(closing); x.setFullYear(d.getFullYear(), d.getMonth(), d.getDate()); setClosing(x); }} minimumDate={new Date(Date.now() + 30*60*1000)} />}
-            {showClock && <DateTimePicker value={closing} mode="time" display={Platform.OS === 'ios' ? 'spinner' : 'clock'} minuteInterval={1} onChange={(_, d) => { if (!d) return; const x = new Date(closing); x.setHours(d.getHours(), d.getMinutes(), 0, 0); setClosing(x); }} />}
-            <Text style={{ marginTop:12, fontWeight:'700' }}>{closing.toLocaleString()}</Text>
-            <TouchableOpacity onPress={() => setDateSheet(false)} style={{ marginTop:12, backgroundColor:BRAND, padding:14, borderRadius:12, alignItems:'center' }}><Text style={{ color:'#fff', fontWeight:'900' }}>Tamam</Text></TouchableOpacity>
-          </View>
-        </Pressable>
-      </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  quota: { backgroundColor: SOFT, borderColor: BORDER, borderWidth: 1, padding: 10, borderRadius: 12, marginBottom: 12 },
-  label: { fontWeight: '900', marginTop: 10, marginBottom: 6 },
-  smallMut: { color: '#666', marginBottom: 6, fontWeight: '700' },
-  input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 10, padding: 10, backgroundColor: '#fff' },
-  imagePick: { borderWidth: 2, borderColor: BRAND, borderStyle: 'dashed', paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
-  chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: '#ddd' },
-  imageWrap: { marginTop: 4, position: 'relative' },
-  removeBtn: { position: 'absolute', right: 10, bottom: 10, backgroundColor: '#E53935', paddingHorizontal: 10, paddingVertical: 8, borderRadius: 10 },
-  errorBox: { marginTop: 12, backgroundColor: '#ffebee', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: '#ffcdd2' },
-  submitBtn: { backgroundColor: BRAND, padding: 14, borderRadius: 12, alignItems: 'center' },
+  quota: { backgroundColor:SOFT, borderColor:BORDER, borderWidth:1, padding:10, borderRadius:12, marginBottom:12 },
+  label: { fontWeight:'900', marginTop:10, marginBottom:6 },
+  smallMut: { color:'#666', marginBottom:6, fontWeight:'700' },
+  input: { borderWidth:1, borderColor:'#ddd', borderRadius:10, padding:10, backgroundColor:'#fff' },
+  chip: { paddingHorizontal:14, paddingVertical:8, borderRadius:20, borderWidth:1, borderColor:'#ddd' },
+  imagePick: { borderWidth:2, borderColor:BRAND, borderStyle:'dashed', paddingVertical:14, borderRadius:12, alignItems:'center' },
+  imageWrap: { marginTop:4, position:'relative' },
+  removeBtn: { position:'absolute', right:10, bottom:10, backgroundColor:'#E53935', paddingHorizontal:10, paddingVertical:8, borderRadius:10 },
+  errorBox: { marginTop:12, backgroundColor:'#ffebee', borderRadius:10, padding:10, borderWidth:1, borderColor:'#ffcdd2' },
+  submitBtn: { backgroundColor:BRAND, padding:14, borderRadius:12, alignItems:'center', marginTop:20 },
+
+  sheetBtnCamera: {
+    flex:1, borderWidth:1, borderColor:'#FFD4B8',
+    backgroundColor:'#FFF3EC', borderRadius:12, padding:18, alignItems:'center'
+  },
+  sheetBtnGallery: {
+    flex:1, borderWidth:1, borderColor:'#C9E7FF',
+    backgroundColor:'#EEF6FF', borderRadius:12, padding:18, alignItems:'center'
+  },
+  sheetLabelCamera: { marginTop:6, fontWeight:'900', color:'#C24E14' },
+  sheetLabelGallery: { marginTop:6, fontWeight:'900', color:'#1B66FF' },
 });

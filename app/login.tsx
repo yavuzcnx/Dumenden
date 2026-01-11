@@ -3,8 +3,8 @@
 import AnimatedLogo from '@/components/AnimatedLogo';
 import { ensureBootstrapAndProfile } from '@/lib/bootstrap';
 import { supabase } from '@/lib/supabaseClient';
-import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useRef, useState } from 'react';
+import { useRouter } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -38,11 +38,12 @@ export default function LoginPage() {
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(true);
 
-  const [checkingSession, setCheckingSession] = useState(true); // Başlangıçta true
+  const [showPassword, setShowPassword] = useState(false);
 
   const [forgotModalVisible, setForgotModalVisible] = useState(false);
   const [forgotEmail, setForgotEmail] = useState('');
@@ -50,83 +51,104 @@ export default function LoginPage() {
 
   const adminEmails = ['admin1@dumenden.com', 'admin2@dumenden.com', 'admin3@dumenden.com'];
 
+  // YÖNLENDİRME FONKSİYONU
   const navigateBasedOnUser = (userEmail: string | undefined) => {
-      const e = (userEmail || '').trim().toLowerCase();
-      if (adminEmails.includes(e)) {
-          router.replace('/admin/landing');
-      } else {
-          router.replace('/home');
-      }
+    const e = (userEmail || '').trim().toLowerCase();
+    if (adminEmails.includes(e)) {
+      router.replace('/admin/landing');
+    } else {
+      router.replace('/home');
+    }
   };
 
-  // 🔥 LOOP ÇÖZÜMÜ: Ekran her odaklandığında kontrol et
-  useFocusEffect(
-    useCallback(() => {
-      let isActive = true;
-      setCheckingSession(true);
-      setError('');
-      setBusy(false);
+  // 🔥 FİXLENEN KISIM: Otomatik Dinleyici (Listener)
+  // Bu kod, giriş yapıldığı AN (ister otomatik, ister elle) devreye girer.
+  useEffect(() => {
+    let mounted = true;
 
-      const check = async () => {
-        // 2 Saniye zaman aşımı (Takılmayı önler)
-        const timer = setTimeout(() => {
-            if(isActive) setCheckingSession(false);
-        }, 2000);
-
+    // 1. Önce mevcut oturum var mı diye bak
+    const checkInitial = async () => {
+      try {
         const { data } = await supabase.auth.getSession();
-        clearTimeout(timer);
-        
-        if (!isActive) return;
-
-        if (data.session) {
-           navigateBasedOnUser(data.session.user.email);
-        } else {
-           setCheckingSession(false);
+        if (data.session && mounted) {
+          navigateBasedOnUser(data.session.user.email);
+          return;
         }
-      };
-      
-      check();
-      return () => { isActive = false; };
-    }, [])
-  );
+      } finally {
+        if (mounted) setCheckingSession(false);
+      }
+    };
+    checkInitial();
+
+    // 2. Dinleyiciyi başlat (Login butonuna basınca burası tetiklenir)
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_IN' && session && mounted) {
+        // Giriş başarılı olduğu an, butona basmayı beklemeden yönlendir
+        setBusy(false); 
+        navigateBasedOnUser(session.user.email);
+      }
+    });
+
+    return () => {
+      mounted = false;
+      authListener.subscription.unsubscribe();
+    };
+  }, []);
 
   const handleLogin = async () => {
     setError('');
+    Keyboard.dismiss();
+
     if (!email || !password) {
       setError('E-posta ve şifre gir.');
       return;
     }
+
     setBusy(true);
-    const { data, error: loginError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
 
-    if (loginError) {
-      setError(loginError.message);
-      setBusy(false);
-      return;
-    }
+    try {
+      const { data, error: loginError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-    if (data.session) {
-        try { await ensureBootstrapAndProfile(); } catch {}
+      if (loginError) {
+        setError(loginError.message);
+        setBusy(false);
+        return;
+      }
+
+      // 🔥 DÜZELTME BURADA: Listener'ı bekleme, manuel yönlendir!
+      if (data.session) {
+        await ensureBootstrapAndProfile().catch(() => {});
+        
+        // Listener'ın tetiklenmesini beklemeden direkt yönlendiriyoruz
         navigateBasedOnUser(data.session.user.email);
+        
+        // Busy'i false yapmaya gerek yok çünkü sayfa değişecek
+      }
+
+    } catch (e: any) {
+      setError(e.message || 'Beklenmedik bir hata oluştu.');
+      setBusy(false);
     }
   };
-
+  // ŞİFREMİ UNUTTUM
   const handleResetPassword = async () => {
     if (!forgotEmail) {
       Alert.alert('Uyarı', 'Lütfen e-posta adresinizi girin.');
       return;
     }
     setForgotLoading(true);
+
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(forgotEmail, {
-         redirectTo: 'dumenden://reset-password',
+        redirectTo: 'dumenden://reset-password',
       });
 
       if (error) throw error;
-      Alert.alert('Başarılı', 'Şifre sıfırlama bağlantısı e-posta adresine gönderildi.');
+
+      Alert.alert('Başarılı', 'Sıfırlama bağlantısı gönderildi.');
       setForgotModalVisible(false);
       setForgotEmail('');
     } catch (e: any) {
@@ -136,6 +158,7 @@ export default function LoginPage() {
     }
   };
 
+  // YÜKLEME EKRANI (Sadece ilk açılışta session kontrolü için)
   if (checkingSession) {
     return (
       <View style={styles.loadingWrap}>
@@ -149,6 +172,7 @@ export default function LoginPage() {
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
         <View style={styles.container}>
           <AnimatedLogo ref={logoRef} />
+
           <Text style={styles.title}>Giriş Yap</Text>
 
           <TextInput
@@ -161,51 +185,87 @@ export default function LoginPage() {
             placeholderTextColor={COLORS.placeholder}
           />
 
-          <TextInput
-            placeholder="Şifre"
-            value={password}
-            onChangeText={setPassword}
-            style={styles.input}
-            secureTextEntry={!showPassword}
-            placeholderTextColor={COLORS.placeholder}
-          />
+          <View style={styles.passRow}>
+             <TextInput
+              placeholder="Şifre"
+              value={password}
+              onChangeText={setPassword}
+              style={[styles.input, { flex: 1, marginBottom: 0 }]}
+              secureTextEntry={!showPassword}
+              placeholderTextColor={COLORS.placeholder}
+            />
+            {/* Şifre Göster/Gizle için minik bir buton */}
+            <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeBtn}>
+                <Text style={{color: COLORS.primary, fontWeight:'700', fontSize:12}}>
+                    {showPassword ? "GİZLE" : "GÖSTER"}
+                </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Şifre inputu stilini düzelttim, margin'i dış view'a verdim */}
+          <View style={{ marginBottom: 14 }} /> 
 
           <View style={styles.topRow}>
             <TouchableOpacity onPress={() => setForgotModalVisible(true)}>
-              <Text style={[styles.showPwdText, { color: '#666', fontWeight: '400' }]}>Şifremi Unuttum?</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => setShowPassword((v) => !v)} activeOpacity={0.8}>
-              <Text style={styles.showPwdText}>{showPassword ? 'Şifreyi gizle' : 'Şifreyi göster'}</Text>
+              <Text style={{ color: '#666', fontWeight: '400' }}>Şifremi Unuttum?</Text>
             </TouchableOpacity>
           </View>
 
           {!!error && <Text style={styles.error}>{error}</Text>}
 
-          <TouchableOpacity style={[styles.button, busy && { opacity: 0.6 }]} onPress={handleLogin} disabled={busy}>
-            <Text style={styles.buttonText}>{busy ? 'Giriş yapılıyor...' : 'Giriş Yap'}</Text>
+          <TouchableOpacity
+            style={[styles.button, busy && { opacity: 0.6 }]}
+            onPress={handleLogin}
+            disabled={busy}
+          >
+            {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Giriş Yap</Text>}
           </TouchableOpacity>
 
           <TouchableOpacity onPress={() => router.replace('/register')}>
             <Text style={styles.link}>Hesabın yok mu? Kayıt Ol</Text>
           </TouchableOpacity>
 
-          <Modal visible={forgotModalVisible} transparent animationType="fade" onRequestClose={() => setForgotModalVisible(false)}>
+          {/* ŞİFRE RESET MODAL */}
+          <Modal visible={forgotModalVisible} transparent animationType="fade">
             <View style={styles.modalOverlay}>
               <View style={styles.modalContent}>
                 <Text style={styles.modalTitle}>Şifre Sıfırlama</Text>
-                <Text style={styles.modalSub}>Kayıtlı e-posta adresini gir, sana sıfırlama bağlantısı gönderelim.</Text>
-                <TextInput placeholder="E-posta adresi" value={forgotEmail} onChangeText={setForgotEmail} style={styles.input} keyboardType="email-address" autoCapitalize="none" placeholderTextColor={COLORS.placeholder} />
+                <Text style={styles.modalSub}>E-postanı gir, sana sıfırlama linki gönderelim.</Text>
+
+                <TextInput
+                  placeholder="E-posta"
+                  value={forgotEmail}
+                  onChangeText={setForgotEmail}
+                  style={styles.input}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  placeholderTextColor={COLORS.placeholder}
+                />
+
                 <View style={styles.modalBtns}>
-                  <TouchableOpacity onPress={() => setForgotModalVisible(false)} style={[styles.modalBtn, { backgroundColor: '#f3f4f6' }]}>
-                    <Text style={[styles.modalBtnText, { color: '#333' }]}>İptal</Text>
+                  <TouchableOpacity
+                    onPress={() => setForgotModalVisible(false)}
+                    style={[styles.modalBtn, { backgroundColor: '#eee' }]}
+                  >
+                    <Text style={{ color: '#333', fontWeight: '700' }}>İptal</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={handleResetPassword} disabled={forgotLoading} style={[styles.modalBtn, { backgroundColor: COLORS.primary }]}>
-                    {forgotLoading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={[styles.modalBtnText, { color: '#fff' }]}>Gönder</Text>}
+
+                  <TouchableOpacity
+                    onPress={handleResetPassword}
+                    style={[styles.modalBtn, { backgroundColor: COLORS.primary }]}
+                    disabled={forgotLoading}
+                  >
+                    {forgotLoading ? (
+                      <ActivityIndicator color="#fff" size="small" />
+                    ) : (
+                      <Text style={{ color: '#fff', fontWeight: '700' }}>Gönder</Text>
+                    )}
                   </TouchableOpacity>
                 </View>
               </View>
             </View>
           </Modal>
+
         </View>
       </TouchableWithoutFeedback>
     </KeyboardAvoidingView>
@@ -213,22 +273,46 @@ export default function LoginPage() {
 }
 
 const styles = StyleSheet.create({
-  loadingWrap: { flex: 1, backgroundColor: COLORS.bg, alignItems: 'center', justifyContent: 'center' },
+  loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.bg },
   wrapper: { flex: 1, backgroundColor: COLORS.bg },
-  container: { flex: 1, justifyContent: 'center', padding: 24, backgroundColor: COLORS.bg },
+  container: { flex: 1, justifyContent: 'center', padding: 24 },
   title: { fontSize: 26, fontWeight: 'bold', textAlign: 'center', marginBottom: 20, color: COLORS.text },
-  input: { borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, padding: 12, marginBottom: 14, fontSize: 16, backgroundColor: COLORS.inputBg, color: COLORS.text },
-  topRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
-  showPwdText: { color: COLORS.primary, fontSize: 14, fontWeight: '600' },
-  button: { backgroundColor: COLORS.primary, padding: 14, borderRadius: 12, alignItems: 'center', marginTop: 10 },
+  
+  input: { 
+    borderWidth: 1, 
+    borderColor: COLORS.border, 
+    borderRadius: 12, 
+    padding: 12, 
+    fontSize: 16, 
+    color: COLORS.text,
+    backgroundColor: '#fff',
+    height: 50
+  },
+  
+  // Şifre alanı ve göz butonu için yeni stil
+  passRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1, 
+    borderColor: COLORS.border, 
+    borderRadius: 12,
+    paddingRight: 12,
+    height: 50,
+    marginBottom: 0
+  },
+  eyeBtn: {
+    padding: 4,
+  },
+
+  topRow: { flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 20 },
+  button: { backgroundColor: COLORS.primary, padding: 14, borderRadius: 12, alignItems: 'center', height: 50, justifyContent: 'center' },
   buttonText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
-  link: { marginTop: 20, textAlign: 'center', color: COLORS.link, fontSize: 14 },
+  link: { marginTop: 20, textAlign: 'center', color: COLORS.link },
   error: { color: COLORS.error, textAlign: 'center', marginBottom: 10 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 },
   modalContent: { backgroundColor: '#fff', borderRadius: 16, padding: 24 },
-  modalTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 8, color: '#111' },
-  modalSub: { color: '#666', marginBottom: 16, lineHeight: 20 },
-  modalBtns: { flexDirection: 'row', justifyContent: 'flex-end', gap: 12, marginTop: 10 },
+  modalTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 6 },
+  modalSub: { fontSize: 13, color: '#666', marginBottom: 20 },
+  modalBtns: { flexDirection: 'row', justifyContent: 'flex-end', gap: 12 },
   modalBtn: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, minWidth: 80, alignItems: 'center' },
-  modalBtnText: { fontWeight: '700' },
 });

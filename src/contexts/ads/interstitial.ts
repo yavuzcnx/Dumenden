@@ -1,15 +1,17 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useRef, useState } from 'react';
+import { Platform } from 'react-native';
 import { AdEventType, InterstitialAd, TestIds } from 'react-native-google-mobile-ads';
 
-const PROD_INTERSTITIAL = 'ca-app-pub-3837426346942059/8002763076';
+const PROD_INTERSTITIAL_ANDROID = 'ca-app-pub-3837426346942059/8002763076';
+const PROD_INTERSTITIAL_IOS = 'ca-app-pub-3837426346942059/7530153923';
 
 const FOUR_MIN_MS = 4 * 60 * 1000;
-const NAV_PER_AD  = 10;
+const NAV_PER_AD = 10;
 const MIN_COOLDOWN = 30 * 1000;
 
 const K_LAST = 'ads:lastShownAt';
-const K_NAV  = 'ads:navCount';
+const K_NAV = 'ads:navCount';
 
 async function getNumber(key: string, fallback = 0) {
   try {
@@ -32,9 +34,10 @@ export function useInterstitial() {
   const loadingRef = useRef(false);
 
   useEffect(() => {
-    const adUnitId = __DEV__ ? TestIds.INTERSTITIAL : PROD_INTERSTITIAL;
-    const ad = InterstitialAd.createForAdRequest(adUnitId);
+    const prodId = Platform.OS === 'ios' ? PROD_INTERSTITIAL_IOS : PROD_INTERSTITIAL_ANDROID;
+    const adUnitId = __DEV__ ? TestIds.INTERSTITIAL : prodId;
 
+    const ad = InterstitialAd.createForAdRequest(adUnitId);
     adRef.current = ad;
 
     const l1 = ad.addAdEventListener(AdEventType.LOADED, () => {
@@ -86,7 +89,7 @@ export function useInterstitial() {
     if (diff < MIN_COOLDOWN) return false;
 
     if (reason === 'home_enter') return diff >= FOUR_MIN_MS;
-    
+
     if (reason === 'nav') {
       const cnt = await getNumber(K_NAV, 0);
       return cnt >= NAV_PER_AD;

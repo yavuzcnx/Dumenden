@@ -82,6 +82,8 @@ export default function ProfilePage() {
   const [newPw, setNewPw] = useState('');
   const [newPw2, setNewPw2] = useState('');
   const [pwSaving, setPwSaving] = useState(false);
+  const authListenerRef = useRef<any>(null);
+
 
   // stats
   const [playsCount, setPlaysCount] = useState<number>(0);
@@ -200,15 +202,24 @@ export default function ProfilePage() {
       }
     })();
 
-    const { data: sub } = supabase.auth.onAuthStateChange(async (_e, sess) => {
-      const u = sess?.user ?? null;
-      // 🔥 Çıkışta state'i silmiyoruz ki UI kapanırken bozulmasın
-      if(u) {
-          setAuthUserId(u.id);
-          setEmail(u.email ?? '');
-          await loadAll.current!(u.id);
-      }
-    });
+  const { data: sub } = supabase.auth.onAuthStateChange(async (event, sess) => {
+  // 🔥 EKLENEN KISIM: Eğer çıkış yapıldıysa veya oturum yoksa direkt şutla
+  if (event === 'SIGNED_OUT' || !sess) {
+     router.replace('/login');
+     return;
+  }
+
+  // Burası senin eski kodun aynısı (Giriş yapıldıysa verileri çek)
+  const u = sess?.user ?? null;
+  if(u) {
+      setAuthUserId(u.id);
+      setEmail(u.email ?? '');
+      await loadAll.current!(u.id);
+  }
+});
+
+authListenerRef.current = sub;
+
 
     return () => {
       try {
@@ -386,18 +397,24 @@ export default function ProfilePage() {
   };
 
   /** ---------- sign out (FIXED) ---------- **/
-  const signOut = async () => {
-    // 🔥 Önce yönlendir, sonra işlemi yap.
-    // Bu sayede uygulama "kapanmış" gibi görünmez, login'e geçer.
+const handleLogout = async () => {
+  try {
+    // 1. Kanalları temizle ama bitmesini BEKLEME (Fire & Forget)
+    // Bu sayede hız kazanırız.
+    supabase.removeAllChannels(); 
+
+    // 2. Çıkış işlemini başlat
+    await supabase.auth.signOut();
+
+    // 3. Listener (yukarıdaki kod) zaten yakalayıp atacak ama
+    // garanti olsun diye biz de manuel olarak yolluyoruz.
     router.replace('/login');
 
-    try {
-      await supabase.auth.signOut();
-    } catch (e) {
-      console.warn("Çıkış hatası (önemsiz):", e);
-    }
-  };
-
+  } catch (e) {
+    // Hata olsa bile kullanıcıyı içeride tutma, giriş ekranına at.
+    router.replace('/login');
+  }
+};
   /** ---------- ui ---------- **/
   return (
     <ScrollView
@@ -598,7 +615,7 @@ export default function ProfilePage() {
 
         {/* ÇIKIŞ */}
         <TouchableOpacity
-          onPress={signOut}
+          onPress={handleLogout}
           style={[styles.actionBtn, { backgroundColor: '#dc2626', marginTop: 6 }]}
         >
           <Text style={[styles.actionTxt, { color: '#fff' }]}>Çıkış Yap</Text>

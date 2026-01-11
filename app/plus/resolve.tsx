@@ -29,7 +29,6 @@ type Coupon = {
   result: 'YES' | 'NO' | null;
   paid_out_at: string | null;
   created_by?: string | null;
-  author_id?: string | null;
   is_user_generated?: boolean | null;
   is_open?: boolean | null;
   coupon_proofs?: { id: string; media_url: string | null; status: string }[];
@@ -49,17 +48,17 @@ const resolveUrl = (raw?: string | null) => {
   return publicUrl(s, BUCKET);
 };
 
+// RPC yardımcı fonksiyonu
 async function callPayoutRPC(couponId: string) {
-  let { data, error } = await supabase.rpc('payout_coupon', { p_coupon_id: couponId });
-  if (error && /function .*payout_coupon.* does not exist/i.test(error.message)) {
-    const r2 = await supabase.rpc('payout_coupon_v2', { p_coupon_id: couponId });
-    if (r2.error) throw r2.error;
-    return r2.data as any;
-  }
+  // Önce modern versiyonu dene
+  const { data, error } = await supabase.rpc('resolve_and_payout', { 
+      p_coupon_id: couponId, 
+      p_result: 'VOID', // Payout butonu sadece dağıtım içindir, sonuç değişmez
+      p_proof_url: null 
+  }); 
   if (error) throw error;
-  return data as any;
+  return data;
 }
-const extractStatus = (res: any) => (Array.isArray(res) ? res[0]?.status : res?.status) as string | undefined;
 
 export default function PlusResolve() {
   const router = useRouter();
@@ -91,12 +90,12 @@ export default function PlusResolve() {
       .select(
         `
         id, title, closing_date, result, paid_out_at, image_url, created_at,
-        is_user_generated, created_by, author_id, is_open,
+        is_user_generated, created_by, is_open,
         coupon_proofs:coupon_proofs!coupon_proofs_coupon_id_fkey (id, media_url, status),
         coupon_submissions!coupon_submissions_approved_coupon_id_fkey(image_path)
       `
       )
-      .or(`created_by.eq.${me},author_id.eq.${me}`)
+      .eq('created_by', me)
       .eq('is_user_generated', true)
       .or('and(is_open.eq.true,result.is.null),and(result.not.is.null,paid_out_at.is.null)')
       .order('created_at', { ascending: false })
@@ -132,6 +131,7 @@ export default function PlusResolve() {
   useEffect(() => {
     if (me) load();
   }, [me]);
+
   useEffect(() => {
     const t = setTimeout(() => load(q), 300);
     return () => clearTimeout(t);
@@ -150,55 +150,77 @@ export default function PlusResolve() {
     if (a?.uri) setLocalUri(a.uri);
   };
 
+  // 🔥 KANITLI ÖDEME FONKSİYONU
   const resolveNow = async () => {
     if (!selected) return Alert.alert('Eksik', 'Bir kupon seç.');
     if (!winner) return Alert.alert('Eksik', 'Kazananı seç (YES/NO).');
 
+    // 1. Zaten onaylı kanıt var mı?
+    const hasApprovedProof = selected.coupon_proofs?.some(p => p.status === 'approved');
+    
+    // 2. Kullanıcı yeni kanıt yüklüyor mu?
+    const userIsUploading = !!localUri;
+
+    // 3. Eğer onaylı kanıt yoksa VE kullanıcı da yüklemiyorsa HATA
+    if (!hasApprovedProof && !userIsUploading) {
+        Alert.alert(
+            "Kanıt Gerekli 🛑", 
+            "Ödeme dağıtmak için ONAYLI bir kanıtın olmalı. Lütfen 'Kanıt Ekle' butonuna basıp bir görsel yükle."
+        );
+        return;
+    }
+
     try {
       setBusy(true);
       let proofUrl: string | null = null;
+      
+      // Eğer kullanıcı şimdi kanıt yüklüyorsa yükleyelim
       if (localUri) {
         const path = `proofs/${selected.id}/${uid()}.jpg`;
         await uploadImage(localUri, path, { bucket: BUCKET, contentType: 'image/jpeg' });
         proofUrl = publicUrl(path, BUCKET);
       }
 
+      // SQL'i çağır
       const { data, error } = await supabase.rpc('resolve_and_payout', {
         p_coupon_id: selected.id,
         p_result: winner,
-        p_proof_url: proofUrl,
+        p_proof_url: proofUrl, // Varsa URL gider, yoksa null
       });
-      if (error) throw error;
+      
+      if (error) {
+          // SQL hatasını kullanıcıya göster (Örn: "Kanıt onaysız" hatası)
+          throw error;
+      }
 
-      const s = extractStatus(data);
-      const paidMsg = s === 'paid' ? 'Ödemeler dağıtıldı.' : s === 'already_paid' ? 'Zaten ödenmişti.' : 'İşlem tamam.';
-      Alert.alert('Tamam', `Sonuç “${winner}” olarak işaretlendi. ${paidMsg}`);
-
+      // Başarılı
+      Alert.alert('Başarılı', 'İşlem tamamlandı.');
+      
+      // Temizlik
       setSelected(null);
       setWinner(null);
       setLocalUri(null);
       load(q);
+
     } catch (e: any) {
-      Alert.alert('Hata', e.message || 'Sonuç/payout başarısız');
+      // Hata mesajını güzelleştir
+      let msg = e.message;
+      if (msg.includes('Kanıt yüklendi')) {
+          msg = "Kanıtın yüklendi ve onaya gönderildi. Admin onaylayınca tekrar gelip 'Sonuçla' diyebilirsin.";
+          setLocalUri(null); // Yüklendiği için temizle
+      } else if (msg.includes('Kanıt olmadan')) {
+          msg = "Onaylı kanıt bulunamadı! Lütfen kanıt yükle.";
+      }
+      
+      Alert.alert('Bilgi', msg);
     } finally {
       setBusy(false);
     }
   };
 
   const payoutNow = async () => {
-    if (!selected) return;
-    try {
-      setBusy(true);
-      const data = await callPayoutRPC(selected.id);
-      const s = extractStatus(data);
-      const msg = s === 'already_paid' ? 'Zaten ödenmiş.' : 'Ödemeler dağıtıldı.';
-      Alert.alert('Tamam', msg);
-      load(q);
-    } catch (e: any) {
-      Alert.alert('Hata', e.message || 'Payout başarısız');
-    } finally {
-      setBusy(false);
-    }
+      // Sadece ödeme dağıtma (Eskiden kalma manuel tetikleme için)
+      resolveNow(); 
   };
 
   return (
@@ -238,22 +260,6 @@ export default function PlusResolve() {
             >
               <Ionicons name="trophy-outline" size={14} color={ORANGE} style={{ marginRight: 4 }} />
               <Text style={{ color: '#0F172A', fontWeight: '900' }}>{openCount}</Text>
-            </View>
-
-            <View
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                backgroundColor: '#EAFDF4',
-                borderWidth: 1,
-                borderColor: '#C9F3DB',
-                paddingHorizontal: 10,
-                paddingVertical: 6,
-                borderRadius: 999,
-              }}
-            >
-              <Ionicons name="cash-outline" size={14} color="#059669" style={{ marginRight: 4 }} />
-              <Text style={{ color: '#0F172A', fontWeight: '900' }}>{payoutCount}</Text>
             </View>
           </View>
         </View>
@@ -367,19 +373,23 @@ export default function PlusResolve() {
               {selected.paid_out_at ? '• Ödendi' : ''}
             </Text>
 
+            {/* ONAYLI KANITLARI GÖSTER */}
             {!!selected.coupon_proofs?.length && (
-              <FlatList
-                data={selected.coupon_proofs.filter((p) => p.status === 'approved')}
-                keyExtractor={(p) => p.id}
-                horizontal
-                contentContainerStyle={{ paddingVertical: 6 }}
-                renderItem={({ item }) => (
-                  <Image
-                    source={{ uri: item.media_url || '' }}
-                    style={{ width: 120, height: 90, borderRadius: 10, marginRight: 8, backgroundColor: '#eee' }}
+              <View>
+                  <Text style={{fontWeight:'800', marginBottom:4, color:GREEN}}>Onaylı Kanıtlar:</Text>
+                  <FlatList
+                    data={selected.coupon_proofs.filter((p) => p.status === 'approved')}
+                    keyExtractor={(p) => p.id}
+                    horizontal
+                    contentContainerStyle={{ paddingVertical: 6 }}
+                    renderItem={({ item }) => (
+                      <Image
+                        source={{ uri: item.media_url || '' }}
+                        style={{ width: 120, height: 90, borderRadius: 10, marginRight: 8, backgroundColor: '#eee' }}
+                      />
+                    )}
                   />
-                )}
-              />
+              </View>
             )}
 
             {!selected.result && (
@@ -405,19 +415,20 @@ export default function PlusResolve() {
                   ))}
                 </View>
 
-                <TouchableOpacity
-                  onPress={pickImage}
-                  style={{
-                    backgroundColor: '#3D5AFE',
-                    padding: 14,
-                    borderRadius: 12,
-                    alignItems: 'center',
-                  }}
-                >
-                  <Text style={{ color: '#fff', fontWeight: '900' }}>
-                    {localUri ? 'Kanıtı Değiştir' : 'Kanıt Görseli Ekle (Opsiyonel)'}
-                  </Text>
-                </TouchableOpacity>
+                {/* KANIT BUTONU */}
+               <TouchableOpacity
+  onPress={() => router.push(`/plus/proofs?coupon=${selected?.id}`)}
+  style={{
+    backgroundColor: '#FF6B00',
+    padding: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  }}
+>
+  <Text style={{ color: '#fff', fontWeight: '900' }}>
+    Kanıt Ekle
+  </Text>
+</TouchableOpacity>
 
                 {!!localUri && (
                   <Image
@@ -441,16 +452,6 @@ export default function PlusResolve() {
                   </Text>
                 </TouchableOpacity>
               </>
-            )}
-
-            {!!selected.result && !selected.paid_out_at && (
-              <TouchableOpacity
-                disabled={busy}
-                onPress={payoutNow}
-                style={{ backgroundColor: busy ? '#9ccc65' : GREEN, padding: 14, borderRadius: 12, alignItems: 'center' }}
-              >
-                <Text style={{ color: '#fff', fontWeight: '900' }}>{busy ? 'İşleniyor…' : 'Ödemeyi Dağıt'}</Text>
-              </TouchableOpacity>
             )}
           </View>
         ) : (

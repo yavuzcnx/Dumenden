@@ -20,7 +20,6 @@ export default function RootLayout() {
   const didInit = useRef(false);
   const [adsInitDone, setAdsInitDone] = useState(false);
 
-  // Reklam başlangıç
   useEffect(() => {
     (async () => {
       try { await initAds(); } catch {}
@@ -28,9 +27,10 @@ export default function RootLayout() {
     })();
   }, []);
 
-  useEffect(() => {
+ useEffect(() => {
     let mounted = true;
 
+    // 1. İlk açılış kontrolü (Mevcut kodun)
     (async () => {
       if (didInit.current) return;
       didInit.current = true;
@@ -43,15 +43,19 @@ export default function RootLayout() {
       }
     })();
 
-    // Auth event listener
+    // 2. Auth Listener (GÜNCELLENMİŞ HALİ)
     const { data: sub } = supabase.auth.onAuthStateChange(async (event, session) => {
       
       if (event === 'SIGNED_IN') {
         if (session?.user) {
           await ensureBootstrapAndProfile().catch(console.warn);
+          
+          // 🔥 DÜZELTME: Eğer kullanıcı Login sayfasındaysa ve giriş yaptıysa, Ana Sayfaya at!
+          // (pathname kontrolü ekliyoruz ki sürekli yönlendirme yapmasın)
+          if (pathname === '/login' || pathname === '/') {
+             router.replace('/home');
+          }
         }
-        // Yönlendirmeyi burada yapmıyoruz, Login sayfası veya ilgili sayfa kendi karar versin.
-        // Burası global state'i yönetir.
       }
 
       if (event === 'SIGNED_OUT') {
@@ -63,19 +67,17 @@ export default function RootLayout() {
       try { sub.subscription.unsubscribe(); } catch {}
       mounted = false;
     };
-  }, [pathname, router]);
+  }, [pathname]); // pathname bağımlılığını ekledik
 
-  // Alt bar görünmez sayfalar
-  // 🔥 DÜZELTME: /reset-password BURAYA EKLENDİ
   const hideOn = [
     '/login',
     '/register',
     '/google-auth',
     '/splash',
-    '/reset-password', // <-- ARTIK ALT BAR BURADA ÇIKMAYACAK
+    '/reset-password',
     '/admin',
-    
   ];
+
   const hide = hideOn.some((p) => pathname?.startsWith(p));
 
   if (!adsInitDone) return null;
@@ -110,7 +112,6 @@ export default function RootLayout() {
   );
 }
 
-// ⭐ NAVIGATION WATCHER
 function NavigationWatcher() {
   const pathname = usePathname();
   const prevPathRef = useRef<string | null>(null);
@@ -127,14 +128,12 @@ function NavigationWatcher() {
         await showIfEligible("home_enter");
       })();
     }
-
     prevPathRef.current = pathname || null;
   }, [pathname]);
 
   return null;
 }
 
-// ⭐ GLOBAL TIMER
 function GlobalAdTimer() {
   const { showIfEligible } = useInterstitial();
   const intervalRef = useRef<number | null>(null);
@@ -142,7 +141,7 @@ function GlobalAdTimer() {
   useEffect(() => {
     intervalRef.current = setInterval(() => {
       showIfEligible("home_enter");
-    }, 15000); 
+    }, 15000);
 
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);

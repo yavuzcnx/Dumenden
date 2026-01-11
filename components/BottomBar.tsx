@@ -57,12 +57,14 @@ function BottomBar() {
 
         {/* Orta FAB */}
         <Pressable
-onPress={() => go(isPlus ? ('/plus' as Href) : ('/plus-paywall' as Href))}
+          onPress={() =>
+            go((isPlus ? '/plus' : '/(modals)/plus-paywall') as Href)
+          }
           android_ripple={{ color: '#ffe4d1', borderless: true, radius: FAB_SIZE / 2 }}
           style={styles.fab}
           hitSlop={8}
           accessibilityRole="button"
-          accessibilityLabel={isPlus ? 'Plus' : 'Plus Paywall'}
+          accessibilityLabel={isPlus ? 'Dümenci Merkezi' : 'Dümenciye Katıl'}
         >
           <View style={styles.fabClip}>
             <Image source={require('@/assets/images/dumendenci.png')} style={styles.fabImg} />
@@ -122,7 +124,6 @@ const styles = StyleSheet.create({
       android: { elevation: 10 },
     }),
   },
-  // İç: sadece clip
   fabClip: {
     width: FAB_SIZE - RING * 2,
     height: FAB_SIZE - RING * 2,

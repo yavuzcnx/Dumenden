@@ -1,4 +1,5 @@
 // app/plus/proofs.tsx
+import { resolveStorageUrlSmart } from '@/lib/resolveStorageUrlSmart'; // 🔥 Bu fonksiyonu kullanacağız
 import { uploadImage } from '@/lib/storage';
 import { supabase } from '@/lib/supabaseClient';
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -7,7 +8,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator, Alert, Image, Pressable, SafeAreaView, ScrollView,
+  ActivityIndicator, Alert, Image, Platform, Pressable, SafeAreaView, ScrollView,
   StyleSheet, Text, TextInput, TouchableOpacity, View
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -31,7 +32,7 @@ type CardCoupon = {
   title: string;
   thumb: string | null;
   disabled: boolean;     // kapalı / süresi geçmiş
-  hasProof: boolean;     // herhangi bir kanıt var mı? (pending veya approved)
+  hasProof: boolean;     // herhangi bir kanıt var mı?
 };
 
 export default function ProofsForPlus() {
@@ -67,12 +68,17 @@ export default function ProofsForPlus() {
       if (error) console.log('COUPONS ERR', error);
 
       const now = Date.now();
-      const baseList: CardCoupon[] = (data ?? []).map((r: MyCouponRow) => {
+      
+      // 🔥 DÜZELTME 1: Resim yollarını (path) gerçek linke (url) çeviriyoruz
+      const baseList: CardCoupon[] = await Promise.all((data ?? []).map(async (r: MyCouponRow) => {
         const isExpired = r.closing_date ? new Date(r.closing_date).getTime() <= now : false;
         const disabled = !!(isExpired || r.is_open === false);
-        const thumb = r.image_url && r.image_url.length > 3 ? r.image_url : null;
+        
+        // Burada akıllı çözümleyiciyi kullanıyoruz
+        const thumb = await resolveStorageUrlSmart(r.image_url);
+
         return { id: r.id, title: r.title, thumb, disabled, hasProof: false };
-      });
+      }));
 
       // 2) Bu kuponlar arasında herhangi bir kanıtı (pending veya approved) olanları işaretle
       const ids = baseList.map(x => x.id);
@@ -81,7 +87,7 @@ export default function ProofsForPlus() {
           .from('coupon_proofs')
           .select('coupon_id,status')
           .in('coupon_id', ids)
-          .in('status', ['approved', 'pending']) // 🔒 onay bekleyen de sayılır
+          .in('status', ['approved', 'pending']) 
           .limit(1000);
 
         const set = new Set((proofs ?? []).map(p => p.coupon_id as string));
@@ -151,14 +157,14 @@ export default function ProofsForPlus() {
         coupon_id: selected,
         title: title.trim() || null,
         media_url: destPath,
-        status: 'pending',     // admin onayı bekler
+        status: 'pending',    // admin onayı bekler
         created_by: uid,
       });
       if (error) throw error;
 
       Alert.alert('Gönderildi', 'Kanıtın admin onayına gönderildi.');
 
-      // Yerelde de kilitle (kullanıcı tekrar seçemesin)
+      // Yerelde de kilitle
       setCoupons(prev => prev.map(c => c.id === selected ? { ...c, hasProof: true } : c));
       setSelected(null);
       setImg(null);
@@ -185,7 +191,12 @@ export default function ProofsForPlus() {
 
   return (
     <SafeAreaView style={{ flex:1, backgroundColor:'#fff' }}>
-      <ScrollView contentContainerStyle={{ padding:16, paddingBottom: bottomPad }}>
+      <ScrollView contentContainerStyle={{ 
+          paddingHorizontal: 16,
+          paddingBottom: bottomPad,
+          // 🔥 DÜZELTME 2: Android için üst boşluk eklendi (Status bar altına girmesin)
+          paddingTop: Platform.OS === 'android' ? (insets.top + 20) : 16
+      }}>
         {/* HERO */}
         <LinearGradient
           colors={['#FFF7F0', '#FFFFFF']}
@@ -242,7 +253,6 @@ export default function ProofsForPlus() {
                 <Pressable
                   key={c.id}
                   onPress={() => {
-                    // 🔒 Kapalıysa ya da bu kuponda zaten (pending/approved) kanıt varsa seçtirmiyoruz
                     if (!c.disabled && !c.hasProof) setSelected(c.id);
                   }}
                   style={[

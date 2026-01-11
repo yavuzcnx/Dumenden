@@ -5,11 +5,15 @@ export default function Index() {
   const router = useRouter();
 
   useEffect(() => {
+    // Uygulama açılınca çok kısa bekleyip Splash ekranına atıyoruz.
+    // _layout.tsx içindeki Auth kontrolü, eğer kullanıcı giriş yapmışsa
+    // zaten araya girip Home'a yönlendirecektir.
     const t = setTimeout(() => {
-      router.replace('/splash'); // sadece splash'a geçir (geri gelinmez)
+      router.replace('/splash'); 
     }, 50);
+
     return () => clearTimeout(t);
-  }, [router]);
+  }, []);
 
   return null;
 }

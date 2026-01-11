@@ -24,16 +24,26 @@ export default function PlusPaywall() {
       const { data } = await supabase.auth.getUser();
       const user = data.user;
 
-      if (!user) return r.replace("/login");
+      if (!user) {
+        // giriş yoksa önce login'e
+        return r.replace("/login");
+      }
 
-      await supabase.auth.updateUser({
+      // 1) Kullanıcı metadata'sına dumendenci bayrağı ekle
+      const { error } = await supabase.auth.updateUser({
         data: {
           dumendenci: true,
           dumendenci_since: new Date().toISOString(),
         },
       });
 
-      r.replace("/plus"); // ✔️ başarıyla katıldı → dümendenci merkezine
+      if (error) {
+        console.log("Update error:", error);
+        return;
+      }
+
+      // 2) Başarıyla katıldı -> Dümendenci merkezine
+      r.replace("/plus");
     } catch (e) {
       console.log("join error: ", e);
     }
@@ -105,7 +115,7 @@ export default function PlusPaywall() {
             ))}
           </View>
 
-          {/* ✔️ Artık ödeme yok – sadece katılma */}
+          {/* Katıl butonu */}
           <Pressable
             onPress={joinDumendenci}
             style={{

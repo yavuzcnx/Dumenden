@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Platform } from 'react-native';
 import {
   AdEventType,
   RewardedAd,
@@ -6,13 +7,18 @@ import {
   TestIds,
 } from 'react-native-google-mobile-ads';
 
-// PROD'da kendi Rewarded ad unit ID'ni yaz
-const PROD_REWARDED = 'ca-app-pub-3837426346942059/XXXXXXXXXX';
-// DEV'de Google test ID'si
-const TEST_REWARDED = TestIds.REWARDED;
+// ANDROID daily_entry (zaten sende vardı)
+const PROD_REWARDED_ANDROID = 'ca-app-pub-3837426346942059/XXXXXXXXXX';
+
+// iOS daily_entry (senin attığın ekran)
+const PROD_REWARDED_IOS = 'ca-app-pub-3837426346942059/1363478394';
 
 export function useRewardedAd(onReward?: () => void) {
-  const adUnitId = __DEV__ ? TEST_REWARDED : PROD_REWARDED;
+  const adUnitId = __DEV__
+    ? TestIds.REWARDED
+    : Platform.OS === 'ios'
+      ? PROD_REWARDED_IOS
+      : PROD_REWARDED_ANDROID;
 
   const adRef = useRef<RewardedAd | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -22,29 +28,36 @@ export function useRewardedAd(onReward?: () => void) {
     const ad = RewardedAd.createForAdRequest(adUnitId);
     adRef.current = ad;
 
-    const unsubLoaded = ad.addAdEventListener(AdEventType.LOADED, () => {
+    const l1 = ad.addAdEventListener(AdEventType.LOADED, () => {
       setLoaded(true);
     });
 
-    const unsubClosed = ad.addAdEventListener(AdEventType.CLOSED, () => {
+    const l2 = ad.addAdEventListener(AdEventType.CLOSED, () => {
       setShowing(false);
       setLoaded(false);
-      ad.load(); // bir sonrakini hazırlıyoruz
+      ad.load();
     });
 
-    const unsubEarned = ad.addAdEventListener(
+    const l3 = ad.addAdEventListener(
       RewardedAdEventType.EARNED_REWARD,
       () => {
-        onReward?.(); // XP, coin vs. ver
+        onReward?.(); // XP VER
       }
     );
+
+    const l4 = ad.addAdEventListener(AdEventType.ERROR, () => {
+      setShowing(false);
+      setLoaded(false);
+      setTimeout(() => ad.load(), 1500);
+    });
 
     ad.load();
 
     return () => {
-      unsubLoaded();
-      unsubClosed();
-      unsubEarned();
+      l1();
+      l2();
+      l3();
+      l4();
     };
   }, [adUnitId, onReward]);
 

@@ -22,14 +22,14 @@ type Row = {
   description: string | null;
   category: string | null;
   created_at: string;
-  created_by: string | null; // 🔥 EKLENDİ: Sahibi kim?
+  created_by: string | null;
   closing_date: string;
   yes_price: number | null;
   no_price: number | null;
   image_url: string | null;
   is_open?: boolean;
   users?: { full_name: string | null; avatar_url: string | null } | null;
-  coupon_proofs?: { count: number }[]; // aggregate
+  coupon_proofs?: { count: number }[];
   coupon_submissions?: { image_path: string | null }[];
 };
 type Proof = { id: string; title: string | null; image_url: string | null; created_at: string };
@@ -79,7 +79,7 @@ export default function Explore() {
 
   const [cat, setCat] = useState('Tümü');
   const [rows, setRows] = useState<Row[]>([]);
-  const [myId, setMyId] = useState<string | null>(null); // 🔥 EKLENDİ: Benim ID'm
+  const [myId, setMyId] = useState<string | null>(null);
 
   // Sepet
   type BasketItem = { coupon_id: string | number; title: string; side: 'YES' | 'NO'; price: number; stake: number; };
@@ -99,7 +99,6 @@ export default function Explore() {
   // Confetti
   const [boom, setBoom] = useState(0);
 
-  // 🔥 ID'yi al
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
         if(data?.user) setMyId(data.user.id);
@@ -109,7 +108,6 @@ export default function Explore() {
   const load = async () => {
     setLoading(true);
 
-    // 🔥 created_by EKLENDİ
     let q = supabase
       .from('coupons')
       .select(`
@@ -131,7 +129,6 @@ export default function Explore() {
 
     const list: Row[] = (r.data ?? []) as any;
 
-    // foto fallback + public URL çöz
     await Promise.all(
       list.map(async (it) => {
         const candidate =
@@ -149,7 +146,6 @@ export default function Explore() {
   useEffect(() => { load(); }, [cat]);
   useEffect(() => { refresh().catch(() => {}); }, []);
 
-  // realtime
   useEffect(() => {
     const channel = supabase
       .channel('explore-coupons')
@@ -158,7 +154,6 @@ export default function Explore() {
     return () => { supabase.removeChannel(channel); };
   }, [cat]);
 
-  // süre dolanları at
   useEffect(() => {
     const tick = () => {
       setRows(prev => {
@@ -172,7 +167,6 @@ export default function Explore() {
     return () => clearInterval(t);
   }, []);
 
-  // best-effort RPC
   useEffect(() => {
     const closeExpired = async () => { try { await supabase.rpc('close_expired_coupons'); } catch {} };
     closeExpired();
@@ -207,12 +201,10 @@ export default function Explore() {
 
   const goDetail = (id: string | number) => { router.push({ pathname: '/CouponDetail', params: { id: String(id) } }); };
 
-  /* --------- Basket helpers --------- */
   const addOnceToBasket = (row: Row, side: 'YES' | 'NO') => {
     if (!row.yes_price && side === 'YES') return;
     if (!row.no_price && side === 'NO') return;
     
-    // 🔥 KENDİ KUPONU İSE ENGELLE (Frontend Güvenliği)
     if (myId && row.created_by === myId) {
         Alert.alert("Hata", "Kendi oluşturduğun kupona bahis oynayamazsın.");
         return;
@@ -240,7 +232,6 @@ export default function Explore() {
           })
         )
       );
-      // optimistic XP
       setXpLocal((prev) => Math.max(0, (prev ?? xp) - totalStake));
       Alert.alert('Tamam', 'Bahis(ler) oynandı.');
       setBasket([]); setShowBasket(false);
@@ -260,8 +251,6 @@ export default function Explore() {
     const proofCount = item.coupon_proofs?.[0]?.count ?? 0;
     const hasProof = proofCount > 0;
     const locked = basket.some((b) => b.coupon_id === item.id);
-    
-    // 🔥 BU KUPON BENİM Mİ?
     const isMine = myId && item.created_by === myId;
 
     const scale = useRef(new Animated.Value(1)).current;
@@ -284,7 +273,6 @@ export default function Explore() {
           </TouchableOpacity>
         )}
 
-        {/* 🔥 SENİN KUPONUN ETİKETİ */}
         {isMine && (
             <View style={{ position: 'absolute', top: 10, right: 10, backgroundColor: '#FF6B00', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12 }}>
                 <Text style={{ color: '#fff', fontWeight: '900', fontSize: 10 }}>SANA AİT 👑</Text>
@@ -299,7 +287,6 @@ export default function Explore() {
             <Pill><Ionicons name="time-outline" size={14} color="#6B7280" style={{ marginRight: 6 }} /><Text style={{ color: '#6B7280', fontWeight: '700' }}>{new Date(item.closing_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text></Pill>
           </View>
 
-          {/* 🔥 EĞER BENİMSE BUTONLARI GİZLE */}
           {!isMine ? (
               <View style={{ flexDirection: 'row', gap: 10 }}>
                 <TouchableOpacity disabled={locked || !item.yes_price} onPress={() => addOnceToBasket(item, 'YES')}
@@ -428,7 +415,7 @@ export default function Explore() {
       <Modal
         transparent
         visible={!!proofSheet}
-        animationType="fade"
+        animationType="slide"
         onRequestClose={() => setProofSheet(null)}
       >
         <View style={{ flex: 1, justifyContent: 'flex-end' }}>
@@ -442,44 +429,42 @@ export default function Explore() {
               borderTopLeftRadius: 22,
               borderTopRightRadius: 22,
               paddingTop: 10,
-              paddingHorizontal: 16,
-              paddingBottom: 20,
-              maxHeight: height * 0.75,
+              paddingHorizontal: 0, // Resmi kenarlara yapıştırmak için paddingi kaldırdım (içeride vereceğim)
+              paddingBottom: 24,
+              maxHeight: height * 0.90, // 🔥 DAHA YÜKSEK MODAL (Altta kalmasın diye)
               shadowColor: '#000',
               shadowOpacity: 0.2,
               shadowRadius: 12,
               elevation: 12,
             }}
           >
-            <View style={{ alignItems: 'center', marginBottom: 10 }}>
+            <View style={{ alignItems: 'center', marginBottom: 10, marginTop: 6 }}>
               <View style={{ width: 48, height: 5, borderRadius: 3, backgroundColor: '#E5E7EB' }} />
             </View>
 
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12, paddingHorizontal: 16 }}>
               <Text style={{ fontWeight: '900', fontSize: 18 }} numberOfLines={1}>
                {proofSheet?.title}
               </Text>
               <TouchableOpacity onPress={() => setProofSheet(null)} style={{ marginLeft: 'auto' }}>
-                <Text style={{ fontWeight: '800' }}>Kapat</Text>
+                <Text style={{ fontWeight: '800', color: '#666' }}>Kapat</Text>
               </TouchableOpacity>
             </View>
 
             {loadingProofs ? (
-              <ActivityIndicator />
+              <ActivityIndicator style={{ marginVertical: 40 }} color="#FF6B00" />
             ) : proofs.length === 0 ? (
-              <Text style={{ color: '#666' }}>Onaylı kanıt yok.</Text>
+              <Text style={{ color: '#666', paddingHorizontal: 16 }}>Onaylı kanıt yok.</Text>
             ) : (
-              <ScrollView>
-                <View style={{ gap: 12, paddingBottom: 12 }}>
+              <ScrollView contentContainerStyle={{ paddingHorizontal: 16 }}>
+                <View style={{ gap: 16, paddingBottom: 20 }}>
                   {proofs.map((p) => (
                     <View
                       key={p.id}
                       style={{
                         borderRadius: 16,
                         overflow: 'hidden',
-                        borderWidth: 1,
-                        borderColor: '#eee',
-                        backgroundColor: '#f9fafb',
+                        backgroundColor: '#000', // 🔥 SİYAH FON (Sinema modu)
                       }}
                     >
                       {!!p.image_url && (
@@ -487,15 +472,21 @@ export default function Explore() {
                           source={{ uri: p.image_url }}
                           style={{
                             width: '100%',
-                            height: Math.min(height * 0.38, 340),
+                            height: Math.min(height * 0.55, 450), // 🔥 DAHA BÜYÜK GÖRSEL ALANI
+                            backgroundColor: '#000'
                           }}
-                          resizeMode="cover"
+                          resizeMode="contain" // 🔥 KESİLMEDEN TAM GÖSTER
                         />
                       )}
                       {!!p.title && (
-                        <Text style={{ padding: 10, fontWeight: '800' }} numberOfLines={2}>
-                          {p.title}
-                        </Text>
+                        <View style={{ backgroundColor: '#fff', padding: 12 }}>
+                            <Text style={{ fontWeight: '800', color: '#333' }} numberOfLines={2}>
+                            {p.title}
+                            </Text>
+                            <Text style={{ color: '#666', fontSize: 11, marginTop: 4 }}>
+                                {new Date(p.created_at).toLocaleDateString()} tarihinde eklendi
+                            </Text>
+                        </View>
                       )}
                     </View>
                   ))}
@@ -506,9 +497,10 @@ export default function Explore() {
         </View>
       </Modal>
 
-      {/* Focus card */}
+      {/* Focus card (Aynen kaldı) */}
       <Modal visible={!!focusCard} transparent animationType="fade" onRequestClose={() => setFocusCard(null)}>
-        <View style={{ flex: 1 }}>
+        {/* ... (Bu kısım değişmediği için kısaltıyorum, önceki kodunla aynı) ... */}
+         <View style={{ flex: 1 }}>
           <Pressable style={{ flex: 1 }} onPress={() => setFocusCard(null)}>
             <BlurView intensity={40} tint="light" style={{ position: 'absolute', inset: 0 }} />
           </Pressable>
@@ -524,7 +516,6 @@ export default function Explore() {
                     <Pill><Ionicons name="alarm-outline"  size={16} color="#6B7280" style={{ marginRight: 6 }} /><Text style={{ color: '#6B7280', fontWeight: '700' }}>{new Date(focusCard.closing_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text></Pill>
                   </View>
                   
-                  {/* MODAL İÇİNDE DE BUTON GİZLEME */}
                   {myId && focusCard.created_by === myId ? (
                       <View style={{ padding: 12, backgroundColor: '#FFF3E0', borderRadius: 12, alignItems: 'center', marginTop:12, borderWidth: 1, borderColor: '#FFE0B2' }}>
                           <Text style={{ color: '#E65100', fontWeight: '800', fontSize: 14 }}>Sana ait kupon (Bahis Kapalı)</Text>
@@ -548,14 +539,14 @@ export default function Explore() {
         </View>
       </Modal>
 
-     <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 50 }}>
-  <CartRibbon
-    count={basket.length}
-    totalXp={totalStake}
-    onPress={() => setShowBasket(true)}
-    fabDiameter={84}
-  />
-</View>
+      <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 50 }}>
+        <CartRibbon
+          count={basket.length}
+          totalXp={totalStake}
+          onPress={() => setShowBasket(true)}
+          fabDiameter={84}
+        />
+      </View>
     </SafeAreaView>
   );
 }

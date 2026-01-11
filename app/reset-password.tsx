@@ -1,160 +1,118 @@
 'use client';
 
-import * as Linking from 'expo-linking';
-import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { supabase } from "@/lib/supabaseClient";
+import { useRouter } from "expo-router";
+import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  KeyboardAvoidingView,
-  Platform,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  View,
-} from 'react-native';
-
-import { supabase } from '@/lib/supabaseClient';
+  View
+} from "react-native";
 
 const COLORS = {
-  primary: '#FF6B00',
-  bg: '#FFFFFF',
-  text: '#111111',
-  border: '#E0E0E0',
-  placeholder: '#9AA0A6',
+  primary: "#FF6B00",
+  text: "#111",
+  bg: "#FFF",
+  border: "#E0E0E0"
 };
 
 export default function ResetPasswordPage() {
   const router = useRouter();
-
-  const [newPass, setNewPass] = useState('');
-  const [newPass2, setNewPass2] = useState('');
+  
+  const [newPass, setNewPass] = useState("");
   const [loading, setLoading] = useState(false);
-  const [ready, setReady] = useState(false); // Token yakalandı mı?
+  const [sessionReady, setSessionReady] = useState(false);
 
-  // 🔥 URL'den Token Yakalama ve Session Kurma (FIX)
   useEffect(() => {
-    const handleUrl = async () => {
-      const url = await Linking.getInitialURL();
-      
-      // Hash (#) içindeki tokenları al
-      if (url && url.includes('access_token')) {
-        try {
-            const fragment = url.split('#')[1];
-            const params = new URLSearchParams(fragment);
-            const access_token = params.get('access_token');
-            const refresh_token = params.get('refresh_token');
-
-            if (access_token && refresh_token) {
-                const { error } = await supabase.auth.setSession({ access_token, refresh_token });
-                if (!error) {
-                    setReady(true);
-                } else {
-                    console.log("Session set error:", error);
-                }
-            }
-        } catch (e) {
-            console.log("URL Parse Hatası:", e);
-        }
-      } else {
-          // Belki zaten oturum açıktır
-          const { data } = await supabase.auth.getSession();
-          if (data.session) setReady(true);
+    // 1. Sayfa açılır açılmaz: Zaten bir oturum oluştu mu?
+    // Supabase linke tıklandığında otomatik session kurar.
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        setSessionReady(true);
       }
-    };
+    });
 
-    handleUrl();
+    // 2. Anlık Değişimleri Dinle (En Önemlisi Bu)
+    // Linke tıklandığında 'PASSWORD_RECOVERY' veya 'SIGNED_IN' olayı tetiklenir.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log("Supabase Olayı:", event);
+      
+      if (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN") {
+        setSessionReady(true);
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  const handleReset = async () => {
-    if (!ready) {
-        Alert.alert("Hata", "Geçersiz veya süresi dolmuş bağlantı. Lütfen maildeki linke tekrar tıkla.");
-        return;
-    }
-    if (!newPass || !newPass2) {
-      Alert.alert("Uyarı", "Şifre alanları boş olamaz.");
-      return;
-    }
-    if (newPass !== newPass2) {
-      Alert.alert("Uyarı", "Şifreler eşleşmiyor.");
-      return;
-    }
-    if (newPass.length < 6) {
-      Alert.alert("Uyarı", "Şifre en az 6 karakter olmalı.");
-      return;
-    }
-
+  const handleUpdate = async () => {
+    if (newPass.length < 6) return Alert.alert("Hata", "Şifre en az 6 karakter olmalı.");
     setLoading(true);
+
+    // Oturum zaten var olduğu için sadece şifreyi güncellemek yetiyor
     const { error } = await supabase.auth.updateUser({ password: newPass });
+    
     setLoading(false);
 
     if (error) {
       Alert.alert("Hata", error.message);
     } else {
-      Alert.alert(
-        "Başarılı",
-        "Şifren başarıyla güncellendi! Lütfen yeni şifrenle giriş yap.",
-        [{ text: "Tamam", onPress: async () => {
-            await supabase.auth.signOut();
-            router.replace('/login');
-        }}]
-      );
+      Alert.alert("Başarılı", "Şifren güncellendi! Giriş yapabilirsin.", [
+        { text: "Tamam", onPress: () => router.replace("/login") }
+      ]);
     }
   };
 
-  if (!ready) {
-      return (
-          <View style={styles.container}>
-              <ActivityIndicator color={COLORS.primary} />
-              <Text style={{marginTop:10, color:'#666'}}>Bağlantı doğrulanıyor...</Text>
-          </View>
-      );
-  }
-
-  return (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.wrapper}>
-      <View style={styles.container}>
-        <Text style={styles.title}>Yeni Şifre Belirle</Text>
-        <Text style={styles.subTitle}>Hesabın için yeni ve güvenli bir şifre gir.</Text>
-
-        <TextInput
-          placeholder="Yeni şifre"
-          secureTextEntry
-          value={newPass}
-          onChangeText={setNewPass}
-          style={styles.input}
-          placeholderTextColor={COLORS.placeholder}
-        />
-
-        <TextInput
-          placeholder="Yeni şifre (tekrar)"
-          secureTextEntry
-          value={newPass2}
-          onChangeText={setNewPass2}
-          style={styles.input}
-          placeholderTextColor={COLORS.placeholder}
-        />
-
-        <TouchableOpacity style={styles.button} onPress={handleReset} disabled={loading}>
-          {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Şifreyi Değiştir</Text>}
-        </TouchableOpacity>
-
-        <TouchableOpacity onPress={() => router.replace('/login')} style={{marginTop: 20}}>
-          <Text style={styles.backLink}>İptal</Text>
+  // 🔄 YÜKLENİYOR / BEKLENİYOR EKRANI
+  if (!sessionReady)
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" color={COLORS.primary} />
+        <Text style={{ marginTop: 20, fontWeight: 'bold', color: '#555' }}>
+          Link doğrulanıyor...
+        </Text>
+        <Text style={{ marginTop: 10, fontSize: 12, color: '#999', textAlign:'center', paddingHorizontal:20 }}>
+          Eğer uzun süre açılmazsa uygulamayı tamamen kapatıp maildeki linke tekrar tıkla.
+        </Text>
+        <TouchableOpacity onPress={() => router.replace("/login")} style={{marginTop: 30}}>
+            <Text style={{color: COLORS.primary, fontWeight:'bold'}}>Giriş Ekranına Dön</Text>
         </TouchableOpacity>
       </View>
-    </KeyboardAvoidingView>
+    );
+
+  // ✅ ŞİFRE DEĞİŞTİRME FORMU
+  return (
+    <View style={styles.container}>
+      <Text style={styles.title}>Yeni Şifre Belirle</Text>
+      <Text style={{textAlign:'center', marginBottom:20, color:'#666'}}>
+        Artık yeni şifreni belirleyebilirsin.
+      </Text>
+      
+      <TextInput
+        placeholder="Yeni şifrenizi girin"
+        secureTextEntry
+        value={newPass}
+        onChangeText={setNewPass}
+        style={styles.input}
+        placeholderTextColor="#999"
+      />
+      
+      <TouchableOpacity style={styles.button} onPress={handleUpdate}>
+        {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Şifreyi Kaydet</Text>}
+      </TouchableOpacity>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrapper: { flex: 1, backgroundColor: COLORS.bg },
-  container: { flex: 1, padding: 24, justifyContent: 'center', alignItems:'center' },
-  title: { fontSize: 26, fontWeight: 'bold', color: COLORS.text, textAlign: 'center', marginBottom: 10 },
-  subTitle: { fontSize: 14, color: '#666', textAlign: 'center', marginBottom: 30, paddingHorizontal: 20 },
-  input: { width:'100%', borderWidth: 1, borderColor: COLORS.border, padding: 14, borderRadius: 12, fontSize: 16, marginBottom: 14, color: COLORS.text, backgroundColor: '#fff' },
-  button: { width:'100%', backgroundColor: COLORS.primary, padding: 14, borderRadius: 12, alignItems: 'center', marginTop: 10, height: 50, justifyContent: 'center' },
-  buttonText: { color: '#fff', fontWeight: '700', fontSize: 16 },
-  backLink: { color: '#999', textAlign: 'center', fontSize: 15, fontWeight: '500' },
+  center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: '#fff' },
+  container: { flex: 1, padding: 24, justifyContent: "center", backgroundColor: '#fff' },
+  title: { fontSize: 26, fontWeight: "bold", marginBottom: 10, textAlign: "center", color: COLORS.text },
+  input: { height: 55, borderWidth: 1, borderRadius: 12, borderColor: COLORS.border, paddingHorizontal: 16, marginBottom: 20, color: COLORS.text, backgroundColor: '#F9F9F9' },
+  button: { height: 55, backgroundColor: COLORS.primary, borderRadius: 12, justifyContent: "center", alignItems: "center" },
+  buttonText: { color: "#fff", fontSize: 17, fontWeight: "bold" }
 });

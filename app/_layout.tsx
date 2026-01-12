@@ -21,37 +21,46 @@ export default function RootLayout() {
   const [adsInitDone, setAdsInitDone] = useState(false);
 
   useEffect(() => {
+    let isMounted = true;
     (async () => {
-      try { await initAds(); } catch {}
-      setAdsInitDone(true);
+      try { 
+        // Reklam başlatma hataya düşse bile devam etmeli
+        await initAds().catch(() => {}); 
+      } catch (err) {
+        console.warn("Ads Init Error:", err);
+      } finally {
+        if (isMounted) setAdsInitDone(true);
+      }
     })();
+    return () => { isMounted = false; };
   }, []);
 
- useEffect(() => {
+  useEffect(() => {
     let mounted = true;
 
-    // 1. İlk açılış kontrolü (Mevcut kodun)
     (async () => {
       if (didInit.current) return;
       didInit.current = true;
 
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!mounted) return;
+      try {
+        // iOS Keychain bazen ilk açılışta kilitli olur, try-catch şart
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (error) throw error;
+        
+        if (!mounted) return;
 
-      if (session?.user) {
-        await ensureBootstrapAndProfile().catch(console.warn);
+        if (session?.user) {
+          await ensureBootstrapAndProfile().catch(console.warn);
+        }
+      } catch (e) {
+        console.warn("Initial Auth Check Failed:", e);
       }
     })();
 
-    // 2. Auth Listener (GÜNCELLENMİŞ HALİ)
     const { data: sub } = supabase.auth.onAuthStateChange(async (event, session) => {
-      
       if (event === 'SIGNED_IN') {
         if (session?.user) {
           await ensureBootstrapAndProfile().catch(console.warn);
-          
-          // 🔥 DÜZELTME: Eğer kullanıcı Login sayfasındaysa ve giriş yaptıysa, Ana Sayfaya at!
-          // (pathname kontrolü ekliyoruz ki sürekli yönlendirme yapmasın)
           if (pathname === '/login' || pathname === '/') {
              router.replace('/home');
           }
@@ -64,10 +73,10 @@ export default function RootLayout() {
     });
 
     return () => {
-      try { sub.subscription.unsubscribe(); } catch {}
+      if (sub?.subscription) sub.subscription.unsubscribe();
       mounted = false;
     };
-  }, [pathname]); // pathname bağımlılığını ekledik
+  }, [pathname]);
 
   const hideOn = [
     '/login',
@@ -80,7 +89,12 @@ export default function RootLayout() {
 
   const hide = hideOn.some((p) => pathname?.startsWith(p));
 
-  if (!adsInitDone) return null;
+  // 🔥 KATİL HATA BURADAYDI: null yerine View döndürüyoruz
+  if (!adsInitDone) {
+    return (
+      <View style={{ flex: 1, backgroundColor: 'white' }} />
+    );
+  }
 
   return (
     <SafeAreaProvider>
@@ -95,8 +109,7 @@ export default function RootLayout() {
               gestureEnabled: true,
               fullScreenGestureEnabled: Platform.OS === 'ios',
               gestureDirection: 'horizontal',
-              animation:
-                Platform.OS === 'ios' ? 'slide_from_right' : 'fade_from_bottom',
+              animation: Platform.OS === 'ios' ? 'slide_from_right' : 'fade_from_bottom',
             }}
           >
             <Stack.Screen
@@ -114,18 +127,17 @@ export default function RootLayout() {
 
 function NavigationWatcher() {
   const pathname = usePathname();
-  const prevPathRef = useRef<string | null>(null);
+  const prevPathRef = useRef<any>(null);
   const { registerNavTransition, showIfEligible } = useInterstitial();
 
   useEffect(() => {
     if (prevPathRef.current !== null && prevPathRef.current !== pathname) {
       (async () => {
-        await registerNavTransition();
-        await showIfEligible("nav");
-      })();
-
-      (async () => {
-        await showIfEligible("home_enter");
+        try {
+          await registerNavTransition();
+          await showIfEligible("nav");
+          await showIfEligible("home_enter");
+        } catch {}
       })();
     }
     prevPathRef.current = pathname || null;
@@ -136,7 +148,8 @@ function NavigationWatcher() {
 
 function GlobalAdTimer() {
   const { showIfEligible } = useInterstitial();
-  const intervalRef = useRef<number | null>(null);
+  // 🔥 DÜZELTME: Timeout hatası için 'any' kullandık
+  const intervalRef = useRef<any>(null);
 
   useEffect(() => {
     intervalRef.current = setInterval(() => {

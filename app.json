@@ -3,7 +3,7 @@
     "name": "Dümenden",
     "slug": "dumenden",
     "scheme": "dumenden",
-    "version": "1.4.2",
+    "version": "1.4.3",
     "orientation": "default",
     "userInterfaceStyle": "light",
     "icon": "./assets/images/icon.png",
@@ -58,7 +58,7 @@
     },
    "ios": {
   "bundleIdentifier": "com.dumenden.app",
-  "buildNumber": "6", 
+  "buildNumber": "10", 
   "infoPlist": {
     "NSAppTransportSecurity": {
       "NSAllowsArbitraryLoads": true
@@ -82,8 +82,7 @@
         }
       ],
       "expo-router",
-      "expo-secure-store",
-      "expo-navigation-bar"
+      "expo-secure-store"
     ],
     "extra": {
       "eas": {

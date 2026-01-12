@@ -3,26 +3,22 @@
   "compilerOptions": {
     "strict": true,
     "baseUrl": ".",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
     "paths": {
-      "@/*": [
-        "./*"
-      ],
-      "@app/*": [
-        "app/*"
-      ],
-      "~/*": [
-        "src/*"
-      ]
+      "@/*": ["./*"],
+      "@app/*": ["app/*"],
+      "~/*": ["src/*"]
     },
-    "jsx": "react-jsx",
+    "jsx": "react-native",
     "skipLibCheck": true,
-    "noImplicitAny": false,
-    "moduleResolution": "Bundler"
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "noImplicitAny": false
   },
   "include": [
     "**/*.ts",
     "**/*.tsx",
-    "types/**/*.d.ts",
     ".expo/types/**/*.ts",
     "expo-env.d.ts"
   ]

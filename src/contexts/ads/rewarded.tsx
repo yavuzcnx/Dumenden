@@ -7,18 +7,16 @@ import {
   TestIds,
 } from 'react-native-google-mobile-ads';
 
-// ANDROID daily_entry (zaten sende vardı)
-const PROD_REWARDED_ANDROID = 'ca-app-pub-3837426346942059/XXXXXXXXXX';
-
-// iOS daily_entry (senin attığın ekran)
+// ANDROID ID (Gerçek)
+const PROD_REWARDED_ANDROID = 'ca-app-pub-3837426346942059/6751536443'; // Buraya kendi Android ID'ni yazmayı unutma
+// iOS ID (Gerçek - Ama şimdilik iOS'ta TestIds döneceğiz)
 const PROD_REWARDED_IOS = 'ca-app-pub-3837426346942059/1363478394';
 
 export function useRewardedAd(onReward?: () => void) {
-  const adUnitId = __DEV__
-    ? TestIds.REWARDED
-    : Platform.OS === 'ios'
-      ? PROD_REWARDED_IOS
-      : PROD_REWARDED_ANDROID;
+  // 🔥 iOS ise TEST, Android ise GERÇEK (Geliştirmede ikisi de TEST)
+  const adUnitId = Platform.OS === 'ios' 
+    ? TestIds.REWARDED 
+    : (__DEV__ ? TestIds.REWARDED : PROD_REWARDED_ANDROID);
 
   const adRef = useRef<RewardedAd | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -38,12 +36,9 @@ export function useRewardedAd(onReward?: () => void) {
       ad.load();
     });
 
-    const l3 = ad.addAdEventListener(
-      RewardedAdEventType.EARNED_REWARD,
-      () => {
-        onReward?.(); // XP VER
-      }
-    );
+    const l3 = ad.addAdEventListener(RewardedAdEventType.EARNED_REWARD, () => {
+      onReward?.(); 
+    });
 
     const l4 = ad.addAdEventListener(AdEventType.ERROR, () => {
       setShowing(false);
@@ -54,10 +49,7 @@ export function useRewardedAd(onReward?: () => void) {
     ad.load();
 
     return () => {
-      l1();
-      l2();
-      l3();
-      l4();
+      l1(); l2(); l3(); l4();
     };
   }, [adUnitId, onReward]);
 

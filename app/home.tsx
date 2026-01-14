@@ -35,7 +35,6 @@ import {
 } from 'react-native';
 
 // 🔽 Daily-entry mantığı için eklenen importlar
-import { adsReady, onAdsReady } from '@/src/contexts/lib/ads';
 import {
   AdEventType,
   RewardedAd,
@@ -160,41 +159,12 @@ function createRewarded() {
 
 async function showRewarded(): Promise<boolean> {
   return new Promise((resolve) => {
-    if (!adsReady()) {
-      onAdsReady(() => showRewarded().then(resolve));
-      return;
-    }
-
     const ad = createRewarded();
     let earned = false;
-    let finished = false;
 
-    const clean = () => {
-      try {
-        u1();
-        u2();
-        u3();
-        u4();
-      } catch {}
-    };
-
-    const timeout = setTimeout(() => {
-      if (!finished) {
-        finished = true;
-        clean();
-        resolve(false);
-      }
-    }, 20000);
-
+    // Reklam yüklendiğinde otomatik göster
     const u1 = ad.addAdEventListener(RewardedAdEventType.LOADED, () => {
-      ad.show().catch(() => {
-        if (!finished) {
-          finished = true;
-          clean();
-          clearTimeout(timeout);
-          resolve(false);
-        }
-      });
+      ad.show().catch(() => resolve(false));
     });
 
     const u2 = ad.addAdEventListener(RewardedAdEventType.EARNED_REWARD, () => {
@@ -202,24 +172,14 @@ async function showRewarded(): Promise<boolean> {
     });
 
     const u3 = ad.addAdEventListener(AdEventType.CLOSED, () => {
-      if (!finished) {
-        finished = true;
-        clean();
-        clearTimeout(timeout);
-        resolve(earned);
-      }
+      resolve(earned);
     });
 
     const u4 = ad.addAdEventListener(AdEventType.ERROR, () => {
-      if (!finished) {
-        finished = true;
-        clean();
-        clearTimeout(timeout);
-        resolve(false);
-      }
+      resolve(false);
     });
 
-    ad.load();
+    ad.load(); // 🔥 Zorla yükletiyoruz
   });
 }
 
@@ -736,7 +696,9 @@ export default function HomeScreen() {
   );
 
   /* -------- UI -------- */
-  return (
+ /* -------- UI (KUSURSUZ VE SEXY HİYERARŞİ) -------- */
+ return (
+  <View style={{ flex: 1, backgroundColor: '#fff' }}>
     <SafeAreaView
       style={[styles.safe, Platform.OS === 'android' && { paddingTop: StatusBar.currentHeight || 0 }]}
     >
@@ -824,7 +786,7 @@ export default function HomeScreen() {
         </View>
 
         {/* KATEGORİ BAR */}
-        <View className="catBarWrap" style={styles.catBarWrap}>
+        <View style={styles.catBarWrap}>          
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -870,17 +832,17 @@ export default function HomeScreen() {
               <View style={{ marginBottom: 12 }}>
                 <MarketCard
                   item={item}
-                 onPress={() => {
-  if (!isPlus) {
-    (async () => {
-      await registerNavTransition();
-      const shown = await showIfEligible('nav');
-      if (!shown) router.push(`/CouponDetail?id=${item.id}`);
-    })();
-  } else {
-    router.push(`/CouponDetail?id=${item.id}`);
-  }
-}}
+                  onPress={() => {
+                    if (!isPlus) {
+                      (async () => {
+                        await registerNavTransition();
+                        const shown = await showIfEligible('nav');
+                        if (!shown) router.push(`/CouponDetail?id=${item.id}`);
+                      })();
+                    } else {
+                      router.push(`/CouponDetail?id=${item.id}`);
+                    }
+                  }}
                   onTapYes={(m, label, price) => openPill(m as MarketRow, label, 'YES', price)}
                   onTapNo={(m, label, price) => openPill(m as MarketRow, label, 'NO', price)}
                   timeLeftLabel={st.label}
@@ -894,173 +856,133 @@ export default function HomeScreen() {
 
         {/* Trade Modal */}
         <Modal visible={!!modal} transparent animationType="slide">
-          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-            <View style={styles.modalWrap}>
-              <KeyboardAvoidingView
-                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
-                style={{ width: '100%' }}
-              >
-                <View style={styles.modalCard}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            style={{ flex: 1 }}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? -10 : 0}
+          >
+            <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+              <View style={[styles.modalWrap, { justifyContent: 'flex-end' }]}>
+                <View style={[styles.modalCard, { paddingBottom: Platform.OS === 'ios' ? 30 : 16 }]}>
                   {modal && (
-                    <ScrollView
-                      keyboardShouldPersistTaps="handled"
-                      contentContainerStyle={{ paddingBottom: 8 }}
-                      showsVerticalScrollIndicator={false}
-                    >
+                    <>
                       <Text style={styles.modalTitle}>{modal.market.title}</Text>
-                      <Text style={styles.modalSub}>
-                        {modal.label} • {modal.side}
-                      </Text>
+                      <Text style={styles.modalSub}>{modal.label} • {modal.side}</Text>
                       <TextInput
                         value={stake}
                         onChangeText={setStake}
                         keyboardType="numeric"
-                        placeholder="XP"
                         style={styles.stakeInput}
                         autoFocus
-                        returnKeyType="done"
-                        onSubmitEditing={() => {
-                          Keyboard.dismiss();
-                          addToBasket();
-                        }}
                       />
                       <View style={styles.quickRow}>
                         {[25, 50, 100, 250, 500].map((q) => (
-                          <TouchableOpacity
-                            key={`q-${q}`}
-                            style={styles.quickBtn}
-                            onPress={() => setStake(String(q))}
-                          >
+                          <TouchableOpacity key={q} style={styles.quickBtn} onPress={() => setStake(String(q))}>
                             <Text style={{ fontWeight: '700' }}>{q}×</Text>
                           </TouchableOpacity>
                         ))}
                       </View>
-                      <TouchableOpacity
-                        style={styles.tradeBtn}
-                        onPress={() => {
-                          Keyboard.dismiss();
-                          addToBasket();
-                        }}
-                      >
+                      <TouchableOpacity style={styles.tradeBtn} onPress={addToBasket}>
                         <Text style={{ color: '#fff', fontWeight: 'bold' }}>Sepete Ekle</Text>
                       </TouchableOpacity>
-                      <Pressable
-                        onPress={() => {
-                          Keyboard.dismiss();
-                          setModal(null);
-                        }}
-                        style={styles.closeBtn}
-                      >
+                      <Pressable onPress={() => setModal(null)} style={styles.closeBtn}>
                         <Text style={{ fontWeight: 'bold' }}>Kapat</Text>
                       </Pressable>
-                    </ScrollView>
+                    </>
                   )}
                 </View>
-              </KeyboardAvoidingView>
-            </View>
-          </TouchableWithoutFeedback>
+              </View>
+            </TouchableWithoutFeedback>
+          </KeyboardAvoidingView>
         </Modal>
 
-        {/* Sepet Bar */}
-        <CartRibbon
-          count={basket.length}
-          totalXp={parlayMode ? parlayNumbers.stake : totals.totalStake}
-          onPress={() => setBasketOpen(true)}
-          fabDiameter={84}
-        />
-
-        {/* Sepet Modal – KLAVYE FIXLİ */}
+        {/* Sepet Modal */}
         <Modal visible={basketOpen} transparent animationType="slide">
-          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-            <View style={styles.modalWrap}>
-              <KeyboardAvoidingView
-                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
-                style={{ flex: 1, justifyContent: 'flex-end' }}
-              >
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={{ flex: 1 }}
+          >
+            <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+              <View style={styles.modalWrap}>
                 <View
                   style={[
                     styles.modalCard,
                     {
-                      maxHeight: '72%',
-                      paddingBottom: 16 + (Platform.OS === 'android' ? 24 : 0), // 🔥 alt boşluk
+                      maxHeight: '80%',
+                      paddingBottom: Platform.OS === 'ios' ? 40 : 20,
                     },
                   ]}
                 >
-                  <View
-                    style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}
-                  >
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
                     <Text style={styles.modalTitle}>Sepet</Text>
                     <Pressable onPress={() => setBasketOpen(false)}>
                       <Text style={{ fontWeight: 'bold' }}>Kapat</Text>
                     </Pressable>
                   </View>
 
-                  {basket.map((it, i) => (
-                    <View key={`${it.coupon_id}-${i}`} style={styles.basketItem}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ fontWeight: '700' }}>{it.title}</Text>
-                        <Text style={{ color: '#666' }}>
-                          {it.label} • {it.side} • Fiyat: {it.price.toFixed(2)}
-                        </Text>
-                      </View>
-                      {!parlayMode && (
-                        <>
-                          <TextInput
-                            value={String(it.stake)}
-                            onChangeText={(v) => updateBasketStake(i, v)}
-                            keyboardType="numeric"
-                            style={styles.basketStakeInput}
-                          />
-                          <TouchableOpacity onPress={() => removeBasketItem(i)} style={styles.trashBtn}>
-                            <Text style={{ color: '#fff', fontWeight: '700' }}>Sil</Text>
-                          </TouchableOpacity>
-                        </>
-                      )}
-                      {parlayMode && (
+                  <ScrollView style={{ flexShrink: 1 }}>
+                    {basket.map((it, i) => (
+                      <View key={`${it.coupon_id}-${i}`} style={styles.basketItem}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ fontWeight: '700' }}>{it.title}</Text>
+                          <Text style={{ color: '#666' }}>{it.label} • {it.side} • Fiyat: {it.price.toFixed(2)}</Text>
+                        </View>
+                        <TextInput
+                          value={String(it.stake)}
+                          onChangeText={(v) => updateBasketStake(i, v)}
+                          keyboardType="numeric"
+                          style={styles.basketStakeInput}
+                        />
                         <TouchableOpacity onPress={() => removeBasketItem(i)} style={styles.trashBtn}>
                           <Text style={{ color: '#fff', fontWeight: '700' }}>Sil</Text>
                         </TouchableOpacity>
-                      )}
-                    </View>
-                  ))}
+                      </View>
+                    ))}
+                  </ScrollView>
 
                   <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
                     <TouchableOpacity
-                      style={[
-                        styles.tradeBtn,
-                        { flex: 1, backgroundColor: '#FF6B00', opacity: submitting ? 0.7 : 1 },
-                      ]}
+                      style={[styles.tradeBtn, { flex: 1 }]}
                       onPress={parlayMode ? confirmPlayParlay : confirmPlaySingles}
                       disabled={submitting}
                     >
-                      <Text
-                        style={{ color: '#fff', fontWeight: 'bold', textAlign: 'center' }}
-                      >
-                        {submitting ? 'Gönderiliyor…' : parlayMode ? 'Parlay Oyna' : 'Onayla / Oyna'}
-                      </Text>
+                      <Text style={{ color: '#fff', fontWeight: 'bold' }}>{submitting ? 'Gönderiliyor…' : 'Onayla / Oyna'}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={[styles.tradeBtn, { flex: 1, backgroundColor: '#757575' }]}
                       onPress={clearBasket}
-                      disabled={submitting}
                     >
-                      <Text
-                        style={{ color: '#fff', fontWeight: 'bold', textAlign: 'center' }}
-                      >
-                        Sepeti Temizle
-                      </Text>
+                      <Text style={{ color: '#fff', fontWeight: 'bold' }}>Temizle</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
-              </KeyboardAvoidingView>
-            </View>
-          </TouchableWithoutFeedback>
+              </View>
+            </TouchableWithoutFeedback>
+          </KeyboardAvoidingView>
         </Modal>
       </View>
     </SafeAreaView>
-  );
+
+    {/* 🔥 KUSURSUZ YAPIŞIK SEPET BAR (SafeAreaView Dışında) 🔥 */}
+    <View 
+      pointerEvents="box-none" 
+      style={{ 
+        position: 'absolute', 
+        left: 0, 
+        right: 0, 
+        bottom: Platform.OS === 'ios' ? 42 : 65, 
+        zIndex: 9999 
+      }}
+    >
+      <CartRibbon
+        count={basket.length}
+        totalXp={parlayMode ? parlayNumbers.stake : totals.totalStake}
+        onPress={() => setBasketOpen(true)}
+        fabDiameter={84}
+      />
+    </View>
+  </View>
+);
 }
 
 const styles = StyleSheet.create({
@@ -1122,8 +1044,14 @@ const styles = StyleSheet.create({
   modalCard: {
     backgroundColor: '#fff',
     padding: 16,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    // 🔥 iOS çentikli telefonlarda alttaki o sarı çizgili boşluğu kapatır
+    paddingBottom: Platform.OS === 'ios' ? 38 : 20, 
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 5
   },
   modalTitle: { fontSize: 16, fontWeight: '700' },
   modalSub: { color: '#666', marginBottom: 8 },

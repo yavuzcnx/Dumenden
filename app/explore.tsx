@@ -259,58 +259,81 @@ export default function Explore() {
 
     return (
       <Animated.View
-        style={{ width: CARD_W, marginBottom: 20, backgroundColor: '#fff', borderRadius: 16, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 6, shadowOffset: { width: 0, height: 3 }, elevation: 3, overflow: 'hidden', transform: [{ scale }] }}
+        style={{ 
+          width: CARD_W, 
+          marginBottom: 20, 
+          backgroundColor: '#fff', 
+          borderRadius: 16, 
+          // 🔥 1. KRİTİK FİX: iOS'ta border'ları görünür kılmak için ekliyoruz
+          borderWidth: 1,
+          borderColor: '#F0F0F0', // Çok hafif bir gri, kutuyu belli eder
+          
+          // 🔥 2. KRİTİK FİX: Shadow ayarlarını iOS için netleştirdik
+          shadowColor: '#000', 
+          shadowOpacity: 0.1, 
+          shadowRadius: 8, 
+          shadowOffset: { width: 0, height: 4 }, 
+          elevation: 4, 
+          
+          // 🔥 3. KRİTİK FİX: 'hidden' gölgeyi keser, bunu kaldırıyoruz veya 'visible' yapıyoruz
+          overflow: Platform.OS === 'ios' ? 'visible' : 'hidden', 
+          transform: [{ scale }] 
+        }}
       >
-        <Pressable onPress={() => goDetail(item.id)} onLongPress={() => setFocusCard(item)} onPressIn={pressIn} onPressOut={pressOut}
-          android_ripple={{ color: '#00000010' }} style={{ width: '100%', height: CARD_H, backgroundColor: '#f2f2f2' }}>
+        <Pressable 
+          onPress={() => goDetail(item.id)} 
+          onLongPress={() => setFocusCard(item)} 
+          onPressIn={pressIn} 
+          onPressOut={pressOut}
+          android_ripple={{ color: '#00000010' }} 
+          style={{ 
+            width: '100%', 
+            height: CARD_H, 
+            backgroundColor: '#f2f2f2',
+            // 🔥 4. KRİTİK FİX: Üstteki görselin yuvarlanması için buraya taşıdık
+            borderTopLeftRadius: 15,
+            borderTopRightRadius: 15,
+            overflow: 'hidden' 
+          }}
+        >
           {item.image_url ? <Image source={{ uri: item.image_url }} style={{ width: '100%', height: '100%' }} /> : null}
         </Pressable>
 
+        {/* Kanıt ve Sana Ait etiketleri aynen kalıyor... */}
         {hasProof && (
           <TouchableOpacity onPress={() => openProofs(item)}
-            style={{ position: 'absolute', top: 10, left: 10, backgroundColor: '#16a34a', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12, transform: [{ rotate: '-5deg' }] }}>
+            style={{ position: 'absolute', top: 10, left: 10, backgroundColor: '#16a34a', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12, transform: [{ rotate: '-5deg' }], zIndex: 10 }}>
             <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12 }}>📎 Kanıt ({proofCount})</Text>
           </TouchableOpacity>
         )}
 
-        {isMine && (
-            <View style={{ position: 'absolute', top: 10, right: 10, backgroundColor: '#FF6B00', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12 }}>
-                <Text style={{ color: '#fff', fontWeight: '900', fontSize: 10 }}>SANA AİT 👑</Text>
-            </View>
-        )}
-
         <View style={{ padding: 12, gap: 8 }}>
-          <Text numberOfLines={2} style={{ fontWeight: '900', fontSize: 16 }}>{item.title}</Text>
+          <Text numberOfLines={2} style={{ fontWeight: '900', fontSize: 16, color: '#1A1A1A' }}>{item.title}</Text>
 
           <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-            {!!item.category && <Pill><Text style={{ color: '#FF6B00', fontWeight: '900' }}>{item.category}</Text></Pill>}
-            <Pill><Ionicons name="time-outline" size={14} color="#6B7280" style={{ marginRight: 6 }} /><Text style={{ color: '#6B7280', fontWeight: '700' }}>{new Date(item.closing_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text></Pill>
+            {!!item.category && <Pill><Text style={{ color: '#FF6B00', fontWeight: '900', fontSize: 11 }}>{item.category}</Text></Pill>}
+            <Pill><Ionicons name="time-outline" size={13} color="#6B7280" style={{ marginRight: 4 }} /><Text style={{ color: '#6B7280', fontWeight: '700', fontSize: 11 }}>{new Date(item.closing_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text></Pill>
           </View>
 
+          {/* ... Yes/No Butonları kısmı aynı kalabilir ... */}
           {!isMine ? (
-              <View style={{ flexDirection: 'row', gap: 10 }}>
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
                 <TouchableOpacity disabled={locked || !item.yes_price} onPress={() => addOnceToBasket(item, 'YES')}
-                  style={{ flex: 1, backgroundColor: '#E8F1FF', borderWidth: 1, borderColor: '#C9E0FF', paddingVertical: 10, borderRadius: 14, alignItems: 'center', opacity: locked ? 0.45 : 1 }}>
-                  <Text style={{ color: '#1B66FF', fontWeight: '900' }}>Yes</Text>
-                  <Text style={{ fontWeight: '900' }}>{item.yes_price?.toFixed(2) ?? '-'}</Text>
+                  style={{ flex: 1, backgroundColor: '#E8F1FF', borderWidth: 1, borderColor: '#C9E0FF', paddingVertical: 8, borderRadius: 12, alignItems: 'center', opacity: locked ? 0.45 : 1 }}>
+                  <Text style={{ color: '#1B66FF', fontWeight: '900', fontSize: 12 }}>Yes</Text>
+                  <Text style={{ fontWeight: '900', fontSize: 13 }}>{item.yes_price?.toFixed(2) ?? '-'}</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity disabled={locked || !item.no_price} onPress={() => addOnceToBasket(item, 'NO')}
-                  style={{ flex: 1, backgroundColor: '#FFE6EF', borderWidth: 1, borderColor: '#FFC7DA', paddingVertical: 10, borderRadius: 14, alignItems: 'center', opacity: locked ? 0.45 : 1 }}>
-                  <Text style={{ color: '#D61C7B', fontWeight: '900' }}>No</Text>
-                  <Text style={{ fontWeight: '900' }}>{item.no_price?.toFixed(2) ?? '-'}</Text>
+                  style={{ flex: 1, backgroundColor: '#FFE6EF', borderWidth: 1, borderColor: '#FFC7DA', paddingVertical: 8, borderRadius: 12, alignItems: 'center', opacity: locked ? 0.45 : 1 }}>
+                  <Text style={{ color: '#D61C7B', fontWeight: '900', fontSize: 12 }}>No</Text>
+                  <Text style={{ fontWeight: '900', fontSize: 13 }}>{item.no_price?.toFixed(2) ?? '-'}</Text>
                 </TouchableOpacity>
               </View>
           ) : (
-              <View style={{ padding: 10, backgroundColor: '#FFF3E0', borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: '#FFE0B2' }}>
-                  <Text style={{ color: '#E65100', fontWeight: '800', fontSize: 12 }}>Kendi kuponuna oynayamazsın</Text>
+              <View style={{ padding: 8, backgroundColor: '#FFF3E0', borderRadius: 10, alignItems: 'center', borderWidth: 1, borderColor: '#FFE0B2', marginTop: 4 }}>
+                  <Text style={{ color: '#E65100', fontWeight: '800', fontSize: 11 }}>Kendi kuponuna oynayamazsın</Text>
               </View>
-          )}
-
-          {locked && (
-            <View style={{ marginTop: 6, alignSelf: 'flex-start', backgroundColor: '#E8FFF2', borderColor: '#BDEED0', borderWidth: 1, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12 }}>
-              <Text style={{ color: '#0E9F6E', fontWeight: '800' }}>Sepete eklendi ✓</Text>
-            </View>
           )}
         </View>
       </Animated.View>
@@ -538,12 +561,23 @@ export default function Explore() {
           )}
         </View>
       </Modal>
-
-      <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 50 }}>
+      <View 
+        pointerEvents="box-none" 
+        style={{ 
+          position: 'absolute', 
+          left: 0, 
+          right: 0, 
+          // 🔥 iOS'ta o sarı çizgili boşluğu (Safe Area) öldürmek için değeri 38-40 bandına çektik
+          bottom: Platform.OS === 'ios' ? 38 : 65, 
+          zIndex: 999 
+        }}
+      >
         <CartRibbon
           count={basket.length}
-          totalXp={totalStake}
-          onPress={() => setShowBasket(true)}
+          // 🔥 HATA FİX: Explore'da totals yok, direkt totalStake var
+          totalXp={totalStake} 
+          // 🔥 HATA FİX: Explore'da setBasketOpen yok, setShowBasket var
+          onPress={() => setShowBasket(true)} 
           fabDiameter={84}
         />
       </View>

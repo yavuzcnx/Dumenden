@@ -3,7 +3,7 @@
     "name": "Dümenden",
     "slug": "dumenden",
     "scheme": "dumenden",
-    "version": "1.4.5",
+    "version": "1.5.0",
     "orientation": "default",
     "userInterfaceStyle": "light",
     "icon": "./assets/images/icon.png",
@@ -58,7 +58,7 @@
     },
    "ios": {
   "bundleIdentifier": "com.dumenden.app",
-  "buildNumber": "11", 
+  "buildNumber": "17", 
   "infoPlist": {
     "NSAppTransportSecurity": {
       "NSAllowsArbitraryLoads": true

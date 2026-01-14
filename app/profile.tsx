@@ -241,52 +241,55 @@ authListenerRef.current = sub;
     const r = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
-      quality: 0.9,
+      quality: 0.6, // Hız ve başarı oranı için kaliteyi biraz düşürdük
     });
+    
     if (r.canceled || r.assets.length === 0 || !authUserId) return;
 
-    setUploading(true);
+    setUploading(true); // Çark dönmeye başlar
+    
     try {
       const asset = r.assets[0];
       const ext = guessExt(asset.uri);
       const mime = contentType(ext);
-      const path = `${authUserId}/${Date.now()}.${ext}`;
+      const timestamp = Date.now();
+      const path = `${authUserId}/avatar_${timestamp}.${ext}`; 
 
       const res = await fetch(asset.uri);
       const buf = await res.arrayBuffer();
 
-      const { error: upErr } = await supabase
-        .storage.from('avatars')
+      // 1. Storage'a yükleme
+      const { error: upErr } = await supabase.storage
+        .from('avatars')
         .upload(path, buf, { contentType: mime, upsert: true });
+      
       if (upErr) throw upErr;
 
+      // 2. Yeni URL'i oluştur (Cache kırmak için v= ekliyoruz)
       const { data } = supabase.storage.from('avatars').getPublicUrl(path);
-      const publicUrl = data?.publicUrl ? `${data.publicUrl}?v=${Date.now()}` : null;
+      const publicUrl = `${data.publicUrl}?v=${timestamp}`;
 
-      const { data: updated, error: upErr2 } = await supabase
-        .from('users')
-        .update({ avatar_url: publicUrl, avatar_path: path })
-        .eq('id', authUserId)
-        .select('avatar_url, avatar_path')
-        .single();
-      if (upErr2) throw upErr2;
+      // 3. Veritabanını ve Auth Metadata'yı güncelle
+      // Bunlar bitmeden çarkı durdurmayacağız
+      const [{ error: dbErr }] = await Promise.all([
+        supabase.from('users').update({ avatar_url: publicUrl, avatar_path: path }).eq('id', authUserId),
+        supabase.auth.updateUser({ data: { avatar_url: publicUrl } })
+      ]);
 
-      const finalUrl = updated?.avatar_url || publicUrl || null;
-      if (finalUrl) {
-        try {
-          await Image.prefetch(finalUrl);
-        } catch {}
-      }
-      setAvatarUrl(finalUrl);
+      if (dbErr) throw dbErr;
 
-      Alert.alert('Tamam', 'Profil fotoğrafın güncellendi.');
+      // 4. UI'ı güncelle
+      setAvatarUrl(publicUrl);
+      Alert.alert('Başarılı', 'Profil fotoğrafın güncellendi! ✅');
+
     } catch (e: any) {
-      Alert.alert('Hata', e?.message ?? 'Yükleme başarısız.');
+      console.error('Yükleme hatası:', e);
+      Alert.alert('Hata', 'Fotoğraf yüklenirken bir sorun oluştu.');
     } finally {
+      // 🔥 KRİTİK: Hata alsa da almasa da o dönen çarkı BURADA durduruyoruz
       setUploading(false);
     }
   };
-
   /** ---------- save profile ---------- **/
   const save = async () => {
     if (!authUserId) return;
@@ -296,35 +299,32 @@ authListenerRef.current = sub;
         full_name: fullName?.trim() || null,
         phone_number: phone?.trim() || null,
         birth_date: birth?.trim() || null,
-        avatar_url: avatarUrl ?? null,
         bio: bio?.trim() || null,
+        // 🔥 BURAYA DİKKAT: Fotoğrafı burada ezmemek için mevcut state'i koruyoruz
+        avatar_url: avatarUrl 
       };
 
       const { data: updated, error } = await supabase
         .from('users')
         .update(patch)
         .eq('id', authUserId)
-        .select(
-          'id, full_name, phone_number, birth_date, avatar_url, avatar_path, bio, xp, is_plus'
-        )
+        .select('*')
         .single();
+
       if (error) throw error;
 
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       setShowEdit(false);
       setDbu(updated as DBUser);
-
-      const finalUrl = updated?.avatar_url || computePublicUrl(updated?.avatar_path);
-      setAvatarUrl(finalUrl ?? avatarUrl);
-
-      Alert.alert('Başarılı', 'Profilin güncellendi.');
+      
+      // Veriyi tazelemek için loadAll çağırılabilir ama optimizasyon için state yeterli
+      Alert.alert('Başarılı', 'Bilgilerin kaydedildi.');
     } catch (e: any) {
       Alert.alert('Hata', e?.message ?? 'Profil güncellenemedi.');
     } finally {
       setSaving(false);
     }
   };
-
   /** ---------- change password ---------- **/
   const changePassword = async () => {
     if (!newPw || newPw.length < 8) {
@@ -397,24 +397,30 @@ authListenerRef.current = sub;
   };
 
   /** ---------- sign out (FIXED) ---------- **/
-const handleLogout = async () => {
-  try {
-    // 1. Kanalları temizle ama bitmesini BEKLEME (Fire & Forget)
-    // Bu sayede hız kazanırız.
-    supabase.removeAllChannels(); 
+  const handleLogout = async () => {
+    try {
+      setSaving(true); // Bir loading başlat (isteğe bağlı)
+      
+      // 1. Önce tüm Realtime kanallarını durdur
+      await supabase.removeAllChannels();
 
-    // 2. Çıkış işlemini başlat
-    await supabase.auth.signOut();
+      // 2. Supabase oturumunu kapat
+      const { error } = await supabase.auth.signOut();
+      
+      if (error) throw error;
 
-    // 3. Listener (yukarıdaki kod) zaten yakalayıp atacak ama
-    // garanti olsun diye biz de manuel olarak yolluyoruz.
-    router.replace('/login');
+      // 3. 🔥 EN KRİTİK NOKTA: Session temizlendiğinde router'ı beklemeden fırlat
+      // replace yerine push deneyebilirsin ama replace daha sağlıklıdır
+      router.replace('/login');
 
-  } catch (e) {
-    // Hata olsa bile kullanıcıyı içeride tutma, giriş ekranına at.
-    router.replace('/login');
-  }
-};
+    } catch (e: any) {
+      console.error('Çıkış hatası:', e.message);
+      // Hata olsa bile kullanıcıyı login'e zorla gönder
+      router.replace('/login');
+    } finally {
+      setSaving(false);
+    }
+  };
   /** ---------- ui ---------- **/
   return (
     <ScrollView

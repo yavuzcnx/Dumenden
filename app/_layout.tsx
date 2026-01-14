@@ -1,14 +1,12 @@
-if (__DEV__) {
-  require('@/lib/dev/noRawTextGuard');
-}
+'use client';
 
 import BottomBar from '@/components/BottomBar';
 import { supabase } from '@/lib/supabaseClient';
 import { XpProvider } from '@/src/contexts/XpProvider';
 import { Stack, usePathname, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Platform, View } from 'react-native';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { Platform, StatusBar, View } from 'react-native';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ensureBootstrapAndProfile } from '@/lib/bootstrap';
 import { useInterstitial } from '@/src/contexts/ads/interstitial';
@@ -24,7 +22,6 @@ export default function RootLayout() {
     let isMounted = true;
     (async () => {
       try { 
-        // Reklam başlatma hataya düşse bile devam etmeli
         await initAds().catch(() => {}); 
       } catch (err) {
         console.warn("Ads Init Error:", err);
@@ -37,18 +34,15 @@ export default function RootLayout() {
 
   useEffect(() => {
     let mounted = true;
-
+    
+    // İlk açılışta session kontrolü
     (async () => {
       if (didInit.current) return;
       didInit.current = true;
-
       try {
-        // iOS Keychain bazen ilk açılışta kilitli olur, try-catch şart
         const { data: { session }, error } = await supabase.auth.getSession();
         if (error) throw error;
-        
         if (!mounted) return;
-
         if (session?.user) {
           await ensureBootstrapAndProfile().catch(console.warn);
         }
@@ -57,49 +51,36 @@ export default function RootLayout() {
       }
     })();
 
-    const { data: sub } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_IN') {
-        if (session?.user) {
-          await ensureBootstrapAndProfile().catch(console.warn);
-          if (pathname === '/login' || pathname === '/') {
-             router.replace('/home');
-          }
-        }
-      }
-
+    // Oturum değişikliklerini dinle (Giriş/Çıkış Takılma Fixi)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT') {
+        // Çıkış yapıldığında direkt login'e at (State hatası vermez)
         router.replace('/login');
+      } else if (event === 'SIGNED_IN' && session) {
+        // Giriş yapıldığında ana sayfaya at
+        router.replace('/');
       }
     });
-
+  
     return () => {
-      if (sub?.subscription) sub.subscription.unsubscribe();
       mounted = false;
+      subscription.unsubscribe();
     };
-  }, [pathname]);
-
-  const hideOn = [
-    '/login',
-    '/register',
-    '/google-auth',
-    '/splash',
-    '/reset-password',
-    '/admin',
-  ];
-
+  }, []);
+  const hideOn = ['/login', '/register', '/google-auth', '/splash', '/reset-password', '/admin'];
   const hide = hideOn.some((p) => pathname?.startsWith(p));
 
-  // 🔥 KATİL HATA BURADAYDI: null yerine View döndürüyoruz
   if (!adsInitDone) {
-    return (
-      <View style={{ flex: 1, backgroundColor: 'white' }} />
-    );
+    return <View style={{ flex: 1, backgroundColor: 'white' }} />;
   }
 
   return (
     <SafeAreaProvider>
       <XpProvider>
-        <View style={{ flex: 1 }}>
+        {/* 🔥 1. FİX: StatusBar iOS ve Android için ayarlandı */}
+        <StatusBar barStyle="dark-content" backgroundColor="white" translucent />
+        
+        <View style={{ flex: 1, backgroundColor: 'white' }}>
           <NavigationWatcher />
           <GlobalAdTimer />
 
@@ -112,16 +93,33 @@ export default function RootLayout() {
               animation: Platform.OS === 'ios' ? 'slide_from_right' : 'fade_from_bottom',
             }}
           >
+            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
             <Stack.Screen
               name="(modals)"
               options={{ presentation: 'modal', animation: 'fade_from_bottom' }}
             />
           </Stack>
 
-          {!hide && <BottomBar />}
+          {/* 🔥 2. FİX: BottomBar'ı InsetWrapper ile sarmaladık */}
+          {!hide && (
+            <BottomBarWrapper />
+          )}
         </View>
       </XpProvider>
     </SafeAreaProvider>
+  );
+}
+
+// 🔥 3. FİX: Sarı çizgiyi yok eden, barları tam oturtan Wrapper
+function BottomBarWrapper() {
+  const insets = useSafeAreaInsets();
+  return (
+    <View style={{ 
+      backgroundColor: 'white', 
+      paddingBottom: Platform.OS === 'ios' ? insets.bottom : 0 
+    }}>
+      <BottomBar />
+    </View>
   );
 }
 
@@ -134,9 +132,9 @@ function NavigationWatcher() {
     if (prevPathRef.current !== null && prevPathRef.current !== pathname) {
       (async () => {
         try {
+          // Sayfa geçişinde hem sayacı artır hem de uygunsa reklam göster
           await registerNavTransition();
           await showIfEligible("nav");
-          await showIfEligible("home_enter");
         } catch {}
       })();
     }
@@ -148,13 +146,13 @@ function NavigationWatcher() {
 
 function GlobalAdTimer() {
   const { showIfEligible } = useInterstitial();
-  // 🔥 DÜZELTME: Timeout hatası için 'any' kullandık
   const intervalRef = useRef<any>(null);
 
   useEffect(() => {
+    // 4 dakikada bir (240.000 ms) kontrol et, 15 saniye çok kısa olabilir
     intervalRef.current = setInterval(() => {
       showIfEligible("home_enter");
-    }, 15000);
+    }, 240000); 
 
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);

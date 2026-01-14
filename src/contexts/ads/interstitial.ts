@@ -5,7 +5,9 @@ import { AdEventType, InterstitialAd, TestIds } from 'react-native-google-mobile
 
 const PROD_INTERSTITIAL_ANDROID = 'ca-app-pub-3837426346942059/8002763076';
 const PROD_INTERSTITIAL_IOS = 'ca-app-pub-3837426346942059/7530153923';
-
+const adUnitId = Platform.OS === 'ios' 
+  ? TestIds.INTERSTITIAL 
+  : (__DEV__ ? TestIds.INTERSTITIAL : PROD_INTERSTITIAL_ANDROID);
 const FOUR_MIN_MS = 4 * 60 * 1000;
 const NAV_PER_AD = 10;
 const MIN_COOLDOWN = 30 * 1000;
@@ -29,13 +31,14 @@ async function setNumber(key: string, n: number) {
 
 export function useInterstitial() {
   const [loaded, setLoaded] = useState(false);
-
   const adRef = useRef<InterstitialAd | null>(null);
   const loadingRef = useRef(false);
 
   useEffect(() => {
-    const prodId = Platform.OS === 'ios' ? PROD_INTERSTITIAL_IOS : PROD_INTERSTITIAL_ANDROID;
-    const adUnitId = __DEV__ ? TestIds.INTERSTITIAL : prodId;
+    // 🔥 iOS ise TEST, Android ise GERÇEK reklam
+    const adUnitId = Platform.OS === 'ios'
+      ? TestIds.INTERSTITIAL
+      : (__DEV__ ? TestIds.INTERSTITIAL : PROD_INTERSTITIAL_ANDROID);
 
     const ad = InterstitialAd.createForAdRequest(adUnitId);
     adRef.current = ad;
@@ -63,9 +66,7 @@ export function useInterstitial() {
     ad.load();
 
     return () => {
-      l1();
-      l2();
-      l3();
+      l1(); l2(); l3();
     };
   }, []);
 

@@ -55,7 +55,7 @@
     "react-native-google-mobile-ads": "^15.8.3",
     "react-native-iap": "^14.3.8",
     "react-native-modal": "^14.0.0-rc.1",
-    "react-native-nitro-modules": "^0.33.1",
+    "react-native-nitro-modules": "0.31.10",
     "react-native-reanimated": "~4.1.0",
     "react-native-safe-area-context": "~5.6.0",
     "react-native-screens": "~4.16.0",

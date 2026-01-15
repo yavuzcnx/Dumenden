@@ -52,7 +52,7 @@
         "react-native-google-mobile-ads": "^15.8.3",
         "react-native-iap": "^14.3.8",
         "react-native-modal": "^14.0.0-rc.1",
-        "react-native-nitro-modules": "^0.33.1",
+        "react-native-nitro-modules": "0.31.10",
         "react-native-reanimated": "~4.1.0",
         "react-native-safe-area-context": "~5.6.0",
         "react-native-screens": "~4.16.0",
@@ -12205,9 +12205,10 @@
       }
     },
     "node_modules/react-native-nitro-modules": {
-      "version": "0.33.1",
-      "resolved": "https://registry.npmjs.org/react-native-nitro-modules/-/react-native-nitro-modules-0.33.1.tgz",
-      "integrity": "sha512-Kdo8qiqlkGAEs7fq29i0yiZs0Gf7ucmMiFsH8PH4uzsnSGEt2CQRBJGnQKKMl9vJYL8e7rzA0TZKRwO/L8G/Sg==",
+      "version": "0.31.10",
+      "resolved": "https://registry.npmjs.org/react-native-nitro-modules/-/react-native-nitro-modules-0.31.10.tgz",
+      "integrity": "sha512-hcvjTu9YJE9fMmnAUvhG8CxvYLpOuMQ/2eyi/S6GyrecezF6Rmk/uRQEL6v09BRFWA/xRVZNQVulQPS+2HS3mQ==",
+      "hasInstallScript": true,
       "license": "MIT",
       "peerDependencies": {
         "react": "*",

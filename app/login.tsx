@@ -107,6 +107,7 @@ export default function LoginPage() {
     setBusy(true);
 
     try {
+      // 1. Sadece oturumu açıyoruz
       const { data, error: loginError } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -118,14 +119,16 @@ export default function LoginPage() {
         return;
       }
 
-      // 🔥 DÜZELTME BURADA: Listener'ı bekleme, manuel yönlendir!
+      // 🔥 KESİN FİX: Burada MANUEL YÖNLENDİRME YAPMIYORUZ!
+      // '_layout.tsx' içindeki onAuthStateChange dinleyicisi 'SIGNED_IN' 
+      // olayını yakalayıp seni otomatik olarak '/' (Home) sayfasına atacak.
+      
       if (data.session) {
+        // Eğer profil verilerini önceden çekmek istersen burada bekletebilirsin
         await ensureBootstrapAndProfile().catch(() => {});
         
-        // Listener'ın tetiklenmesini beklemeden direkt yönlendiriyoruz
-        navigateBasedOnUser(data.session.user.email);
-        
-        // Busy'i false yapmaya gerek yok çünkü sayfa değişecek
+        // NOT: Buraya 'router.replace' veya 'navigateBasedOnUser' EKLEME!
+        // Eklersen yönlendirmeler çakışır ve uygulama donar.
       }
 
     } catch (e: any) {

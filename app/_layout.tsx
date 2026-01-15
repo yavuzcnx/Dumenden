@@ -35,7 +35,7 @@ export default function RootLayout() {
   useEffect(() => {
     let mounted = true;
     
-    // İlk açılışta session kontrolü
+    // 1. İLK OTURUM KONTROLÜ
     (async () => {
       if (didInit.current) return;
       didInit.current = true;
@@ -51,13 +51,14 @@ export default function RootLayout() {
       }
     })();
 
-    // Oturum değişikliklerini dinle (Giriş/Çıkış Takılma Fixi)
+    // 🔥 2. MERKEZİ YÖNLENDİRME SİSTEMİ (Çıkış/Giriş Takılma Fixi)
+    // Bu listener, uygulamanın neresinde olursan ol oturum değiştiği an çalışır.
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT') {
-        // Çıkış yapıldığında direkt login'e at (State hatası vermez)
+        // Oturum kapandığı an login'e salla
         router.replace('/login');
       } else if (event === 'SIGNED_IN' && session) {
-        // Giriş yapıldığında ana sayfaya at
+        // Oturum açıldığı an ana sayfaya salla
         router.replace('/');
       }
     });
@@ -67,6 +68,7 @@ export default function RootLayout() {
       subscription.unsubscribe();
     };
   }, []);
+
   const hideOn = ['/login', '/register', '/google-auth', '/splash', '/reset-password', '/admin'];
   const hide = hideOn.some((p) => pathname?.startsWith(p));
 
@@ -77,7 +79,6 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <XpProvider>
-        {/* 🔥 1. FİX: StatusBar iOS ve Android için ayarlandı */}
         <StatusBar barStyle="dark-content" backgroundColor="white" translucent />
         
         <View style={{ flex: 1, backgroundColor: 'white' }}>
@@ -100,7 +101,7 @@ export default function RootLayout() {
             />
           </Stack>
 
-          {/* 🔥 2. FİX: BottomBar'ı InsetWrapper ile sarmaladık */}
+          {/* BottomBar'ı InsetWrapper ile sarmaladık ama iOS sexy sepeti bozmamak için safe tutuyoruz */}
           {!hide && (
             <BottomBarWrapper />
           )}
@@ -110,13 +111,13 @@ export default function RootLayout() {
   );
 }
 
-// 🔥 3. FİX: Sarı çizgiyi yok eden, barları tam oturtan Wrapper
 function BottomBarWrapper() {
   const insets = useSafeAreaInsets();
   return (
     <View style={{ 
       backgroundColor: 'white', 
-      paddingBottom: Platform.OS === 'ios' ? insets.bottom : 0 
+      // iOS'ta 0 yaparak sepetin en dibe yapışmasını sağlıyoruz
+      paddingBottom: Platform.OS === 'ios' ? 0 : 0 
     }}>
       <BottomBar />
     </View>
@@ -132,7 +133,6 @@ function NavigationWatcher() {
     if (prevPathRef.current !== null && prevPathRef.current !== pathname) {
       (async () => {
         try {
-          // Sayfa geçişinde hem sayacı artır hem de uygunsa reklam göster
           await registerNavTransition();
           await showIfEligible("nav");
         } catch {}
@@ -149,7 +149,6 @@ function GlobalAdTimer() {
   const intervalRef = useRef<any>(null);
 
   useEffect(() => {
-    // 4 dakikada bir (240.000 ms) kontrol et, 15 saniye çok kısa olabilir
     intervalRef.current = setInterval(() => {
       showIfEligible("home_enter");
     }, 240000); 

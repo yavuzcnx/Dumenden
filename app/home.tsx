@@ -821,11 +821,6 @@ export default function HomeScreen() {
           contentContainerStyle={{ padding: 16, paddingBottom: 140 }}
           onEndReachedThreshold={0.4}
           onEndReached={() => fetchMore()}
-          ListFooterComponent={
-            loadingMore ? (
-              <Text style={{ textAlign: 'center', color: '#888', padding: 10 }}>Yükleniyor…</Text>
-            ) : null
-          }
           renderItem={({ item }) => {
             const st = marketState(item);
             return (
@@ -963,13 +958,14 @@ export default function HomeScreen() {
       </View>
     </SafeAreaView>
 
-    {/* 🔥 KUSURSUZ YAPIŞIK SEPET BAR (SafeAreaView Dışında) 🔥 */}
+    {/* 🔥 KUSURSUZ YAPIŞIK SEPET BAR (En dışta ve bağımsız) 🔥 */}
     <View 
       pointerEvents="box-none" 
       style={{ 
         position: 'absolute', 
         left: 0, 
         right: 0, 
+        // iOS'ta 42, Android'de 65. Bu değerler logonun tam birleşmesini sağlar.
         bottom: Platform.OS === 'ios' ? 42 : 65, 
         zIndex: 9999 
       }}
@@ -984,7 +980,6 @@ export default function HomeScreen() {
   </View>
 );
 }
-
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#fff' },
 

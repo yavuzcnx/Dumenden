@@ -158,7 +158,8 @@ export default function RegisterPage() {
       email,
       password,
       options: {
-        emailRedirectTo: 'dumenden://login',
+        // Paneldeki Redirect URL listesinde ne varsa aynısı olmalı
+        emailRedirectTo: 'dumenden://login', 
         data: {
           full_name: fullName || null,
           phone_number: phone || null,

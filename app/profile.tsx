@@ -238,56 +238,69 @@ authListenerRef.current = sub;
 
   /** ---------- avatar upload ---------- **/
   const pickImage = async () => {
-    const r = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      quality: 0.6, // Hız ve başarı oranı için kaliteyi biraz düşürdük
-    });
-    
-    if (r.canceled || r.assets.length === 0 || !authUserId) return;
-
-    setUploading(true); // Çark dönmeye başlar
-    
     try {
+      const r = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        quality: 0.5, // Hız için biraz daha düşürdük
+      });
+      
+      if (r.canceled || r.assets.length === 0 || !authUserId) return;
+
+      setUploading(true); // Çark başlar
+      
       const asset = r.assets[0];
       const ext = guessExt(asset.uri);
       const mime = contentType(ext);
       const timestamp = Date.now();
       const path = `${authUserId}/avatar_${timestamp}.${ext}`; 
 
+      // Dosyayı hazırla
       const res = await fetch(asset.uri);
       const buf = await res.arrayBuffer();
 
-      // 1. Storage'a yükleme
+      // 1. Eski fotoğrafları temizlemek istersen burada silebilirsin ama direkt yükleyelim
       const { error: upErr } = await supabase.storage
         .from('avatars')
         .upload(path, buf, { contentType: mime, upsert: true });
       
       if (upErr) throw upErr;
 
-      // 2. Yeni URL'i oluştur (Cache kırmak için v= ekliyoruz)
-      const { data } = supabase.storage.from('avatars').getPublicUrl(path);
-      const publicUrl = `${data.publicUrl}?v=${timestamp}`;
+      // 2. Public URL al
+      const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path);
+      // 🔥 CACHE BREAKER: URL sonuna v= ekleyerek uygulamanın hemen yenilemesini sağlıyoruz
+      const publicUrlWithCache = `${urlData.publicUrl}?v=${timestamp}`;
 
-      // 3. Veritabanını ve Auth Metadata'yı güncelle
-      // Bunlar bitmeden çarkı durdurmayacağız
-      const [{ error: dbErr }] = await Promise.all([
-        supabase.from('users').update({ avatar_url: publicUrl, avatar_path: path }).eq('id', authUserId),
-        supabase.auth.updateUser({ data: { avatar_url: publicUrl } })
-      ]);
+      // 3. Veritabanını güncelle (DB ve Auth'u ayırıyoruz ki takılmasın)
+      const { error: dbErr } = await supabase
+        .from('users')
+        .update({ 
+            avatar_url: publicUrlWithCache, 
+            avatar_path: path 
+        })
+        .eq('id', authUserId);
 
       if (dbErr) throw dbErr;
 
-      // 4. UI'ı güncelle
-      setAvatarUrl(publicUrl);
+      // Auth metadata güncelleme (Opsiyonel ama iyi olur)
+      await supabase.auth.updateUser({ 
+        data: { avatar_url: publicUrlWithCache } 
+      }).catch(() => console.log("Auth meta update skipped"));
+
+      // 4. State'leri güncelle
+      setAvatarUrl(publicUrlWithCache);
+      
+      // ✅ BAŞARILI: Çarkı burada durduruyoruz
+      setUploading(false);
       Alert.alert('Başarılı', 'Profil fotoğrafın güncellendi! ✅');
 
     } catch (e: any) {
       console.error('Yükleme hatası:', e);
-      Alert.alert('Hata', 'Fotoğraf yüklenirken bir sorun oluştu.');
+      Alert.alert('Hata', 'Fotoğraf yüklenirken bir sorun oluştu: ' + (e.message || 'Bilinmeyen hata'));
+      setUploading(false); // Hata durumunda da durdur
     } finally {
-      // 🔥 KRİTİK: Hata alsa da almasa da o dönen çarkı BURADA durduruyoruz
-      setUploading(false);
+      // 🚨 GARANTİ: Eğer yukarıdaki setUploading'ler bir şekilde çalışmazsa burası devreye girer
+      setTimeout(() => setUploading(false), 500);
     }
   };
   /** ---------- save profile ---------- **/
@@ -399,25 +412,25 @@ authListenerRef.current = sub;
   /** ---------- sign out (FIXED) ---------- **/
   const handleLogout = async () => {
     try {
-      setSaving(true); // Bir loading başlat (isteğe bağlı)
-      
-      // 1. Önce tüm Realtime kanallarını durdur
+      setSaving(true); // Çarkı başlat ama sadece bu sayfada
+  
+      // 1. Önce tüm Realtime dinleyicilerini durdur (Bu çok önemli!)
       await supabase.removeAllChannels();
-
-      // 2. Supabase oturumunu kapat
+  
+      // 2. Oturumu kapat
       const { error } = await supabase.auth.signOut();
-      
       if (error) throw error;
-
-      // 3. 🔥 EN KRİTİK NOKTA: Session temizlendiğinde router'ı beklemeden fırlat
-      // replace yerine push deneyebilirsin ama replace daha sağlıklıdır
-      router.replace('/login');
-
+  
+      // 3. 🔥 BURASI KRİTİK: Manuel yönlendirme yapma! 
+      // _layout.tsx'teki dinleyici zaten SIGNED_OUT'u yakalayıp seni login'e atacak.
+      // Manuel replace yaparsan kilitlenir.
+  
     } catch (e: any) {
-      console.error('Çıkış hatası:', e.message);
-      // Hata olsa bile kullanıcıyı login'e zorla gönder
+      console.error('Logout hatası:', e.message);
+      // Hata olsa bile login'e zorla
       router.replace('/login');
     } finally {
+      // Sayfadan ayrılacağımız için setSaving(false)'a gerek yok ama güvenlik için:
       setSaving(false);
     }
   };

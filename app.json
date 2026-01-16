@@ -3,7 +3,7 @@
     "name": "Dümenden",
     "slug": "dumenden",
     "scheme": "dumenden",
-    "version": "1.5.2",
+    "version": "1.5.3",
     "orientation": "default",
     "userInterfaceStyle": "light",
     "icon": "./assets/images/icon.png",
@@ -58,11 +58,12 @@
     },
    "ios": {
   "bundleIdentifier": "com.dumenden.app",
-  "buildNumber": "20", 
+  "buildNumber": "21", 
   "infoPlist": {
     "NSAppTransportSecurity": {
       "NSAllowsArbitraryLoads": true
     },
+    
     "NSUserTrackingUsageDescription": "Reklamları daha alakalı gösterebilmek için izleme iznine ihtiyaç duyuyoruz.",
     "SKAdNetworkItems": [
       {

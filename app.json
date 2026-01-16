@@ -58,7 +58,7 @@
     },
    "ios": {
   "bundleIdentifier": "com.dumenden.app",
-  "buildNumber": "21", 
+  "buildNumber": "22", 
   "infoPlist": {
     "NSAppTransportSecurity": {
       "NSAllowsArbitraryLoads": true

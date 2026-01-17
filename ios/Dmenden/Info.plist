@@ -7,12 +7,6 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>$(DEVELOPMENT_LANGUAGE)</string>
     <key>CFBundleDisplayName</key>
-    <key>NSMicrophoneUsageDescription</key>
-    <string>Video kanıtı için mikrofon erişimi.</string>
-    <key>NSCameraUsageDescription</key>
-    <string>Kanıt fotoğrafı çekmek için kamera erişimi.</string>
-    <key>NSPhotoLibraryUsageDescription</key>
-    <string>Kanıt yüklemek için galeri erişimi.</string>
     <string>Dümenden</string>
     <key>CFBundleExecutable</key>
     <string>$(EXECUTABLE_NAME)</string>
@@ -56,19 +50,19 @@
       <true/>
     </dict>
     <key>NSCameraUsageDescription</key>
-    <string>Allow $(PRODUCT_NAME) to access your camera</string>
+    <string>Kanıt fotoğrafı çekmek için kamera erişimi.</string>
     <key>NSFaceIDUsageDescription</key>
-    <string>Allow $(PRODUCT_NAME) to access your Face ID biometric data.</string>
+    <string>Uygulamaya güvenli giriş yapmak için Face ID izni gerekiyor.</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Allow $(PRODUCT_NAME) to access your microphone</string>
+    <string>Video kanıtı için mikrofon erişimi.</string>
     <key>NSPhotoLibraryUsageDescription</key>
-    <string>Allow $(PRODUCT_NAME) to access your photos</string>
+    <string>Kanıt yüklemek için galeri erişimi.</string>
+    <key>NSUserTrackingUsageDescription</key>
+    <string>Reklamları daha alakalı gösterebilmek için izleme iznine ihtiyaç duyuyoruz.</string>
     <key>NSUserActivityTypes</key>
     <array>
       <string>$(PRODUCT_BUNDLE_IDENTIFIER).expo.index_route</string>
     </array>
-    <key>NSUserTrackingUsageDescription</key>
-    <string>Reklamları daha alakalı gösterebilmek için izleme iznine ihtiyaç duyuyoruz.</string>
     <key>RCTNewArchEnabled</key>
     <true/>
     <key>SKAdNetworkItems</key>

@@ -7,6 +7,12 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>$(DEVELOPMENT_LANGUAGE)</string>
     <key>CFBundleDisplayName</key>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Video kanıtı için mikrofon erişimi.</string>
+    <key>NSCameraUsageDescription</key>
+    <string>Kanıt fotoğrafı çekmek için kamera erişimi.</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>Kanıt yüklemek için galeri erişimi.</string>
     <string>Dümenden</string>
     <key>CFBundleExecutable</key>
     <string>$(EXECUTABLE_NAME)</string>
@@ -19,7 +25,7 @@
     <key>CFBundlePackageType</key>
     <string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.5.3</string>
+    <string>1.5.4</string>
     <key>CFBundleSignature</key>
     <string>????</string>
     <key>CFBundleURLTypes</key>
@@ -33,7 +39,7 @@
       </dict>
     </array>
     <key>CFBundleVersion</key>
-    <string>21</string>
+    <string>23</string>
     <key>GADApplicationIdentifier</key>
     <string>ca-app-pub-3837426346942059~3638287941</string>
     <key>GADDelayAppMeasurementInit</key>

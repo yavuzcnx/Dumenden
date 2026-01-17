@@ -3,7 +3,7 @@
     "name": "Dümenden",
     "slug": "dumenden",
     "scheme": "dumenden",
-    "version": "1.5.3",
+    "version": "1.5.4",
     "orientation": "default",
     "userInterfaceStyle": "light",
     "icon": "./assets/images/icon.png",
@@ -58,13 +58,14 @@
     },
    "ios": {
   "bundleIdentifier": "com.dumenden.app",
-  "buildNumber": "22", 
+  "buildNumber": "23", 
   "infoPlist": {
-    "NSAppTransportSecurity": {
-      "NSAllowsArbitraryLoads": true
-    },
-    
-    "NSUserTrackingUsageDescription": "Reklamları daha alakalı gösterebilmek için izleme iznine ihtiyaç duyuyoruz.",
+  "NSAppTransportSecurity": {
+    "NSAllowsArbitraryLoads": true
+  },
+  
+  "NSUserTrackingUsageDescription": "Reklamları daha alakalı gösterebilmek için izleme iznine ihtiyaç duyuyoruz.",
+
     "SKAdNetworkItems": [
       {
         "SKAdNetworkIdentifier": "cstr6suwn9.skadnetwork"
@@ -79,7 +80,9 @@
         "react-native-google-mobile-ads",
         {
           "androidAppId": "ca-app-pub-3837426346942059~8256189809",
-          "iosAppId": "ca-app-pub-3837426346942059~3638287941"
+          "iosAppId": "ca-app-pub-3837426346942059~3638287941",
+          "userTrackingUsageDescription": "Size daha uygun reklamlar gösterebilmek için izninize ihtiyacımız var."
+  
         }
       ],
       "expo-router",

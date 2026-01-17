@@ -58,8 +58,14 @@
     },
    "ios": {
   "bundleIdentifier": "com.dumenden.app",
+
   "buildNumber": "23", 
   "infoPlist": {
+    "NSCameraUsageDescription": "Kanıt fotoğrafı çekmek için kameraya erişim izni gerekiyor.",
+    "NSMicrophoneUsageDescription": "Video kanıtı yüklemek için mikrofona erişim gerekiyor.",
+    "NSPhotoLibraryUsageDescription": "Kanıt yüklemek için galeriye erişim izni gerekiyor.",
+    "NSFaceIDUsageDescription": "Uygulamaya güvenli giriş yapmak için Face ID izni gerekiyor.",
+    "ITSAppUsesNonExemptEncryption": false,
   "NSAppTransportSecurity": {
     "NSAllowsArbitraryLoads": true
   },
@@ -70,8 +76,7 @@
       {
         "SKAdNetworkIdentifier": "cstr6suwn9.skadnetwork"
       }
-    ],
-    "ITSAppUsesNonExemptEncryption": false
+    ]
   }
 },
     "plugins": [

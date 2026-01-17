@@ -33,7 +33,7 @@
       </dict>
     </array>
     <key>CFBundleVersion</key>
-    <string>23</string>
+    <string>24</string>
     <key>GADApplicationIdentifier</key>
     <string>ca-app-pub-3837426346942059~3638287941</string>
     <key>GADDelayAppMeasurementInit</key>
@@ -50,15 +50,15 @@
       <true/>
     </dict>
     <key>NSCameraUsageDescription</key>
-    <string>Kanıt fotoğrafı çekmek için kamera erişimi.</string>
+    <string>Kanıt fotoğrafı çekmek için kameraya erişim izni gerekiyor.</string>
     <key>NSFaceIDUsageDescription</key>
     <string>Uygulamaya güvenli giriş yapmak için Face ID izni gerekiyor.</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Video kanıtı için mikrofon erişimi.</string>
+    <string>Video kanıtı yüklemek için mikrofona erişim gerekiyor.</string>
     <key>NSPhotoLibraryUsageDescription</key>
-    <string>Kanıt yüklemek için galeri erişimi.</string>
+    <string>Kanıt yüklemek için galeriye erişim izni gerekiyor.</string>
     <key>NSUserTrackingUsageDescription</key>
-    <string>Reklamları daha alakalı gösterebilmek için izleme iznine ihtiyaç duyuyoruz.</string>
+    <string>Size daha uygun reklamlar gösterebilmek için izninize ihtiyacımız var.</string>
     <key>NSUserActivityTypes</key>
     <array>
       <string>$(PRODUCT_BUNDLE_IDENTIFIER).expo.index_route</string>

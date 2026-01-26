@@ -3,7 +3,7 @@
     "name": "Dümenden",
     "slug": "dumenden",
     "scheme": "dumenden",
-    "version": "1.5.4",
+    "version": "1.5.5",
     "orientation": "default",
     "userInterfaceStyle": "light",
     "icon": "./assets/images/icon.png",
@@ -59,8 +59,9 @@
    "ios": {
   "bundleIdentifier": "com.dumenden.app",
 
-  "buildNumber": "23", 
+  "buildNumber": "25", 
   "infoPlist": {
+    "GADApplicationIdentifier": "ca-app-pub-3837426346942059~3638287941",
     "NSCameraUsageDescription": "Kanıt fotoğrafı çekmek için kameraya erişim izni gerekiyor.",
     "NSMicrophoneUsageDescription": "Video kanıtı yüklemek için mikrofona erişim gerekiyor.",
     "NSPhotoLibraryUsageDescription": "Kanıt yüklemek için galeriye erişim izni gerekiyor.",

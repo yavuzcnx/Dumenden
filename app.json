@@ -55,27 +55,31 @@
         }
       ]
     },
-    "ios": {
-      "bundleIdentifier": "com.dumenden.app",
-      "buildNumber": "27",
-      "infoPlist": {
-        "GADApplicationIdentifier": "ca-app-pub-3837426346942059~3638287941",
-        "NSCameraUsageDescription": "Kanıt fotoğrafı çekmek için kameraya erişim izni gerekiyor.",
-        "NSMicrophoneUsageDescription": "Video kanıtı yüklemek için mikrofona erişim gerekiyor.",
-        "NSPhotoLibraryUsageDescription": "Kanıt yüklemek için galeriye erişim izni gerekiyor.",
-        "NSFaceIDUsageDescription": "Uygulamaya güvenli giriş yapmak için Face ID izni gerekiyor.",
-        "ITSAppUsesNonExemptEncryption": false,
-        "NSAppTransportSecurity": {
-          "NSAllowsArbitraryLoads": true
-        },
-        "NSUserTrackingUsageDescription": "Reklamları daha alakalı gösterebilmek için izleme iznine ihtiyaç duyuyoruz.",
-        "SKAdNetworkItems": [
-          {
-            "SKAdNetworkIdentifier": "cstr6suwn9.skadnetwork"
-          }
-        ]
-      }
+   "ios": {
+  "bundleIdentifier": "com.dumenden.app",
+  "buildNumber": "28",
+  "supportsTablet": true,
+  "config": {
+    "usesNonExemptEncryption": false,
+    "googleMobileAdsAppId": "ca-app-pub-3837426346942059~3638287941"
+  },
+  "infoPlist": {
+    "GADApplicationIdentifier": "ca-app-pub-3837426346942059~3638287941",
+    "NSCameraUsageDescription": "Kanıt fotoğrafı çekmek için kameraya erişim izni gerekiyor.",
+    "NSMicrophoneUsageDescription": "Video kanıtı yüklemek için mikrofona erişim gerekiyor.",
+    "NSPhotoLibraryUsageDescription": "Kanıt yüklemek için galeriye erişim izni gerekiyor.",
+    "NSFaceIDUsageDescription": "Uygulamaya güvenli giriş yapmak için Face ID izni gerekiyor.",
+    "NSUserTrackingUsageDescription": "Size daha uygun reklamlar gösterebilmek için izninize ihtiyacımız var.",
+    "NSAppTransportSecurity": {
+      "NSAllowsArbitraryLoads": true
     },
+    "SKAdNetworkItems": [
+      {
+        "SKAdNetworkIdentifier": "cstr6suwn9.skadnetwork"
+      }
+    ]
+  }
+},
     "plugins": [
       "expo-web-browser",
       [

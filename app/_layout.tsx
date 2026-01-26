@@ -1,6 +1,7 @@
 'use client';
 
-
+// 1. BU SATIR EN ÜSTTE OLMAK ZORUNDA - TestFlight çökmesini engeller
+import 'react-native-gesture-handler';
 import 'react-native-get-random-values';
 import 'react-native-url-polyfill/auto';
 
@@ -9,7 +10,7 @@ import { supabase } from '@/lib/supabaseClient';
 import { XpProvider } from '@/src/contexts/XpProvider';
 import { Stack, usePathname, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Platform, StatusBar, View } from 'react-native';
+import { ActivityIndicator, Platform, StatusBar, View } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ensureBootstrapAndProfile } from '@/lib/bootstrap';
@@ -20,42 +21,36 @@ export default function RootLayout() {
   const pathname = usePathname();
   const router = useRouter();
   const didInit = useRef(false);
-  const [adsInitDone, setAdsInitDone] = useState(false);
-
-  useEffect(() => {
-    let isMounted = true;
-    (async () => {
-      try { 
-        await initAds().catch(() => {}); 
-      } catch (err) {
-        console.warn("Ads Init Error:", err);
-      } finally {
-        if (isMounted) setAdsInitDone(true);
-      }
-    })();
-    return () => { isMounted = false; };
-  }, []);
+  
+  // Uygulamanın tamamen hazır olup olmadığını takip eder
+  const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
     let mounted = true;
-    
-    // 1. İLK OTURUM KONTROLÜ
-    (async () => {
-      if (didInit.current) return;
-      didInit.current = true;
+
+    async function initializeApp() {
       try {
-        const { data: { session }, error } = await supabase.auth.getSession();
-        if (error) throw error;
-        if (!mounted) return;
-        if (session?.user) {
-          await ensureBootstrapAndProfile().catch(console.warn);
+        // 1. Reklamları başlat (Hata alsa bile devam etmesi için catch ekledik)
+        await initAds().catch((err) => console.warn("Ads Init Error:", err));
+
+        // 2. İlk Oturum Kontrolü (Sadece bir kez çalışır)
+        if (!didInit.current) {
+          didInit.current = true;
+          const { data: { session }, error } = await supabase.auth.getSession();
+          if (!error && session?.user) {
+            await ensureBootstrapAndProfile().catch(console.warn);
+          }
         }
       } catch (e) {
-        console.warn("Initial Auth Check Failed:", e);
+        console.warn("Global Init Error:", e);
+      } finally {
+        if (mounted) setIsReady(true);
       }
-    })();
+    }
 
-    // 🔥 2. MERKEZİ YÖNLENDİRME SİSTEMİ
+    initializeApp();
+
+    // 3. Merkezi Yönlendirme Sistemi (Auth Listener)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT') {
         router.replace('/login');
@@ -63,7 +58,7 @@ export default function RootLayout() {
         router.replace('/');
       }
     });
-  
+
     return () => {
       mounted = false;
       subscription.unsubscribe();
@@ -73,8 +68,14 @@ export default function RootLayout() {
   const hideOn = ['/login', '/register', '/google-auth', '/splash', '/reset-password', '/admin'];
   const hide = hideOn.some((p) => pathname?.startsWith(p));
 
-  if (!adsInitDone) {
-    return <View style={{ flex: 1, backgroundColor: 'white' }} />;
+  // ÖNEMLİ: Boş View yerine ActivityIndicator döndürüyoruz. 
+  // iOS SpringBoard'un sahneyi "invalid" sayıp kapatmasını engeller.
+  if (!isReady) {
+    return (
+      <View style={{ flex: 1, backgroundColor: 'white', justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color="#000" />
+      </View>
+    );
   }
 
   return (
@@ -111,6 +112,7 @@ export default function RootLayout() {
   );
 }
 
+// Orijinal BottomBar Wrapper sistemin
 function BottomBarWrapper() {
   const insets = useSafeAreaInsets();
   return (
@@ -123,9 +125,11 @@ function BottomBarWrapper() {
   );
 }
 
+// Orijinal Reklam İzleyici sistemin
 function NavigationWatcher() {
   const pathname = usePathname();
-  const prevPathRef = useRef<any>(null);
+  // Tipini <string | null> olarak belirterek TS'yi sakinleştiriyoruz
+  const prevPathRef = useRef<string | null>(null); 
   const { registerNavTransition, showIfEligible } = useInterstitial();
 
   useEffect(() => {
@@ -143,11 +147,14 @@ function NavigationWatcher() {
   return null;
 }
 
+// Orijinal Global Reklam Zamanlayıcı sistemin
 function GlobalAdTimer() {
   const { showIfEligible } = useInterstitial();
-  const intervalRef = useRef<any>(null);
+  // setInterval'ın döndürdüğü tipi (NodeJS.Timeout veya number) kabul etmesi için tip ekliyoruz
+  const intervalRef = useRef<any>(null); 
 
   useEffect(() => {
+    // Burada atama yaparken artık hata vermeyecek
     intervalRef.current = setInterval(() => {
       showIfEligible("home_enter");
     }, 240000); 

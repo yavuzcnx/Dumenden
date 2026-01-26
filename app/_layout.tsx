@@ -1,5 +1,9 @@
 'use client';
 
+
+import 'react-native-get-random-values';
+import 'react-native-url-polyfill/auto';
+
 import BottomBar from '@/components/BottomBar';
 import { supabase } from '@/lib/supabaseClient';
 import { XpProvider } from '@/src/contexts/XpProvider';
@@ -51,14 +55,11 @@ export default function RootLayout() {
       }
     })();
 
-    // 🔥 2. MERKEZİ YÖNLENDİRME SİSTEMİ (Çıkış/Giriş Takılma Fixi)
-    // Bu listener, uygulamanın neresinde olursan ol oturum değiştiği an çalışır.
+    // 🔥 2. MERKEZİ YÖNLENDİRME SİSTEMİ
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT') {
-        // Oturum kapandığı an login'e salla
         router.replace('/login');
       } else if (event === 'SIGNED_IN' && session) {
-        // Oturum açıldığı an ana sayfaya salla
         router.replace('/');
       }
     });
@@ -101,7 +102,6 @@ export default function RootLayout() {
             />
           </Stack>
 
-          {/* BottomBar'ı InsetWrapper ile sarmaladık ama iOS sexy sepeti bozmamak için safe tutuyoruz */}
           {!hide && (
             <BottomBarWrapper />
           )}
@@ -116,7 +116,6 @@ function BottomBarWrapper() {
   return (
     <View style={{ 
       backgroundColor: 'white', 
-      // iOS'ta 0 yaparak sepetin en dibe yapışmasını sağlıyoruz
       paddingBottom: Platform.OS === 'ios' ? 0 : 0 
     }}>
       <BottomBar />

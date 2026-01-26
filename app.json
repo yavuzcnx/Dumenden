@@ -3,7 +3,7 @@
     "name": "Dümenden",
     "slug": "dumenden",
     "scheme": "dumenden",
-    "version": "1.5.5",
+    "version": "1.5.6",
     "orientation": "default",
     "userInterfaceStyle": "light",
     "icon": "./assets/images/icon.png",
@@ -12,6 +12,10 @@
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
+    "platforms": [
+      "ios",
+      "android"
+    ],
     "androidStatusBar": {
       "translucent": true,
       "backgroundColor": "#00000000",
@@ -34,11 +38,6 @@
         "backgroundColor": "#FFFFFF"
       },
       "softwareKeyboardLayoutMode": "resize",
-      "scheme": "dumenden",
-      "platforms": [
-        "ios",
-        "android"
-      ],
       "intentFilters": [
         {
           "action": "VIEW",
@@ -56,30 +55,27 @@
         }
       ]
     },
-   "ios": {
-  "bundleIdentifier": "com.dumenden.app",
-
-  "buildNumber": "25", 
-  "infoPlist": {
-    "GADApplicationIdentifier": "ca-app-pub-3837426346942059~3638287941",
-    "NSCameraUsageDescription": "Kanıt fotoğrafı çekmek için kameraya erişim izni gerekiyor.",
-    "NSMicrophoneUsageDescription": "Video kanıtı yüklemek için mikrofona erişim gerekiyor.",
-    "NSPhotoLibraryUsageDescription": "Kanıt yüklemek için galeriye erişim izni gerekiyor.",
-    "NSFaceIDUsageDescription": "Uygulamaya güvenli giriş yapmak için Face ID izni gerekiyor.",
-    "ITSAppUsesNonExemptEncryption": false,
-  "NSAppTransportSecurity": {
-    "NSAllowsArbitraryLoads": true
-  },
-  
-  "NSUserTrackingUsageDescription": "Reklamları daha alakalı gösterebilmek için izleme iznine ihtiyaç duyuyoruz.",
-
-    "SKAdNetworkItems": [
-      {
-        "SKAdNetworkIdentifier": "cstr6suwn9.skadnetwork"
+    "ios": {
+      "bundleIdentifier": "com.dumenden.app",
+      "buildNumber": "27",
+      "infoPlist": {
+        "GADApplicationIdentifier": "ca-app-pub-3837426346942059~3638287941",
+        "NSCameraUsageDescription": "Kanıt fotoğrafı çekmek için kameraya erişim izni gerekiyor.",
+        "NSMicrophoneUsageDescription": "Video kanıtı yüklemek için mikrofona erişim gerekiyor.",
+        "NSPhotoLibraryUsageDescription": "Kanıt yüklemek için galeriye erişim izni gerekiyor.",
+        "NSFaceIDUsageDescription": "Uygulamaya güvenli giriş yapmak için Face ID izni gerekiyor.",
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        },
+        "NSUserTrackingUsageDescription": "Reklamları daha alakalı gösterebilmek için izleme iznine ihtiyaç duyuyoruz.",
+        "SKAdNetworkItems": [
+          {
+            "SKAdNetworkIdentifier": "cstr6suwn9.skadnetwork"
+          }
+        ]
       }
-    ]
-  }
-},
+    },
     "plugins": [
       "expo-web-browser",
       [
@@ -88,13 +84,14 @@
           "androidAppId": "ca-app-pub-3837426346942059~8256189809",
           "iosAppId": "ca-app-pub-3837426346942059~3638287941",
           "userTrackingUsageDescription": "Size daha uygun reklamlar gösterebilmek için izninize ihtiyacımız var."
-  
         }
       ],
       "expo-router",
       "expo-secure-store"
     ],
     "extra": {
+      "supabaseUrl": "https://hgvvrrkeljasjwdoajtw.supabase.co", 
+      "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhndnZycmtlbGphc2p3ZG9hanR3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIyMzQyNjMsImV4cCI6MjA2NzgxMDI2M30.F7o5jWKglt8eRyTf5xnpKVdNt4Rpb_R9CarArze_QcA",
       "eas": {
         "projectId": "b5bad7ff-9465-44fe-aaad-191ac9957eb7"
       }

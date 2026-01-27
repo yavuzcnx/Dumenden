@@ -46,30 +46,27 @@ const CATS = ['Tümü', 'Gündem', 'Spor', 'Magazin', 'Politika', 'Absürt'];
 const PAGE = 12;
 
 // 🔥 REKLAM ID'LERİ (SABİT)
-// iOS Gerçek ID: ca-app-pub-3837426346942059/1363478394
-// Android Gerçek ID: ca-app-pub-3837426346942059/6751536443
 const AD_UNIT_ID = Platform.select({
   ios: 'ca-app-pub-3837426346942059/1363478394',
   android: 'ca-app-pub-3837426346942059/6751536443',
   default: TestIds.REWARDED,
 });
 
-// Geliştirme modunda hep Test ID kullan (Ban yememek için)
 const FINAL_AD_UNIT_ID = __DEV__ ? TestIds.REWARDED : AD_UNIT_ID;
 
-// 🔥 ÖDÜLLÜ REKLAM HOOK'U (EN TEPEYE TAŞIDIM)
+// 🔥 GÜÇLENDİRİLMİŞ REKLAM HOOK'U (SENİN İÇİN EKLENDİ)
 function useRewardedAd() {
   const [loaded, setLoaded] = useState(false);
   const adRef = useRef<RewardedAd | null>(null);
 
   const loadAd = useCallback(() => {
-    // Eski reklam varsa temizle
     setLoaded(false);
     const ad = RewardedAd.createForAdRequest(FINAL_AD_UNIT_ID, {
       requestNonPersonalizedAdsOnly: false,
     });
 
     ad.addAdEventListener(RewardedAdEventType.LOADED, () => {
+      console.log("Ad Loaded!");
       setLoaded(true);
     });
 
@@ -85,44 +82,44 @@ function useRewardedAd() {
   useEffect(() => {
     loadAd();
     return () => {
-      adRef.current = null; // Cleanup
+      adRef.current = null;
     };
   }, [loadAd]);
 
-  // Reklamı göster ve sonucu Promise olarak dön
-  const showUserEarnedReward = useCallback((): Promise<boolean> => {
+  const showAd = useCallback((): Promise<boolean> => {
     return new Promise((resolve) => {
       if (!loaded || !adRef.current) {
-        // Eğer reklam hazır değilse hemen yüklemeyi dene
-        loadAd();
+        console.log("Ad not ready, reloading...");
+        loadAd(); 
         resolve(false);
         return;
       }
 
       const ad = adRef.current;
-      let userEarned = false;
+      let earned = false;
 
-      // Ödül kazanıldı mı?
-      const unsubscribeEarned = ad.addAdEventListener(RewardedAdEventType.EARNED_REWARD, () => {
-        userEarned = true;
+      const unsubEarned = ad.addAdEventListener(RewardedAdEventType.EARNED_REWARD, () => {
+        console.log("User earned reward!");
+        earned = true;
       });
 
-      // Reklam kapandı mı?
-      const unsubscribeClosed = ad.addAdEventListener(AdEventType.CLOSED, () => {
-        resolve(userEarned);
-        loadAd(); // Bir sonraki için hemen yeni reklam yükle
-        unsubscribeEarned();
-        unsubscribeClosed();
+      const unsubClosed = ad.addAdEventListener(AdEventType.CLOSED, () => {
+        console.log("Ad closed");
+        resolve(earned);
+        loadAd(); // Hemen yenisini yükle
+        unsubEarned();
+        unsubClosed();
       });
 
-      ad.show().catch(() => {
+      ad.show().catch((e) => {
+        console.log("Ad show error", e);
         resolve(false);
         loadAd();
       });
     });
   }, [loaded, loadAd]);
 
-  return { isLoaded: loaded, showAd: showUserEarnedReward };
+  return { isLoaded: loaded, showAd };
 }
 
 /* -------------------- Bildirim Helper -------------------- */
@@ -230,10 +227,10 @@ export default function HomeScreen() {
   const { xp, loading: xpLoading, refresh } = useXp();
   const { isPlus } = usePlus();
 
-  // 🔥 Reklam Hook'unu burada çağırıyoruz
-  const { isLoaded: rewardAdLoaded, showAd: showRewardAd } = useRewardedAd();
+  // 🔥 YENİ REKLAM HOOK'U KULLANIMI
+  const { isLoaded: adLoaded, showAd } = useRewardedAd();
 
-  // 🔸 Interstitial: hazırla
+  // 🔸 Interstitial
   const {
     loaded: interLoaded,
     show: showInter,
@@ -242,7 +239,6 @@ export default function HomeScreen() {
   } = useInterstitial();
   const interShownOnce = useRef(false);
 
-  // Home açılınca (Plus değilse) 4dk kuralına göre uygun ise göster
   useEffect(() => {
     (async () => {
       if (!isPlus && interLoaded && !interShownOnce.current) {
@@ -300,7 +296,7 @@ export default function HomeScreen() {
     ).start();
   }, [toplaReady, shimmer]);
 
-  // 🔥 XP TOPLA BUTONU CLICK
+  // 🔥 GÜNCELLENMİŞ XP TOPLA BUTONU (REKLAM FİX)
   const handleXpToplaPress = useCallback(async () => {
     if (busyTopla) return;
 
@@ -315,30 +311,25 @@ export default function HomeScreen() {
 
     setBusyTopla(true);
     try {
-      // 1) Reklam Yüklü mü?
-      if (!rewardAdLoaded) {
+      // 1) Reklam Hazır mı?
+      if (!adLoaded) {
         Alert.alert('Reklam Yükleniyor', 'Lütfen 3-5 saniye bekleyip tekrar dene.');
-        return; // Fonksiyondan çık, meşguliyeti kaldır
+        return; // Fonksiyondan çık
       }
 
-      // 2) Reklamı Göster ve Sonucu Bekle
-      const earned = await showRewardAd();
+      // 2) Göster ve Sonucu Al
+      const earned = await showAd();
       
       if (!earned) {
-        // Kullanıcı reklamı kapattıysa veya hata olduysa
-        Alert.alert('Ödül Alınamadı', 'Reklamı sonuna kadar izlemedin veya bir hata oluştu.');
+        Alert.alert('Ödül Alınamadı', 'Reklamı sonuna kadar izlemedin.');
         return;
       }
 
-      // 3) Kullanıcı Oturumu
+      // 3) Ödülü Ver (Supabase)
       const { data: auth } = await supabase.auth.getUser();
       const uid = auth?.user?.id;
-      if (!uid) {
-        Alert.alert('Hata', 'Oturum bulunamadı.');
-        return;
-      }
+      if (!uid) { Alert.alert('Hata', 'Oturum yok.'); return; }
 
-      // 4) Supabase RPC (claim_ad_bonus)
       const { data, error } = await supabase.rpc('claim_ad_bonus', { p_user: uid });
       if (error) throw error;
 
@@ -347,33 +338,23 @@ export default function HomeScreen() {
       const remaining = Number(row?.remaining_seconds ?? 0);
 
       if (granted) {
-        await refresh(); // XP’yi yenile
+        await refresh();
         Alert.alert('Tebrikler 🎉', '100 XP kazandın!');
-
-        // server remaining_seconds dönüyorsa ona göre, yoksa direkt 3 saat
-        const end =
-          remaining > 0
-            ? new Date(Date.now() + remaining * 1000)
-            : new Date(Date.now() + 3 * 60 * 60 * 1000);
+        const end = remaining > 0 ? new Date(Date.now() + remaining * 1000) : new Date(Date.now() + 3 * 60 * 60 * 1000);
         setCooldownEnd(end);
       } else {
         const mins = Math.max(0, Math.ceil(remaining / 60));
         const h = Math.floor(mins / 60);
         const m = mins % 60;
-        if (remaining > 0) {
-          setCooldownEnd(new Date(Date.now() + remaining * 1000));
-        }
-        Alert.alert('Üzgünüz 😔', `Yeni XP alımı için ${h} saat ${m} dakika kaldı.`);
+        if (remaining > 0) setCooldownEnd(new Date(Date.now() + remaining * 1000));
+        Alert.alert('Üzgünüz 😔', `Yeni XP için ${h}s ${m}dk kaldı.`);
       }
     } catch (e: any) {
       Alert.alert('Hata', e?.message ?? 'Bilinmeyen hata.');
     } finally {
       setBusyTopla(false);
     }
-  }, [busyTopla, toplaReady, cooldownEnd, refresh, rewardAdLoaded, showRewardAd]);
-
-  // ... (Geri kalan USER, MARKETS, SLIDER, UI kodları AYNI)
-  // ... Kodun geri kalanını bozmadan buraya yapıştırıyorum.
+  }, [busyTopla, toplaReady, cooldownEnd, refresh, adLoaded, showAd]);
 
   /* -------- USER (ad + avatar) -------- */
   const [user, setUser] = useState<{ name: string; avatar: string | null }>({
@@ -442,7 +423,6 @@ export default function HomeScreen() {
         const { data, error } = await q.range(from, to);
         if (error) throw error;
 
-        // normalize + url resolve
         const normalized: MarketRow[] = (data ?? []).map((m: any) => ({
           ...m,
           image: m.image ?? m.image_url ?? null,
@@ -1013,15 +993,16 @@ export default function HomeScreen() {
         </View>
       </SafeAreaView>
 
-      {/* 🔥 KUSURSUZ YAPIŞIK SEPET BAR (En dışta ve bağımsız) */}
+      {/* 🔥 KUSURSUZ YAPIŞIK SEPET BAR (En dışta ve bağımsız) 🔥 */}
       <View 
         pointerEvents="box-none" 
         style={{ 
           position: 'absolute', 
           left: 0, 
           right: 0, 
+          // 👇 BURASI KRİTİK: Senin orijinal kodundaki ayara geri döndük (0px = BottomBar'ın üzeri)
           bottom: 0, 
-          zIndex: 99 
+          zIndex: 99
         }}
       >
         <CartRibbon
@@ -1096,6 +1077,7 @@ const styles = StyleSheet.create({
     padding: 16,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
+    // 🔥 iOS çentikli telefonlarda alttaki o sarı çizgili boşluğu kapatır
     paddingBottom: Platform.OS === 'ios' ? 38 : 20, 
     shadowColor: '#000',
     shadowOpacity: 0.1,

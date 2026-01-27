@@ -21,7 +21,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -742,7 +742,6 @@ export default function CouponDetail() {
     );
   };
 
-  // 🔥 FİX: Klavye görünürlüğünü takip et
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   useEffect(() => {
     const show = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', () => setKeyboardVisible(true));
@@ -750,8 +749,9 @@ export default function CouponDetail() {
     return () => { show.remove(); hide.remove(); };
   }, []);
 
-  // 🔥 FİX: Padding ayarı. Klavye açıkken 0, kapalıyken Safe Area
-  const bottomOffset = keyboardVisible ? 0 : Math.max(insets.bottom, 20);
+  // 🔥 FİX: Klavye kapalıyken 85px yukarı kaldır (Tab Bar için). 
+  // Klavye açılınca 0 yap (Klavyeye yapışsın).
+  const bottomPosition = keyboardVisible ? 0 : 85; 
 
   return (
     <KeyboardAvoidingView 
@@ -767,8 +767,8 @@ export default function CouponDetail() {
           keyboardShouldPersistTaps="handled"
           onRefresh={loadComments}
           refreshing={refreshing}
-          // 🔥 FİX: Liste altı boşluk (en son yorum okunabilsin diye)
-          contentContainerStyle={{ paddingTop: 16, paddingBottom: 120 }} 
+          // Liste altı boşluk: Composer + TabBar için yer açıyoruz
+          contentContainerStyle={{ paddingTop: 16, paddingBottom: 160 }} 
           ListHeaderComponent={
             <>
               <View style={{ height: 10 }} />
@@ -796,14 +796,18 @@ export default function CouponDetail() {
           showsVerticalScrollIndicator={false}
         />
 
-        {/* composer */}
+        {/* COMPOSER (MESAJ KUTUSU) */}
         <View
           style={[
             styles.modernComposer,
             {
-              // 🔥 FİX: Absolute yerine normal akışta kullanmak daha iyi ama şimdilik absolute ile padding'i kontrol ediyoruz
-              // Klavye açılınca 'bottomOffset' sıfırlanıyor (yukarıdaki hesaplamadan), böylece klavyeye yapışıyor.
-              paddingBottom: bottomOffset + 8, 
+              // 🔥 BURASI DÜZELDİ: Absolute positioning ile dinamik bottom
+              position: 'absolute',
+              left: 0, 
+              right: 0,
+              bottom: bottomPosition,
+              // Klavye açıkken ekstra padding gerekebilir, kapalıyken 0
+              paddingBottom: keyboardVisible ? 10 : 0, 
             },
           ]}
         >

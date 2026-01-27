@@ -55,9 +55,9 @@
         }
       ]
     },
-   "ios": {
+  "ios": {
   "bundleIdentifier": "com.dumenden.app",
-  "buildNumber": "28",
+  "buildNumber": "29",
   "supportsTablet": true,
   "config": {
     "usesNonExemptEncryption": false,
@@ -73,9 +73,17 @@
     "NSAppTransportSecurity": {
       "NSAllowsArbitraryLoads": true
     },
+    "LSApplicationQueriesSchemes": [
+      "itms-apps",
+      "https",
+      "http"
+    ],
     "SKAdNetworkItems": [
       {
         "SKAdNetworkIdentifier": "cstr6suwn9.skadnetwork"
+      },
+      {
+        "SKAdNetworkIdentifier": "4fzdc2evr5.skadnetwork"
       }
     ]
   }

@@ -1,82 +1,83 @@
 'use client';
-
-// 1. BU SATIR EN ÜSTTE OLMAK ZORUNDA - TestFlight çökmesini engeller
+// 1. BU SATIR EN ÜSTTE OLMAK ZORUNDA
 import 'react-native-gesture-handler';
 import 'react-native-get-random-values';
 import 'react-native-url-polyfill/auto';
 
-import BottomBar from '@/components/BottomBar';
-import { supabase } from '@/lib/supabaseClient';
-import { XpProvider } from '@/src/contexts/XpProvider';
 import { Stack, usePathname, useRouter } from 'expo-router';
+import * as SplashScreen from 'expo-splash-screen'; // YENİ: İndirdiğin kütüphane
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Platform, StatusBar, View } from 'react-native';
+import { Platform, StatusBar, View } from 'react-native'; // ActivityIndicator sildik çünkü Native Splash kullanacağız
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import BottomBar from '@/components/BottomBar';
 import { ensureBootstrapAndProfile } from '@/lib/bootstrap';
+import { supabase } from '@/lib/supabaseClient';
 import { useInterstitial } from '@/src/contexts/ads/interstitial';
 import { initAds } from '@/src/contexts/lib/ads';
+import { XpProvider } from '@/src/contexts/XpProvider';
+
+// iOS'a "Biz hazır diyene kadar yükleme ekranını (Logoyu) kapatma" diyoruz.
+// Bu sayede uygulama donmuş gibi gözükmüyor.
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 export default function RootLayout() {
   const pathname = usePathname();
   const router = useRouter();
-  const didInit = useRef(false);
-  
-  // Uygulamanın tamamen hazır olup olmadığını takip eder
-  const [isReady, setIsReady] = useState(false);
+  const [appIsReady, setAppIsReady] = useState(false);
 
   useEffect(() => {
-    let mounted = true;
-
-    async function initializeApp() {
+    async function prepare() {
       try {
-        // 1. Reklamları başlat (Hata alsa bile devam etmesi için catch ekledik)
-        await initAds().catch((err) => console.warn("Ads Init Error:", err));
-
-        // 2. İlk Oturum Kontrolü (Sadece bir kez çalışır)
-        if (!didInit.current) {
-          didInit.current = true;
-          const { data: { session }, error } = await supabase.auth.getSession();
-          if (!error && session?.user) {
-            await ensureBootstrapAndProfile().catch(console.warn);
-          }
-        }
+        // BURASI ÇOK ÖNEMLİ: Promise.allSettled kullanıyoruz.
+        // Reklam hata verse bile uygulama açılmaya devam eder.
+        await Promise.allSettled([
+           // Reklamları başlat (Hata olsa bile catch ile yakala, durdurma)
+           initAds().catch(e => console.warn("Ad Init Fail:", e)),
+           
+           // Session ve Bootstrap işlemleri
+           (async () => {
+             const { data: { session } } = await supabase.auth.getSession();
+             if (session?.user) {
+               await ensureBootstrapAndProfile().catch(() => {});
+             }
+           })()
+        ]);
       } catch (e) {
         console.warn("Global Init Error:", e);
       } finally {
-        if (mounted) setIsReady(true);
+        // İşlemler bitince uygulamayı "Hazır" olarak işaretle
+        setAppIsReady(true);
       }
     }
 
-    initializeApp();
-
-    // 3. Merkezi Yönlendirme Sistemi (Auth Listener)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'SIGNED_OUT') {
-        router.replace('/login');
-      } else if (event === 'SIGNED_IN' && session) {
-        router.replace('/');
-      }
-    });
-
-    return () => {
-      mounted = false;
-      subscription.unsubscribe();
-    };
+    prepare();
   }, []);
+
+  // Uygulama hazır olduğunda Splash Screen'i yavaşça kaldır
+  useEffect(() => {
+    if (appIsReady) {
+      SplashScreen.hideAsync().catch(() => {});
+    }
+  }, [appIsReady]);
+
+  // Auth Listener (Senin orijinal kodun - aynen duruyor)
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT') router.replace('/login');
+      else if (event === 'SIGNED_IN' && session) router.replace('/');
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // Eğer uygulama hazır değilse React tarafında boş dönüyoruz.
+  // Çünkü zaten ekranda Native Splash (Senin Logon) var. Kullanıcı beyaz ekran görmüyor.
+  if (!appIsReady) {
+    return null;
+  }
 
   const hideOn = ['/login', '/register', '/google-auth', '/splash', '/reset-password', '/admin'];
   const hide = hideOn.some((p) => pathname?.startsWith(p));
-
-  // ÖNEMLİ: Boş View yerine ActivityIndicator döndürüyoruz. 
-  // iOS SpringBoard'un sahneyi "invalid" sayıp kapatmasını engeller.
-  if (!isReady) {
-    return (
-      <View style={{ flex: 1, backgroundColor: 'white', justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" color="#000" />
-      </View>
-    );
-  }
 
   return (
     <SafeAreaProvider>
@@ -84,35 +85,38 @@ export default function RootLayout() {
         <StatusBar barStyle="dark-content" backgroundColor="white" translucent />
         
         <View style={{ flex: 1, backgroundColor: 'white' }}>
-          <NavigationWatcher />
-          <GlobalAdTimer />
+          
+          {/* SENİN BİLEŞENLERİN: NavigationWatcher ve Timer BURADA DURUYOR */}
+          {/* Sadece appIsReady true olduğunda çalışıyorlar ki hata vermesinler */}
+          {appIsReady && (
+            <>
+              <NavigationWatcher />
+              <GlobalAdTimer />
+            </>
+          )}
 
           <Stack
             screenOptions={{
               headerShown: false,
               gestureEnabled: true,
               fullScreenGestureEnabled: Platform.OS === 'ios',
-              gestureDirection: 'horizontal',
               animation: Platform.OS === 'ios' ? 'slide_from_right' : 'fade_from_bottom',
             }}
           >
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-            <Stack.Screen
-              name="(modals)"
-              options={{ presentation: 'modal', animation: 'fade_from_bottom' }}
-            />
+            <Stack.Screen name="(modals)" options={{ presentation: 'modal' }} />
           </Stack>
 
-          {!hide && (
-            <BottomBarWrapper />
-          )}
+          {/* SENİN BİLEŞENİN: BottomBarWrapper BURADA DURUYOR */}
+          {!hide && <BottomBarWrapper />}
         </View>
       </XpProvider>
     </SafeAreaProvider>
   );
 }
 
-// Orijinal BottomBar Wrapper sistemin
+// --- AŞAĞIDAKİ YARDIMCI FONKSİYONLARIN HEPSİ SENİN KODUNLA AYNIDIR ---
+
 function BottomBarWrapper() {
   const insets = useSafeAreaInsets();
   return (
@@ -125,21 +129,15 @@ function BottomBarWrapper() {
   );
 }
 
-// Orijinal Reklam İzleyici sistemin
 function NavigationWatcher() {
   const pathname = usePathname();
-  // Tipini <string | null> olarak belirterek TS'yi sakinleştiriyoruz
+  // TypeScript hatasını önlemek için tip ekledik
   const prevPathRef = useRef<string | null>(null); 
   const { registerNavTransition, showIfEligible } = useInterstitial();
 
   useEffect(() => {
     if (prevPathRef.current !== null && prevPathRef.current !== pathname) {
-      (async () => {
-        try {
-          await registerNavTransition();
-          await showIfEligible("nav");
-        } catch {}
-      })();
+        registerNavTransition().then(() => showIfEligible("nav")).catch(() => {});
     }
     prevPathRef.current = pathname || null;
   }, [pathname]);
@@ -147,22 +145,17 @@ function NavigationWatcher() {
   return null;
 }
 
-// Orijinal Global Reklam Zamanlayıcı sistemin
 function GlobalAdTimer() {
   const { showIfEligible } = useInterstitial();
-  // setInterval'ın döndürdüğü tipi (NodeJS.Timeout veya number) kabul etmesi için tip ekliyoruz
-  const intervalRef = useRef<any>(null); 
+  const intervalRef = useRef<any>(null);
 
   useEffect(() => {
-    // Burada atama yaparken artık hata vermeyecek
     intervalRef.current = setInterval(() => {
       showIfEligible("home_enter");
-    }, 240000); 
-
+    }, 240000);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, []);
-
   return null;
 }

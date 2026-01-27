@@ -49,7 +49,10 @@ const emptyCounts = (): Counts => ({ like: 0, dislike: 0, wow: 0 });
 
 export default function Vitrin() {
   const ins = useSafeAreaInsets();
-  const topPad = Platform.OS === 'ios' ? s(6) + ins.top : ((ins.top || StatusBar.currentHeight || 0) + s(6));
+  
+  // 🔥 FİX BURADA: ins.top değerini iOS için kaldırdık. 
+  // Çünkü SafeAreaView zaten bunu yapıyor. Sadece Android için StatusBar ekledik.
+  const topPad = Platform.OS === 'android' ? (StatusBar.currentHeight || 0) + s(6) : s(0);
 
   const [loading, setLoading] = useState(true);
   const [xp, setXp] = useState<number>(0);
@@ -65,8 +68,6 @@ export default function Vitrin() {
   const load = async () => {
     setLoading(true);
 
-    // 🔥 DÜZELTME: .eq('users.is_plus', false) KISMI KALDIRILDI.
-    // Artık adminler dahil herkesin onaylı kanıtı görünür.
     const { data: proofs, error: pErr } = await supabase
       .from('coupon_proofs')
       .select(`
@@ -126,10 +127,6 @@ export default function Vitrin() {
 
   useEffect(() => { load(); }, []);
 
-  // ... (Geri kalan react, useEffect, Header ve Card kısımları AYNI kalıyor)
-  // ... (Kod tekrarı olmasın diye sadece değişen yeri belirttim, dosyanın geri kalanı senin attığınla aynı)
-  
-  // React Fonksiyonu (Aynı)
   const react = async (proof: Proof, next: EmojiKey) => {
     const { data: auth } = await supabase.auth.getUser();
     const uid = auth?.user?.id;
@@ -151,7 +148,16 @@ export default function Vitrin() {
   };
 
   const Header = useMemo(() => (
-    <View style={{ backgroundColor: '#fff', paddingHorizontal: s(16), paddingBottom: s(10), paddingTop: topPad, borderBottomWidth: Platform.OS === 'android' ? 0.5 : 0, borderBottomColor: '#00000010', zIndex: 2 }}>
+    <View style={{ 
+      backgroundColor: '#fff', 
+      paddingHorizontal: s(16), 
+      paddingBottom: s(10), 
+      // 🔥 Padding top artık sadece Android için veya 0. iOS Safe Area otomatik halledecek.
+      paddingTop: topPad, 
+      borderBottomWidth: Platform.OS === 'android' ? 0.5 : 0, 
+      borderBottomColor: '#00000010', 
+      zIndex: 2 
+    }}>
       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
         <Text style={{ fontSize: s(28), fontWeight: '900', color: ORANGE, includeFontPadding: false }}>Kanıt Vitrini</Text>
         <View style={{ marginLeft: 'auto', backgroundColor: '#FFF2E8', borderWidth: 1, borderColor: ORANGE, paddingVertical: s(6), paddingHorizontal: s(10), borderRadius: s(20) }}>

@@ -1,6 +1,5 @@
 'use client';
 
-import { BAR_MARGIN, BAR_MIN_HEIGHT } from '@/components/ui/layout';
 import { supabase } from '@/lib/supabaseClient';
 import { Ionicons } from '@expo/vector-icons';
 import { decode as atob } from 'base-64';
@@ -743,10 +742,23 @@ export default function CouponDetail() {
     );
   };
 
-  const bottomOffset = Math.max(insets.bottom, BAR_MARGIN) + BAR_MIN_HEIGHT + 8;
+  // 🔥 FİX: Klavye görünürlüğünü takip et
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  useEffect(() => {
+    const show = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', () => setKeyboardVisible(true));
+    const hide = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide', () => setKeyboardVisible(false));
+    return () => { show.remove(); hide.remove(); };
+  }, []);
+
+  // 🔥 FİX: Padding ayarı. Klavye açıkken 0, kapalıyken Safe Area
+  const bottomOffset = keyboardVisible ? 0 : Math.max(insets.bottom, 20);
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1, backgroundColor: '#fff' }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+    <KeyboardAvoidingView 
+      style={{ flex: 1, backgroundColor: '#fff' }} 
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0} 
+    >
       <View style={{ flex: 1, backgroundColor: '#fff' }}>
         <FlatList
           ref={listRef}
@@ -755,7 +767,8 @@ export default function CouponDetail() {
           keyboardShouldPersistTaps="handled"
           onRefresh={loadComments}
           refreshing={refreshing}
-          contentContainerStyle={{ paddingTop: 16, paddingBottom: bottomOffset + 120 }}
+          // 🔥 FİX: Liste altı boşluk (en son yorum okunabilsin diye)
+          contentContainerStyle={{ paddingTop: 16, paddingBottom: 120 }} 
           ListHeaderComponent={
             <>
               <View style={{ height: 10 }} />
@@ -783,16 +796,14 @@ export default function CouponDetail() {
           showsVerticalScrollIndicator={false}
         />
 
-        {/* composer: sistem resize ile yukarı kalkacak */}
+        {/* composer */}
         <View
           style={[
             styles.modernComposer,
             {
-              position: 'absolute',
-              left: 0,
-              right: 0,
-              bottom: 0,
-              paddingBottom: bottomOffset,
+              // 🔥 FİX: Absolute yerine normal akışta kullanmak daha iyi ama şimdilik absolute ile padding'i kontrol ediyoruz
+              // Klavye açılınca 'bottomOffset' sıfırlanıyor (yukarıdaki hesaplamadan), böylece klavyeye yapışıyor.
+              paddingBottom: bottomOffset + 8, 
             },
           ]}
         >

@@ -749,9 +749,11 @@ export default function CouponDetail() {
     return () => { show.remove(); hide.remove(); };
   }, []);
 
-  // 🔥 FİX: Klavye kapalıyken 85px yukarı kaldır (Tab Bar için). 
-  // Klavye açılınca 0 yap (Klavyeye yapışsın).
-  const bottomPosition = keyboardVisible ? 0 : 85; 
+  // 🔥 FİX: Klavye kapalıyken 90px yukarıda ve kenarlardan boşluklu (HAVALI FLOATING).
+  // Klavye açılınca 0px ve tam genişlik (KULLANIŞLI).
+  const bottomPosition = keyboardVisible ? 0 : 90; 
+  const horizontalMargin = keyboardVisible ? 0 : 16;
+  const borderRad = keyboardVisible ? 0 : 24;
 
   return (
     <KeyboardAvoidingView 
@@ -768,7 +770,7 @@ export default function CouponDetail() {
           onRefresh={loadComments}
           refreshing={refreshing}
           // Liste altı boşluk: Composer + TabBar için yer açıyoruz
-          contentContainerStyle={{ paddingTop: 16, paddingBottom: 160 }} 
+          contentContainerStyle={{ paddingTop: 16, paddingBottom: 180 }} 
           ListHeaderComponent={
             <>
               <View style={{ height: 10 }} />
@@ -796,18 +798,19 @@ export default function CouponDetail() {
           showsVerticalScrollIndicator={false}
         />
 
-        {/* COMPOSER (MESAJ KUTUSU) */}
+        {/* COMPOSER (MESAJ KUTUSU) - SEPET TARZI */}
         <View
           style={[
-            styles.modernComposer,
+            styles.sexyComposer,
             {
-              // 🔥 BURASI DÜZELDİ: Absolute positioning ile dinamik bottom
               position: 'absolute',
-              left: 0, 
-              right: 0,
+              left: horizontalMargin, 
+              right: horizontalMargin,
               bottom: bottomPosition,
-              // Klavye açıkken ekstra padding gerekebilir, kapalıyken 0
-              paddingBottom: keyboardVisible ? 10 : 0, 
+              borderRadius: borderRad,
+              // Klavye kapalıyken border var, açılınca üst çizgi kalsın ama yanlar düzleşsin
+              borderWidth: 2, 
+              borderColor: BRAND, // 🔥 TURUNCU ÇERÇEVE
             },
           ]}
         >
@@ -845,10 +848,10 @@ export default function CouponDetail() {
             <TouchableOpacity onPress={pickCommentImage} disabled={uploading} style={styles.iconButton}>
               {uploading ? (
                 <Animated.View>
-                  <Ionicons name="sync" size={24} color="#888" />
+                  <Ionicons name="sync" size={24} color={BRAND} />
                 </Animated.View>
               ) : (
-                <Ionicons name="camera-outline" size={26} color="#444" />
+                <Ionicons name="camera" size={26} color="#666" />
               )}
             </TouchableOpacity>
 
@@ -867,9 +870,9 @@ export default function CouponDetail() {
             <TouchableOpacity
               disabled={uploading || (!newComment.trim() && !commentImagePath)}
               onPress={sendComment}
-              style={[styles.sendButtonCircle, { backgroundColor: newComment.trim() || commentImagePath ? BRAND : '#F0F2F5' }]}
+              style={[styles.sendButtonCircle, { backgroundColor: newComment.trim() || commentImagePath ? BRAND : '#FFE0B2' }]}
             >
-              <Ionicons name="arrow-up" size={20} color={newComment.trim() || commentImagePath ? '#fff' : '#BBB'} />
+              <Ionicons name="arrow-up" size={20} color={newComment.trim() || commentImagePath ? '#fff' : '#fff'} />
             </TouchableOpacity>
           </View>
         </View>
@@ -941,12 +944,18 @@ const styles = StyleSheet.create({
   lineAvatar: { width: 36, height: 36, borderRadius: 18 },
   lineName: { fontWeight: '800', maxWidth: 140 },
 
-  modernComposer: {
+  // 🔥 YENİ SEXY COMPOSER STİLİ
+  sexyComposer: {
     backgroundColor: '#fff',
-    borderTopWidth: 1,
-    borderTopColor: '#F0F0F0',
-    paddingTop: 8,
+    paddingVertical: 10,
     paddingHorizontal: 12,
+    // Gölge efekti (Sepet barı gibi havalı dursun)
+    shadowColor: BRAND,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 6,
+    zIndex: 999,
   },
   composerPreviewContainer: {
     marginBottom: 8,
@@ -955,7 +964,7 @@ const styles = StyleSheet.create({
   replyPreview: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F7F9FC',
+    backgroundColor: '#FFF2E6',
     padding: 8,
     borderRadius: 12,
     borderLeftWidth: 3,
@@ -982,7 +991,7 @@ const styles = StyleSheet.create({
   },
   inputContainer: {
     flex: 1,
-    backgroundColor: '#F0F2F5',
+    backgroundColor: '#F7F7F7', // Hafif gri, beyaz kutu içinde sırıtmaması için
     borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 4,

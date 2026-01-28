@@ -3,7 +3,7 @@
     "name": "Dümenden",
     "slug": "dumenden",
     "scheme": "dumenden",
-    "version": "1.6.4",
+    "version": "1.6.5",
     "orientation": "default",
     "userInterfaceStyle": "light",
     "icon": "./assets/images/icon.png",
@@ -57,7 +57,7 @@
     },
   "ios": {
   "bundleIdentifier": "com.dumenden.app",
-  "buildNumber": "34",
+  "buildNumber": "35",
   "supportsTablet": true,
   "config": {
     "usesNonExemptEncryption": false,

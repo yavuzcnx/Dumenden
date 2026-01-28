@@ -1,11 +1,14 @@
 import { supabase } from '@/lib/supabaseClient';
 import { usePlus } from '@/src/contexts/hooks/usePlus';
+import { Ionicons } from '@expo/vector-icons'; // İkonlar için ekledim
+import { LinearGradient } from 'expo-linear-gradient'; // Gradient için
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
   Image,
-  Platform, // 🔥 Platform eklendi
+  Platform,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -13,7 +16,6 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
-// 🔥 Safe Area eklendi
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const BRAND  = '#FF6B00';
@@ -26,9 +28,14 @@ type Quota = { used_last7: number; remaining_last7: number };
 
 export default function PlusHome() {
   const router = useRouter();
-  const insets = useSafeAreaInsets(); // 🔥 Insets kancası
+  const insets = useSafeAreaInsets();
   
-  const { isPlus, loading } = usePlus();
+  // 🔥 Animasyon değeri
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(20)).current;
+
+  // 🔥 ARTIK PAYWALL KONTROLÜ YOK - Direkt Giriş
+  const { isPlus, loading } = usePlus(); 
 
   const [busy, setBusy] = useState(true);
   const [user, setUser] = useState<{ name: string; xp: number; avatar?: string | null }>({
@@ -38,6 +45,12 @@ export default function PlusHome() {
   const [quota, setQuota] = useState<Quota | null>(null);
 
   useEffect(() => {
+    // Sayfa açılış animasyonu
+    Animated.parallel([
+      Animated.timing(fadeAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
+      Animated.timing(slideAnim, { toValue: 0, duration: 600, useNativeDriver: true })
+    ]).start();
+
     (async () => {
       const { data: au } = await supabase.auth.getUser();
       const uid = au?.user?.id;
@@ -56,34 +69,28 @@ export default function PlusHome() {
         avatar: data?.avatar_url ?? null,
       });
 
-      // 2. Kota verisi (Dizi/Obje kontrolü ile sağlamlaştırma)
-      const { data: q } = await supabase.rpc('my_submission_quota');
-      if (q) {
-        const row = Array.isArray(q) ? q[0] : q;
-        setQuota({
-            used_last7: row.used_last7 ?? 0,
-            remaining_last7: row.remaining_last7 ?? 0
-        });
+      // 2. Kota verisi
+      try {
+          const { data: q } = await supabase.rpc('my_submission_quota');
+          if (q) {
+            const row = Array.isArray(q) ? q[0] : q;
+            setQuota({
+                used_last7: row.used_last7 ?? 0,
+                remaining_last7: row.remaining_last7 ?? 0
+            });
+          }
+      } catch (e) {
+          console.log('Quota error', e);
       }
 
       setBusy(false);
     })();
   }, []);
 
-  // Yönlendirme ve Auth Kontrolü
-  useEffect(() => {
-    if (loading || isPlus) return;
-    supabase.auth.getSession().then(({ data }) => {
-      if (data.session) {
-        router.replace('/(modals)/plus-paywall');
-      }
-    });
-  }, [loading, isPlus]);
-
   if (loading || busy) {
     return (
       <SafeAreaView style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator color={BRAND} />
+        <ActivityIndicator color={BRAND} size="large" />
       </SafeAreaView>
     );
   }
@@ -95,113 +102,141 @@ export default function PlusHome() {
   const goResolve  = () => router.push('/plus/resolve');
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#FAFAFA' }}>
       <ScrollView 
         contentContainerStyle={{ 
             paddingHorizontal: 16, 
-            paddingBottom: 28,
-            // 🔥 HİZALAMA FIX: Android'de status bar kadar aşağı itiyoruz
+            paddingBottom: 40,
             paddingTop: Platform.OS === 'android' ? (insets.top + 16) : 16 
         }}
+        showsVerticalScrollIndicator={false}
       >
-        
-        {/* HEADER */}
-        <View style={styles.header}>
-          <Image source={MASCOT_SRC} style={styles.mascot} />
-          <View style={{ alignItems:'center', flex:1 }}>
-            <Text style={styles.title}>Dümenci</Text>
-            <Text style={styles.subtitle}>{user.name}</Text>
-            <View style={styles.xpPill}>
-              <Text style={styles.xpPillTxt}>{user.xp.toLocaleString('tr-TR')} XP</Text>
+        <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
+          
+          {/* MODERN HEADER */}
+          <LinearGradient
+            colors={['#ffffff', '#FFF8F3']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.headerCard}
+          >
+            <View style={styles.mascotWrap}>
+              <Image source={MASCOT_SRC} style={styles.mascot} />
+              <View style={styles.badge}><Ionicons name="star" size={12} color="#fff" /></View>
+            </View>
+            
+            <View style={{ flex:1, justifyContent:'center' }}>
+              <Text style={styles.roleTitle}>DÜMENCİ PANELİ</Text>
+              <Text style={styles.userName} numberOfLines={1}>{user.name}</Text>
+              
+              <View style={styles.xpRow}>
+                <Ionicons name="flash" size={14} color={BRAND} />
+                <Text style={styles.xpText}>{user.xp.toLocaleString('tr-TR')} XP</Text>
+              </View>
+            </View>
+          </LinearGradient>
+
+          {/* KOTA DURUMU (ÖNEMLİ) */}
+          <View style={styles.quotaSection}>
+            <View style={styles.quotaHeader}>
+              <Text style={styles.sectionTitle}>Haftalık Gönderim Hakkın</Text>
+              <Ionicons name="information-circle-outline" size={20} color="#999" />
+            </View>
+            
+            <View style={styles.quotaBarBg}>
+              <View 
+                style={[
+                  styles.quotaBarFill, 
+                  { width: `${((quota?.used_last7 ?? 0) / 5) * 100}%` }
+                ]} 
+              />
+            </View>
+            
+            <View style={styles.quotaInfo}>
+              <Text style={styles.quotaText}>
+                <Text style={{color:BRAND, fontWeight:'900'}}>{quota?.remaining_last7 ?? 0}</Text> hakkın kaldı
+              </Text>
+              <Text style={styles.quotaUsed}>
+                {quota?.used_last7 ?? 0}/5 kullanıldı
+              </Text>
             </View>
           </View>
-        </View>
 
-        {/* KISA KISAYOLLAR */}
-        <View style={styles.shortRow}>
-          <SmallCard title="Günlük Giriş" subtitle="XP toplama ödülleri" icon="📅" disabled={true} />
-          <SmallCard title="İndirimli XP" subtitle="%10 Plus indirimi" icon="💸" disabled={true} />
-        </View>
-
-        {/* KUPON İŞLERİ */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Kupon İşlemleri</Text>
-
-          {/* KOTA BİLGİSİ (FIXED) */}
-          <View style={styles.quotaRow}>
-            <Text style={styles.quotaBig}>{quota?.remaining_last7 ?? '-'}</Text>
-            <Text style={{ fontWeight: '800' }}>/ 5</Text>
-            <Text style={{ color: '#666' }}>
-              (kullanılan: {quota?.used_last7 ?? 0})
-            </Text>
+          {/* KISAYOLLAR */}
+          <View style={styles.actionGrid}>
+            <ActionButton 
+              title="Kupon Ekle" 
+              desc="Yeni tahmin oluştur" 
+              icon="add-circle" 
+              color={BRAND} 
+              onPress={goCreate} 
+              isPrimary
+            />
+            <ActionButton 
+              title="Yönet" 
+              desc="Kuponlarını düzenle" 
+              icon="settings-sharp" 
+              color="#333" 
+              onPress={goManage} 
+            />
+            <ActionButton 
+              title="Kanıt Ekle" 
+              desc="Sonuç kanıtı yükle" 
+              icon="image" 
+              color="#333" 
+              onPress={goProof} 
+            />
+            <ActionButton 
+              title="Sonuçlandır" 
+              desc="Kazananı belirle" 
+              icon="checkmark-done-circle" 
+              color="#333" 
+              onPress={goResolve} 
+            />
           </View>
 
-          <View style={{ gap: 8 }}>
-            <PrimaryButton label="Kupon Ekle" onPress={goCreate} />
-            <GhostButton label="Kuponlarımı Yönet" onPress={goManage} />
-            <GhostButton label="Kuponuma Kanıt Ekle" onPress={goProof} />
-            <GhostButton label="Kazananı Belirle" onPress={goResolve} />
-            <GhostButton label="Oynadıklarım" onPress={() => router.push('/my-bets')} />
-          </View>
-        </View>
+          {/* Diğer İşlemler */}
+          <Text style={[styles.sectionTitle, { marginTop: 24, marginBottom: 12 }]}>Geçmiş</Text>
+          <TouchableOpacity 
+            style={styles.historyBtn}
+            onPress={() => router.push('/my-bets')}
+            activeOpacity={0.8}
+          >
+            <View style={styles.historyIconBox}>
+              <Ionicons name="time" size={24} color="#555" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.historyTitle}>Oynadıklarım</Text>
+              <Text style={styles.historyDesc}>Geçmiş tahminlerini incele</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#ccc" />
+          </TouchableOpacity>
 
+        </Animated.View>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-/* ---- UI ---- */
+/* ---- SEXY COMPONENTS ---- */
 
-function PrimaryButton({ label, onPress }: { label: string; onPress: () => void }) {
+function ActionButton({ title, desc, icon, color, onPress, isPrimary = false }: any) {
   return (
-    <TouchableOpacity onPress={onPress} style={styles.primaryBtn}>
-      <Text style={{ color: '#fff', fontWeight: '900' }}>{label}</Text>
-    </TouchableOpacity>
-  );
-}
-
-function GhostButton({ label, onPress }: { label: string; onPress: () => void }) {
-  return (
-    <TouchableOpacity onPress={onPress} style={styles.ghostBtn}>
-      <Text style={{ color: BRAND, fontWeight: '900' }}>{label}</Text>
-    </TouchableOpacity>
-  );
-}
-
-function SmallCard({
-  title,
-  subtitle,
-  icon,
-  onPress,
-  disabled = false
-}: {
-  title: string;
-  subtitle: string;
-  icon: string;
-  onPress?: () => void;
-  disabled?: boolean;
-}) {
-  return (
-    <TouchableOpacity
-      onPress={disabled ? undefined : onPress}
-      activeOpacity={disabled ? 1 : 0.8}
-      style={[styles.smallCard, disabled && { opacity: 0.35 }]}
+    <TouchableOpacity 
+      style={[
+        styles.actionCard, 
+        isPrimary && styles.actionCardPrimary
+      ]} 
+      onPress={onPress}
+      activeOpacity={0.9}
     >
-      <Text style={{ fontSize: 20, marginBottom: 6 }}>{icon}</Text>
-      <Text style={{ fontWeight: '900', textAlign:'center' }}>{title}</Text>
-      <Text style={{ color: '#666', textAlign:'center' }}>{subtitle}</Text>
-
-      {disabled && (
-        <Text style={{
-          marginTop: 6,
-          fontSize: 12,
-          color: BRAND,
-          fontWeight: '900',
-          textAlign: 'center'
-        }}>
-          Yakında Açılıyor 🔒
-        </Text>
-      )}
+      <View style={[styles.iconCircle, isPrimary ? {backgroundColor:'rgba(255,255,255,0.2)'} : {backgroundColor:'#F5F5F5'}]}>
+        <Ionicons name={icon} size={24} color={isPrimary ? '#fff' : color} />
+      </View>
+      <View>
+        <Text style={[styles.actionTitle, isPrimary && {color:'#fff'}]}>{title}</Text>
+        <Text style={[styles.actionDesc, isPrimary && {color:'rgba(255,255,255,0.8)'}]}>{desc}</Text>
+      </View>
     </TouchableOpacity>
   );
 }
@@ -209,45 +244,195 @@ function SmallCard({
 /* ---- STYLES ---- */
 
 const styles = StyleSheet.create({
-  header: {
+  headerCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 20,
+    borderRadius: 24,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: '#eee',
+    // Hafif gölge
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 3,
+  },
+  mascotWrap: {
+    position: 'relative',
+    marginRight: 16,
+  },
+  mascot: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    borderWidth: 3,
+    borderColor: '#FFF',
+    backgroundColor: '#FFEAD1',
+  },
+  badge: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    backgroundColor: BRAND,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
+  roleTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#999',
+    letterSpacing: 1,
+    marginBottom: 4,
+  },
+  userName: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: '#222',
+    marginBottom: 6,
+  },
+  xpRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: SOFT,
-    borderWidth: 1, borderColor: BORDER,
-    borderRadius: 18, padding: 14,
-    flexDirection: 'row', alignItems: 'center', gap: 12,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: BORDER,
+  },
+  xpText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: BRAND,
+    marginLeft: 4,
+  },
+
+  /* KOTA */
+  quotaSection: {
+    marginBottom: 24,
+  },
+  quotaHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#222',
+  },
+  quotaBarBg: {
+    height: 10,
+    backgroundColor: '#EEE',
+    borderRadius: 5,
+    overflow: 'hidden',
+    marginBottom: 8,
+  },
+  quotaBarFill: {
+    height: '100%',
+    backgroundColor: BRAND,
+    borderRadius: 5,
+  },
+  quotaInfo: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  quotaText: {
+    fontSize: 14,
+    color: '#555',
+    fontWeight: '600',
+  },
+  quotaUsed: {
+    fontSize: 14,
+    color: '#999',
+    fontWeight: '600',
+  },
+
+  /* AKSİYONLAR */
+  actionGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  actionCard: {
+    width: '48%', // İki kolonlu
+    backgroundColor: '#fff',
+    padding: 16,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#eee',
+    // Gölge
+    shadowColor: '#000',
+    shadowOpacity: 0.03,
+    shadowRadius: 5,
+    elevation: 2,
+    minHeight: 110,
+    justifyContent: 'space-between',
+  },
+  actionCardPrimary: {
+    backgroundColor: BRAND,
+    borderColor: BRAND,
+    width: '100%', // Kupon ekle tam genişlik olsun
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 80,
+    marginBottom: 4,
+  },
+  iconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 12,
   },
-  title: { fontSize: 22, fontWeight: '900', color: BRAND, textAlign:'center' },
-  subtitle: { color: '#666', marginTop: 2, marginBottom: 8, fontWeight: '700', textAlign:'center' },
-  mascot: { width: 84, height: 84, borderRadius: 42, borderWidth: 2, borderColor: BORDER, backgroundColor: '#FFA24F' },
-
-  xpPill: { alignSelf: 'center', backgroundColor: '#FFE0B2', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12 },
-  xpPillTxt: { color: BRAND, fontWeight: '800' },
-
-  shortRow: { flexDirection: 'row', gap: 12, marginBottom: 12 },
-
-  card: {
-    backgroundColor: '#fff', borderWidth: 1, borderColor: '#eee',
-    borderRadius: 16, padding: 14,
-    shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 6, elevation: 2,
+  actionTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#222',
+    marginBottom: 2,
   },
-  cardTitle: { fontWeight: '900', marginBottom: 8, textAlign:'center' },
-
-  quotaRow: { flexDirection:'row', alignItems:'baseline', gap: 8, marginBottom: 8, justifyContent:'center' },
-  quotaBig: { fontSize: 28, fontWeight: '900', color: BRAND },
-
-  primaryBtn: {
-    backgroundColor: BRAND, alignItems: 'center',
-    paddingVertical: 12, borderRadius: 12,
-  },
-  ghostBtn: {
-    backgroundColor: '#fff', alignItems: 'center',
-    paddingVertical: 12, borderRadius: 12, borderWidth: 2, borderColor: BRAND,
+  actionDesc: {
+    fontSize: 12,
+    color: '#777',
+    fontWeight: '500',
   },
 
-  smallCard: {
-    flex: 1, backgroundColor: '#fff', borderWidth: 1, borderColor: '#eee',
-    borderRadius: 16, padding: 14,
-    shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 6, elevation: 2,
-    alignItems:'center', justifyContent:'center'
+  /* GEÇMİŞ BUTONU */
+  historyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    padding: 16,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#eee',
+  },
+  historyIconBox: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: '#F5F5F5',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
+  },
+  historyTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#222',
+  },
+  historyDesc: {
+    fontSize: 13,
+    color: '#888',
+    marginTop: 2,
   },
 });

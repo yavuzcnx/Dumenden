@@ -18,7 +18,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 const BRAND  = '#FF6B00';
 const BORDER = '#F2D9C8';
 const SOFT   = '#FFF2E8';
-const TAB_BAR_HEIGHT = 72;
 
 const CATS = ['Gündem', 'Spor', 'Magazin', 'Politika', 'Absürt'];
 
@@ -105,10 +104,6 @@ function LivePreview({ title, yes, no, cat, img, closing }) {
   );
 }
 
-/* ------------------------------------ */
-/* ANA COMPONENT BAŞLIYOR                */
-/* ------------------------------------ */
-
 function formatOdds(next: string) {
   let s = next.replace(',', '.').replace(/[^0-9.]/g, '');
   if (/^\d{2,}$/.test(s) && !s.includes('.')) s = `${s[0]}.${s.slice(1)}`;
@@ -122,12 +117,15 @@ export default function CreateCouponModal() {
   const router = useRouter();
   const { xp, loading: xpLoading } = useXp();
   const isPlus = xp > 0;
-  const insets = useSafeAreaInsets(); // 🔥 Bu değeri aşağıda padding olarak kullanacağız
+  const insets = useSafeAreaInsets();
 
   const [uid, setUid] = useState<string | null>(null);
   const [remaining, setRemaining] = useState<number | null>(null);
   const [used, setUsed] = useState<number>(0);
   const [quotaLoading, setQuotaLoading] = useState(true);
+
+  // 🔥 Picker Mode: 'date' | 'time' | null
+  const [pickerMode, setPickerMode] = useState<'date' | 'time' | null>(null);
 
   useEffect(() => {
     ImagePicker.requestMediaLibraryPermissionsAsync().catch(() => {});
@@ -158,14 +156,15 @@ export default function CreateCouponModal() {
   const [title, setTitle]   = useState('');
   const [desc, setDesc]     = useState('');
   const [cat, setCat]       = useState(CATS[0]);
-  const [closing, setClosing] = useState<Date>(new Date(Date.now() + 7 * 24 * 3600 * 1000));
+  
+  // Default kapanış 24 saat sonra olsun ki hata vermesin başta
+  const [closing, setClosing] = useState<Date>(new Date(Date.now() + 24 * 3600 * 1000));
+  
   const [yes, setYes]       = useState('1.80');
   const [no,  setNo ]       = useState('2.10');
   const [img, setImg]       = useState<{ uri: string; w: number; h: number } | null>(null);
 
   const [mediaSheet, setMediaSheet] = useState(false);
-  const [showCalendar, setShowCalendar] = useState(false);
-  const [showClock, setShowClock] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const errors = useMemo(() => {
@@ -177,7 +176,13 @@ export default function CreateCouponModal() {
     if (!CATS.includes(cat)) e.push('Kategori geçersiz.');
     if (!Number.isFinite(y) || y < 1.01 || y > 10) e.push('Yes oranı 1.01–10 aralığında olmalı.');
     if (!Number.isFinite(n) || n < 1.01 || n > 10) e.push('No oranı 1.01–10 aralığında olmalı.');
-    if (closing.getTime() <= Date.now() + 3600 * 1000) e.push('Kapanış en az 1 saat sonrası olmalı.');
+    
+    // 🔥 FİX: En az 3 saat kuralı
+    const minTime = Date.now() + 3 * 3600 * 1000;
+    if (closing.getTime() <= minTime) {
+        e.push('Kapanış tarihi şu andan en az 3 saat sonra olmalıdır.');
+    }
+
     if (!quotaLoading && (remaining ?? 0) <= 0) e.push('Haftalık gönderim hakkın doldu.');
     return e;
   }, [title, yes, no, closing, cat, remaining, quotaLoading]);
@@ -185,21 +190,24 @@ export default function CreateCouponModal() {
   const canSubmit = errors.length === 0 && uid && !submitting;
 
   const onDateChange = (event: any, selectedDate?: Date) => {
+    // Android için otomatik kapama
     if (Platform.OS === 'android') {
-        setShowCalendar(false); 
-        setShowClock(false);
+        setPickerMode(null);
     }
+    
     if (selectedDate) {
-        const d = new Date(closing);
-        if (showClock) {
-            d.setHours(selectedDate.getHours());
-            d.setMinutes(selectedDate.getMinutes());
+        // Seçilen tarihi/saati mevcut closing state'ine işle
+        const current = new Date(closing);
+        if (pickerMode === 'time') {
+            current.setHours(selectedDate.getHours());
+            current.setMinutes(selectedDate.getMinutes());
         } else {
-            d.setFullYear(selectedDate.getFullYear());
-            d.setMonth(selectedDate.getMonth());
-            d.setDate(selectedDate.getDate());
+            // mode === 'date'
+            current.setFullYear(selectedDate.getFullYear());
+            current.setMonth(selectedDate.getMonth());
+            current.setDate(selectedDate.getDate());
         }
-        setClosing(new Date(d));
+        setClosing(current);
     }
   };
 
@@ -305,7 +313,6 @@ export default function CreateCouponModal() {
         <ScrollView contentContainerStyle={{ 
             paddingHorizontal: 16, 
             paddingBottom: 260,
-            // 🔥 FİXLENEN KISIM: Android'de status bar altına girmemesi için dinamik padding
             paddingTop: Platform.OS === 'android' ? (insets.top + 20) : 16
         }}>
 
@@ -381,36 +388,39 @@ export default function CreateCouponModal() {
             </TouchableOpacity>
           </View>
 
-          {/* Kapanış */}
-          <Text style={[styles.label, { marginTop:16 }]}>Kapanış</Text>
+          {/* Kapanış - SEXY PICKERS */}
+          <Text style={[styles.label, { marginTop:16 }]}>Kapanış (Tarih & Saat)</Text>
           <View style={{ flexDirection:'row', gap:10 }}>
             <TouchableOpacity
-              onPress={()=>setShowCalendar(true)}
-              style={[styles.input,{ flex:1, alignItems:'center', justifyContent:'center' }]}
+              onPress={()=>setPickerMode('date')}
+              style={[styles.input,{ flex:1, alignItems:'center', justifyContent:'center', backgroundColor:'#F9FAFB' }]}
             >
-              <Ionicons name="calendar" size={20} color={BRAND} />
-              <Text style={{ marginTop:4, fontWeight:'700' }}>{closing.toLocaleDateString()}</Text>
+              <Ionicons name="calendar-outline" size={22} color={BRAND} />
+              <Text style={{ marginTop:4, fontWeight:'700', fontSize:15 }}>{closing.toLocaleDateString()}</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              onPress={()=>setShowClock(true)}
-              style={[styles.input,{ flex:1, alignItems:'center', justifyContent:'center' }]}
+              onPress={()=>setPickerMode('time')}
+              style={[styles.input,{ flex:1, alignItems:'center', justifyContent:'center', backgroundColor:'#F9FAFB' }]}
             >
-              <Ionicons name="time" size={20} color={BRAND} />
-              <Text style={{ marginTop:4, fontWeight:'700' }}>
+              <Ionicons name="time-outline" size={22} color={BRAND} />
+              <Text style={{ marginTop:4, fontWeight:'700', fontSize:15 }}>
                 {closing.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
               </Text>
             </TouchableOpacity>
           </View>
 
-          {showCalendar || showClock ? (
-            <DateTimePicker
-              value={closing}
-              mode={showCalendar ? 'date' : 'time'}
-              onChange={onDateChange}
-              minimumDate={new Date()}
-            />
-          ) : null}
+          {/* ANDROID INLINE PICKER (Görünmez ama işlevsel) */}
+          {Platform.OS === 'android' && pickerMode && (
+             <DateTimePicker
+               value={closing}
+               mode={pickerMode}
+               is24Hour={true}
+               display="default"
+               onChange={onDateChange}
+               minimumDate={new Date()} // Geçmiş seçilemez
+             />
+          )}
 
           {/* HIZLI GÜNLER */}
           <View style={{ flexDirection:'row', gap:8, marginTop:10, flexWrap:'wrap' }}>
@@ -418,8 +428,6 @@ export default function CreateCouponModal() {
               {label:'+1g', val:1},
               {label:'+3g', val:3},
               {label:'+7g', val:7},
-              {label:'-1g', val:-1},
-              {label:'-6g', val:-6},
             ].map(btn=>(
               <TouchableOpacity
                 key={btn.label}
@@ -438,10 +446,9 @@ export default function CreateCouponModal() {
           {/* HIZLI SAATLER */}
           <View style={{ flexDirection:'row', gap:8, marginTop:10, flexWrap:'wrap' }}>
             {[
-              {label:'+1s', val:1},
+              {label:'+3s', val:3}, // En az 3 saat kuralı için
               {label:'+6s', val:6},
               {label:'-1s', val:-1},
-              {label:'-6s', val:-6},
             ].map(btn=>(
               <TouchableOpacity
                 key={btn.label}
@@ -486,7 +493,7 @@ export default function CreateCouponModal() {
           {errors.length > 0 && (
             <View style={styles.errorBox}>
               {errors.map(e=>(
-                <Text key={e} style={{ color:'#c0392b' }}>• {e}</Text>
+                <Text key={e} style={{ color:'#c0392b', fontWeight:'600' }}>• {e}</Text>
               ))}
             </View>
           )}
@@ -505,6 +512,33 @@ export default function CreateCouponModal() {
 
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* SEXY IOS DATE PICKER MODAL */}
+      {Platform.OS === 'ios' && pickerMode && (
+         <Modal transparent animationType="fade" visible={!!pickerMode} onRequestClose={()=>setPickerMode(null)}>
+            <Pressable style={styles.modalOverlay} onPress={()=>setPickerMode(null)}>
+               <View style={styles.pickerSheet}>
+                  <View style={styles.pickerHeader}>
+                      <Text style={{fontWeight:'bold', color:'#666'}}>
+                          {pickerMode === 'date' ? 'Tarih Seç' : 'Saat Seç'}
+                      </Text>
+                      <TouchableOpacity onPress={()=>setPickerMode(null)} style={styles.doneBtn}>
+                          <Text style={{color:'#fff', fontWeight:'bold'}}>Bitti</Text>
+                      </TouchableOpacity>
+                  </View>
+                  <DateTimePicker
+                     value={closing}
+                     mode={pickerMode}
+                     display="spinner"
+                     onChange={onDateChange}
+                     minimumDate={new Date()} // Geçmiş seçilemez!
+                     textColor="#000"
+                     style={{ height: 180 }}
+                  />
+               </View>
+            </Pressable>
+         </Modal>
+      )}
 
       {/* MEDIA SHEET */}
       <Modal visible={mediaSheet} transparent animationType="fade" onRequestClose={()=>setMediaSheet(false)}>
@@ -563,4 +597,37 @@ const styles = StyleSheet.create({
   },
   sheetLabelCamera: { marginTop:6, fontWeight:'900', color:'#C24E14' },
   sheetLabelGallery: { marginTop:6, fontWeight:'900', color:'#1B66FF' },
+
+  // SEXY PICKER STYLES
+  modalOverlay: {
+      flex:1, backgroundColor:'rgba(0,0,0,0.4)', justifyContent:'flex-end'
+  },
+  pickerSheet: {
+      backgroundColor:'#fff',
+      borderTopLeftRadius:24,
+      borderTopRightRadius:24,
+      paddingBottom: 40,
+      paddingTop: 16,
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: -2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 10,
+      elevation: 5
+  },
+  pickerHeader: {
+      flexDirection:'row',
+      justifyContent:'space-between',
+      alignItems:'center',
+      paddingHorizontal:20,
+      marginBottom:10,
+      borderBottomWidth:1,
+      borderBottomColor:'#eee',
+      paddingBottom:10
+  },
+  doneBtn: {
+      backgroundColor: BRAND,
+      paddingHorizontal:16,
+      paddingVertical:6,
+      borderRadius:20
+  }
 });

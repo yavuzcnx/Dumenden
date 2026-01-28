@@ -247,68 +247,67 @@ authListenerRef.current = sub;
 
   /** ---------- avatar upload (FIXED) ---------- **/
   const pickImage = async () => {
-    try {
-      const r = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        quality: 0.5, 
-      });
-      
-      if (r.canceled || r.assets.length === 0 || !authUserId) return;
+ try {
+ const r = await ImagePicker.launchImageLibraryAsync({
+ mediaTypes: ImagePicker.MediaTypeOptions.Images,
+ allowsEditing: true,
+ quality: 0.5, 
+ });
+ 
+if (r.canceled || r.assets.length === 0 || !authUserId) return;
 
-      setUploading(true);
-      
-      const asset = r.assets[0];
-      const ext = guessExt(asset.uri);
-      const mime = contentType(ext);
-      // 🔥 BENZERSİZ DOSYA ADI: Önceki dosyanın üzerine yazmak yerine yeni isim veriyoruz.
-      // Bu, CDN cache sorununu %100 çözer.
-      const timestamp = Date.now();
-      const path = `${authUserId}/avatar_${timestamp}.${ext}`; 
+ setUploading(true);
 
-      // Dosyayı hazırla
-      const res = await fetch(asset.uri);
-      const buf = await res.arrayBuffer();
+ const asset = r.assets[0];
+ const ext = guessExt(asset.uri);
+const mime = contentType(ext);
+      // Timestamp ile benzersiz isim oluşturuyoruz
+ const timestamp = Date.now();
+ const path = `${authUserId}/avatar_${timestamp}.${ext}`; 
 
-      const { error: upErr } = await supabase.storage
-        .from('avatars')
-        .upload(path, buf, { contentType: mime, upsert: false }); // upsert: false çünkü yeni isim veriyoruz
-      
-      if (upErr) throw upErr;
+ // Dosyayı hazırla
+ const res = await fetch(asset.uri);
+ const buf = await res.arrayBuffer();
 
-      // Public URL al
-      const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path);
-      // URL sonuna parametre ekleyerek React Native Image cache'ini kırıyoruz
-      const publicUrlWithCache = `${urlData.publicUrl}?t=${timestamp}`;
+      // 1. Storage'a Yükle
+ const { error: upErr } = await supabase.storage
+ .from('avatars')
+ .upload(path, buf, { contentType: mime, upsert: false });
 
-      // Veritabanını güncelle
-      const { error: dbErr } = await supabase
-        .from('users')
-        .update({ 
-            avatar_url: publicUrlWithCache, // URL'i saklıyoruz
-            avatar_path: path // Path'i de saklıyoruz (temizlik için gerekebilir)
-        })
-        .eq('id', authUserId);
+ if (upErr) throw upErr;
 
-      if (dbErr) throw dbErr;
+      // 2. URL'i hemen oluştur
+ const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path);
+ const publicUrlWithCache = `${urlData.publicUrl}?t=${timestamp}`;
 
-      // Auth metadata güncelleme
-      await supabase.auth.updateUser({ 
-        data: { avatar_url: publicUrlWithCache } 
-      }).catch(() => {});
+ // 3. Veritabanını güncelle
+ const { error: dbErr } = await supabase
+.from('users')
+ .update({ 
+ avatar_url: publicUrlWithCache, 
+ avatar_path: path
+ })
+ .eq('id', authUserId);
 
-      // 🔥 STATE GÜNCELLEME: En önemlisi bu. State değişince UI render olur.
-      setAvatarUrl(publicUrlWithCache);
-      
-      setUploading(false);
-      Alert.alert('Başarılı', 'Profil fotoğrafın güncellendi! ✅');
+ if (dbErr) throw dbErr;
 
-    } catch (e: any) {
-      console.error('Yükleme hatası:', e);
-      Alert.alert('Hata', 'Fotoğraf yüklenirken bir sorun oluştu.');
-      setUploading(false);
-    }
-  };
+      // 4. 🔥 KRİTİK NOKTA: State'i güncelle ve Loading'i HEMEN kapat.
+      // Auth update'i bekleme, o arkada takılsın.
+ setAvatarUrl(publicUrlWithCache);
+setUploading(false);
+ Alert.alert('Başarılı', 'Profil fotoğrafın güncellendi! ✅');
+
+ // 5. Auth metadata güncelleme (Fire and Forget - Beklemeden devam et)
+ supabase.auth.updateUser({ 
+ data: { avatar_url: publicUrlWithCache } 
+}).catch((err) => console.log("Auth update silent fail", err));
+
+ } catch (e: any) {
+ console.error('Yükleme hatası:', e);
+ Alert.alert('Hata', 'Fotoğraf yüklenirken bir sorun oluştu.');
+setUploading(false); // Hata olsa bile spinner'ı kapatmayı garanti et
+ }
+ };
 
   /** ---------- save profile ---------- **/
   const save = async () => {
@@ -868,13 +867,16 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 10,
   },
-  avatarWrap: {
-    width: 150,
-    height: 150,
-    borderRadius: 24,
-    overflow: 'hidden',
-    backgroundColor: '#f2f2f2',
-  },
+ avatarWrap: {
+ width: 150,
+ height: 150,
+ borderRadius: 24,
+ overflow: 'hidden',
+ backgroundColor: '#f2f2f2',
+   
+    justifyContent: 'center',
+    alignItems: 'center',
+ },
   avatar: { width: 150, height: 150 },
   changeBtn: {
     position: 'absolute',

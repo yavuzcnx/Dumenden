@@ -3,7 +3,6 @@
 import { publicUrl, uploadImage } from '@/lib/storage';
 import { supabase } from '@/lib/supabaseClient';
 import { Ionicons } from '@expo/vector-icons';
-import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
@@ -14,6 +13,8 @@ import {
   FlatList,
   Image,
   ScrollView,
+  StatusBar,
+  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
@@ -48,18 +49,6 @@ const resolveUrl = (raw?: string | null) => {
   return publicUrl(s, BUCKET);
 };
 
-// RPC yardımcı fonksiyonu
-async function callPayoutRPC(couponId: string) {
-  // Önce modern versiyonu dene
-  const { data, error } = await supabase.rpc('resolve_and_payout', { 
-      p_coupon_id: couponId, 
-      p_result: 'VOID', // Payout butonu sadece dağıtım içindir, sonuç değişmez
-      p_proof_url: null 
-  }); 
-  if (error) throw error;
-  return data;
-}
-
 export default function PlusResolve() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -73,7 +62,6 @@ export default function PlusResolve() {
   const [busy, setBusy] = useState(false);
 
   const openCount = useMemo(() => items.filter((c) => c.is_open && !c.result).length, [items]);
-  const payoutCount = useMemo(() => items.filter((c) => !!c.result && !c.paid_out_at).length, [items]);
 
   useEffect(() => {
     (async () => {
@@ -137,31 +125,14 @@ export default function PlusResolve() {
     return () => clearTimeout(t);
   }, [q]);
 
-  const pickImage = async () => {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (perm.status !== 'granted') return Alert.alert('İzin gerekli', 'Galeriden seçim izni ver.');
-    const res = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      quality: 0.9,
-    });
-    if (res.canceled) return;
-    const a = res.assets?.[0];
-    if (a?.uri) setLocalUri(a.uri);
-  };
-
-  // 🔥 KANITLI ÖDEME FONKSİYONU
+  // 🔥 KANITLI ÖDEME FONKSİYONU (Aynen korundu)
   const resolveNow = async () => {
     if (!selected) return Alert.alert('Eksik', 'Bir kupon seç.');
     if (!winner) return Alert.alert('Eksik', 'Kazananı seç (YES/NO).');
 
-    // 1. Zaten onaylı kanıt var mı?
     const hasApprovedProof = selected.coupon_proofs?.some(p => p.status === 'approved');
-    
-    // 2. Kullanıcı yeni kanıt yüklüyor mu?
     const userIsUploading = !!localUri;
 
-    // 3. Eğer onaylı kanıt yoksa VE kullanıcı da yüklemiyorsa HATA
     if (!hasApprovedProof && !userIsUploading) {
         Alert.alert(
             "Kanıt Gerekli 🛑", 
@@ -174,290 +145,257 @@ export default function PlusResolve() {
       setBusy(true);
       let proofUrl: string | null = null;
       
-      // Eğer kullanıcı şimdi kanıt yüklüyorsa yükleyelim
       if (localUri) {
         const path = `proofs/${selected.id}/${uid()}.jpg`;
         await uploadImage(localUri, path, { bucket: BUCKET, contentType: 'image/jpeg' });
         proofUrl = publicUrl(path, BUCKET);
       }
 
-      // SQL'i çağır
       const { data, error } = await supabase.rpc('resolve_and_payout', {
         p_coupon_id: selected.id,
         p_result: winner,
-        p_proof_url: proofUrl, // Varsa URL gider, yoksa null
+        p_proof_url: proofUrl, 
       });
       
-      if (error) {
-          // SQL hatasını kullanıcıya göster (Örn: "Kanıt onaysız" hatası)
-          throw error;
-      }
+      if (error) throw error;
 
-      // Başarılı
       Alert.alert('Başarılı', 'İşlem tamamlandı.');
       
-      // Temizlik
       setSelected(null);
       setWinner(null);
       setLocalUri(null);
       load(q);
 
     } catch (e: any) {
-      // Hata mesajını güzelleştir
       let msg = e.message;
       if (msg.includes('Kanıt yüklendi')) {
           msg = "Kanıtın yüklendi ve onaya gönderildi. Admin onaylayınca tekrar gelip 'Sonuçla' diyebilirsin.";
-          setLocalUri(null); // Yüklendiği için temizle
+          setLocalUri(null); 
       } else if (msg.includes('Kanıt olmadan')) {
           msg = "Onaylı kanıt bulunamadı! Lütfen kanıt yükle.";
       }
-      
       Alert.alert('Bilgi', msg);
     } finally {
       setBusy(false);
     }
   };
 
-  const payoutNow = async () => {
-      // Sadece ödeme dağıtma (Eskiden kalma manuel tetikleme için)
-      resolveNow(); 
-  };
-
   return (
-    <View style={{ flex: 1, backgroundColor: '#FFF7F0', paddingTop: Math.max(insets.top, 8) }}>
+    <View style={{ flex: 1, backgroundColor: '#FAFAFA' }}>
+      <StatusBar barStyle="dark-content" />
+      
       {/* HEADER */}
-      <LinearGradient
-        colors={['#FFE3D0', '#FFF0E6']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={{
-          paddingHorizontal: 16,
-          paddingTop: Math.max(insets.top, 8),
-          paddingBottom: 12,
-          borderBottomWidth: 1,
-          borderColor: '#F3D9C7',
-          shadowColor: '#FF6B00',
-          shadowOpacity: 0.08,
-          shadowRadius: 8,
-          elevation: 3,
-        }}
-      >
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Text style={{ fontSize: 28, fontWeight: '900', color: ORANGE }}>Kazananı Belirle</Text>
-
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            <View
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                backgroundColor: '#FFEBDD',
-                borderWidth: 1,
-                borderColor: '#FFD4B8',
-                paddingHorizontal: 10,
-                paddingVertical: 6,
-                borderRadius: 999,
-              }}
-            >
-              <Ionicons name="trophy-outline" size={14} color={ORANGE} style={{ marginRight: 4 }} />
-              <Text style={{ color: '#0F172A', fontWeight: '900' }}>{openCount}</Text>
-            </View>
-          </View>
+      <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
+        <View>
+          <Text style={styles.headerTitle}>Kazananı Belirle</Text>
+          <Text style={styles.headerSub}>Açık kuponlarını sonuçlandır ve dağıt</Text>
         </View>
-
-        {/* Arama kutusu */}
-        <View
-          style={{
-            marginTop: 10,
-            flexDirection: 'row',
-            alignItems: 'center',
-            borderWidth: 1,
-            borderColor: '#F5CDB7',
-            backgroundColor: '#FFF9F4',
-            borderRadius: 12,
-            paddingHorizontal: 10,
-          }}
-        >
-          <Ionicons name="search" size={18} color="#9CA3AF" />
-          <TextInput
-            value={q}
-            onChangeText={setQ}
-            placeholder="Başlıkta ara…"
-            placeholderTextColor="#9CA3AF"
-            style={{ flex: 1, paddingVertical: 10, marginLeft: 6 }}
-          />
+        <View style={styles.badge}>
+          <Text style={styles.badgeText}>{openCount}</Text>
         </View>
-      </LinearGradient>
+      </View>
+
+      {/* SEARCH */}
+      <View style={styles.searchContainer}>
+        <Ionicons name="search" size={20} color="#999" style={{ marginLeft: 10 }} />
+        <TextInput
+          value={q}
+          onChangeText={setQ}
+          placeholder="Kupon ara..."
+          placeholderTextColor="#999"
+          style={styles.searchInput}
+        />
+      </View>
 
       {/* CONTENT */}
       <ScrollView
-        contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 180 }}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
         {(!me || items.length === 0) && (
-          <View style={{ alignItems: 'center', marginTop: 20 }}>
-            {!me ? <ActivityIndicator /> : <Text style={{ color: '#666' }}>Uygun kupon bulunamadı.</Text>}
+          <View style={styles.emptyState}>
+            {!me ? <ActivityIndicator color={ORANGE} /> : <Text style={styles.emptyText}>Sonuçlanacak kupon yok.</Text>}
           </View>
         )}
 
+        {/* CAROUSEL LIST */}
         {!!items.length && (
-          <FlatList
-            data={items}
-            keyExtractor={(i) => String(i.id)}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={{ maxHeight: 220 }}
-            contentContainerStyle={{ paddingRight: 8 }}
-            renderItem={({ item }) => {
-              const active = selected?.id === item.id;
-              return (
-                <TouchableOpacity
-                  onPress={() => setSelected(item)}
-                  style={{
-                    width: Math.min(0.82 * width, 520),
-                    marginRight: 12,
-                    padding: 12,
-                    borderRadius: 16,
-                    borderWidth: 2,
-                    borderColor: active ? ORANGE : '#F0E4DA',
-                    backgroundColor: '#fff',
-                    shadowColor: '#000',
-                    shadowOpacity: 0.06,
-                    shadowRadius: 8,
-                    elevation: 2,
-                  }}
-                >
-                  {item.image_url ? (
-                    <Image source={{ uri: item.image_url }} style={{ width: '100%', height: 140, borderRadius: 12 }} />
-                  ) : (
-                    <View style={{ width: '100%', height: 140, borderRadius: 12, backgroundColor: '#eee' }} />
-                  )}
+          <View>
+            <Text style={styles.sectionTitle}>Kuponların</Text>
+            <FlatList
+              data={items}
+              keyExtractor={(i) => String(i.id)}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 20 }}
+              renderItem={({ item }) => {
+                const active = selected?.id === item.id;
+                return (
+                  <TouchableOpacity
+                    onPress={() => setSelected(item)}
+                    activeOpacity={0.9}
+                    style={[
+                      styles.couponCard,
+                      active && styles.couponCardActive
+                    ]}
+                  >
+                    {item.image_url ? (
+                      <Image source={{ uri: item.image_url }} style={styles.cardImage} />
+                    ) : (
+                      <View style={[styles.cardImage, { backgroundColor: '#eee' }]} />
+                    )}
+                    
+                    <LinearGradient
+                      colors={['transparent', 'rgba(0,0,0,0.8)']}
+                      style={styles.cardGradient}
+                    />
 
-                  <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
-                    <Text style={{ fontWeight: '900', fontSize: 16, flex: 1 }} numberOfLines={1}>
-                      {item.title}
-                    </Text>
-
-                    <View
-                      style={{
-                        backgroundColor: item.is_open ? '#E6F6FF' : '#F1F5F9',
-                        borderWidth: 1,
-                        borderColor: item.is_open ? '#B3E0FF' : '#E5E7EB',
-                        paddingHorizontal: 10,
-                        paddingVertical: 4,
-                        borderRadius: 999,
-                      }}
-                    >
-                      <Text style={{ color: '#374151', fontWeight: '800', fontSize: 12 }}>
-                        {item.is_open ? 'Açık' : 'Kapalı'}
-                      </Text>
+                    <View style={styles.cardContent}>
+                      <View style={[styles.statusBadge, { backgroundColor: item.is_open ? '#22c55e' : '#64748B' }]}>
+                        <Text style={styles.statusText}>{item.is_open ? 'AÇIK' : 'KAPALI'}</Text>
+                      </View>
+                      <Text style={styles.cardTitle} numberOfLines={2}>{item.title}</Text>
+                      <Text style={styles.cardDate}>{item.closing_date?.split('T')[0]}</Text>
                     </View>
-                  </View>
 
-                  <Text style={{ color: '#6B7280', marginTop: 2 }}>
-                    Kapanış: {item.closing_date?.split('T')[0]}
-                  </Text>
-                </TouchableOpacity>
-              );
-            }}
-          />
+                    {active && (
+                      <View style={styles.activeBorder} />
+                    )}
+                  </TouchableOpacity>
+                );
+              }}
+            />
+          </View>
         )}
 
-        <View style={{ height: 1, backgroundColor: '#EFE4DA', marginVertical: 14 }} />
-
+        {/* SELECTED DETAIL & ACTIONS */}
         {selected ? (
-          <View style={{ gap: 10 }}>
-            <Text style={{ fontWeight: '900', fontSize: 18 }}>Seçilen: {selected.title}</Text>
-            <Text style={{ color: '#666' }}>
-              {(selected.is_open ? 'Açık' : 'Kapalı')} • {selected.result ? `Sonuç: ${selected.result}` : 'Sonuçlanmadı'}{' '}
-              {selected.paid_out_at ? '• Ödendi' : ''}
-            </Text>
-
-            {/* ONAYLI KANITLARI GÖSTER */}
-            {!!selected.coupon_proofs?.length && (
-              <View>
-                  <Text style={{fontWeight:'800', marginBottom:4, color:GREEN}}>Onaylı Kanıtlar:</Text>
+          <View style={styles.detailSection}>
+            <Text style={styles.detailTitle}>Sonuçlandır: <Text style={{fontWeight:'400'}}>{selected.title}</Text></Text>
+            
+            {/* ONAYLI KANITLAR */}
+            {!!selected.coupon_proofs?.some(p => p.status === 'approved') && (
+              <View style={styles.proofBox}>
+                  <Text style={styles.proofTitle}>✅ Onaylı Kanıt Mevcut</Text>
                   <FlatList
-                    data={selected.coupon_proofs.filter((p) => p.status === 'approved')}
+                    data={selected.coupon_proofs?.filter((p) => p.status === 'approved')}
                     keyExtractor={(p) => p.id}
                     horizontal
-                    contentContainerStyle={{ paddingVertical: 6 }}
                     renderItem={({ item }) => (
-                      <Image
-                        source={{ uri: item.media_url || '' }}
-                        style={{ width: 120, height: 90, borderRadius: 10, marginRight: 8, backgroundColor: '#eee' }}
-                      />
+                      <Image source={{ uri: item.media_url || '' }} style={styles.proofThumb} />
                     )}
                   />
               </View>
             )}
 
             {!selected.result && (
-              <>
-                <Text style={{ fontWeight: '800', marginTop: 2 }}>Kazananı Seç</Text>
-                <View style={{ flexDirection: 'row', gap: 12 }}>
+              <View style={styles.actionBox}>
+                <Text style={styles.actionLabel}>Kazanan Taraf</Text>
+                <View style={styles.winnerRow}>
                   {(['YES', 'NO'] as const).map((opt) => (
                     <TouchableOpacity
                       key={opt}
                       onPress={() => setWinner(opt)}
-                      style={{
-                        flex: 1,
-                        paddingVertical: 12,
-                        borderRadius: 12,
-                        borderWidth: 2,
-                        borderColor: winner === opt ? ORANGE : '#E5E7EB',
-                        backgroundColor: winner === opt ? '#FFEEE2' : '#fff',
-                        alignItems: 'center',
-                      }}
+                      style={[
+                        styles.winnerBtn,
+                        winner === opt && (opt === 'YES' ? styles.winnerBtnYes : styles.winnerBtnNo)
+                      ]}
                     >
-                      <Text style={{ fontWeight: '900', color: winner === opt ? ORANGE : '#111827' }}>{opt}</Text>
+                      <Text style={[
+                        styles.winnerText,
+                        winner === opt && { color: '#fff' }
+                      ]}>{opt}</Text>
+                      {winner === opt && <Ionicons name="checkmark-circle" size={20} color="#fff" style={{marginLeft: 6}} />}
                     </TouchableOpacity>
                   ))}
                 </View>
 
-                {/* KANIT BUTONU */}
-               <TouchableOpacity
-  onPress={() => router.push(`/plus/proofs?coupon=${selected?.id}`)}
-  style={{
-    backgroundColor: '#FF6B00',
-    padding: 14,
-    borderRadius: 12,
-    alignItems: 'center',
-  }}
->
-  <Text style={{ color: '#fff', fontWeight: '900' }}>
-    Kanıt Ekle
-  </Text>
-</TouchableOpacity>
+                {/* KANIT EKLEME */}
+                <TouchableOpacity
+                  onPress={() => router.push(`/plus/proofs?coupon=${selected?.id}`)}
+                  style={styles.addProofBtn}
+                >
+                  <Ionicons name="camera" size={20} color="#fff" style={{marginRight: 8}} />
+                  <Text style={styles.btnText}>Kanıt Ekle / Yönet</Text>
+                </TouchableOpacity>
 
-                {!!localUri && (
-                  <Image
-                    source={{ uri: localUri }}
-                    style={{ width: '100%', height: 180, borderRadius: 12, marginTop: 8 }}
-                  />
-                )}
-
+                {/* SONUÇLA */}
                 <TouchableOpacity
                   disabled={!winner || busy}
                   onPress={resolveNow}
-                  style={{
-                    backgroundColor: !winner || busy ? '#f3a774' : ORANGE,
-                    padding: 14,
-                    borderRadius: 12,
-                    alignItems: 'center',
-                  }}
+                  style={[
+                    styles.resolveBtn,
+                    (!winner || busy) && { opacity: 0.6, backgroundColor: '#ccc' }
+                  ]}
                 >
-                  <Text style={{ color: '#fff', fontWeight: '900' }}>
-                    {busy ? 'İşleniyor…' : 'Sonuçla & Öde'}
-                  </Text>
+                  {busy ? <ActivityIndicator color="#fff" /> : (
+                    <>
+                      <Ionicons name="flash" size={20} color="#fff" style={{marginRight: 8}} />
+                      <Text style={styles.btnText}>Sonuçla & Öde</Text>
+                    </>
+                  )}
                 </TouchableOpacity>
-              </>
+              </View>
             )}
           </View>
         ) : (
-          <Text style={{ color: '#777' }}>Bir kupon seçin.</Text>
+          <View style={styles.selectHint}>
+            <Ionicons name="arrow-up-circle-outline" size={48} color="#ddd" />
+            <Text style={{color:'#999', marginTop: 8}}>Yukarıdan bir kupon seç</Text>
+          </View>
         )}
       </ScrollView>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  // HEADER
+  header: { paddingHorizontal: 20, paddingBottom: 16, backgroundColor: '#fff', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  headerTitle: { fontSize: 24, fontWeight: '900', color: ORANGE },
+  headerSub: { fontSize: 13, color: '#666', marginTop: 2 },
+  badge: { backgroundColor: '#FFF3E0', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
+  badgeText: { color: ORANGE, fontWeight: '900', fontSize: 16 },
+
+  // SEARCH
+  searchContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', marginHorizontal: 16, marginBottom: 16, borderRadius: 12, borderWidth: 1, borderColor: '#eee', paddingVertical: 2 },
+  searchInput: { flex: 1, paddingVertical: 12, paddingHorizontal: 10, fontSize: 15, color: '#333' },
+
+  // LIST
+  sectionTitle: { fontSize: 18, fontWeight: '800', marginLeft: 16, marginBottom: 12, color: '#333' },
+  couponCard: { width: 160, height: 220, borderRadius: 16, marginRight: 12, overflow: 'hidden', backgroundColor: '#fff', elevation: 3, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 6 },
+  couponCardActive: { transform: [{ scale: 1.05 }], borderWidth: 2, borderColor: ORANGE },
+  cardImage: { width: '100%', height: '100%' },
+  cardGradient: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 120 },
+  cardContent: { position: 'absolute', bottom: 12, left: 12, right: 12 },
+  statusBadge: { alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, marginBottom: 6 },
+  statusText: { color: '#fff', fontSize: 10, fontWeight: '900' },
+  cardTitle: { color: '#fff', fontWeight: '800', fontSize: 14, textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 3 },
+  cardDate: { color: '#ddd', fontSize: 11, marginTop: 4 },
+  activeBorder: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, borderWidth: 3, borderColor: ORANGE, borderRadius: 16 },
+
+  // DETAIL
+  detailSection: { backgroundColor: '#fff', marginHorizontal: 16, borderRadius: 20, padding: 20, elevation: 2, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 10 },
+  detailTitle: { fontSize: 18, fontWeight: '800', color: '#333', marginBottom: 16 },
+  proofBox: { backgroundColor: '#F0FDF4', padding: 12, borderRadius: 12, marginBottom: 16, borderWidth: 1, borderColor: '#DCFCE7' },
+  proofTitle: { color: GREEN, fontWeight: '800', marginBottom: 8, fontSize: 13 },
+  proofThumb: { width: 60, height: 60, borderRadius: 8, marginRight: 8, borderWidth: 1, borderColor: '#fff' },
+  
+  actionBox: { gap: 12 },
+  actionLabel: { fontSize: 14, fontWeight: '700', color: '#666', marginBottom: 4 },
+  winnerRow: { flexDirection: 'row', gap: 12 },
+  winnerBtn: { flex: 1, paddingVertical: 14, borderRadius: 12, borderWidth: 1, borderColor: '#eee', alignItems: 'center', justifyContent: 'center', flexDirection: 'row', backgroundColor: '#F9FAFB' },
+  winnerBtnYes: { backgroundColor: GREEN, borderColor: GREEN },
+  winnerBtnNo: { backgroundColor: '#EF4444', borderColor: '#EF4444' },
+  winnerText: { fontWeight: '900', fontSize: 16, color: '#333' },
+
+  addProofBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 14, borderRadius: 12, backgroundColor: '#334155', marginTop: 8 },
+  resolveBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 16, borderRadius: 12, backgroundColor: ORANGE, marginTop: 4, shadowColor: ORANGE, shadowOpacity: 0.3, shadowRadius: 8, elevation: 4 },
+  btnText: { color: '#fff', fontWeight: '800', fontSize: 15 },
+
+  // EMPTY
+  emptyState: { alignItems: 'center', marginTop: 40 },
+  emptyText: { color: '#999', fontSize: 16 },
+  selectHint: { alignItems: 'center', marginTop: 40, padding: 20 },
+});

@@ -4,12 +4,12 @@ import { supabase } from '@/lib/supabaseClient';
 import { Ionicons } from '@expo/vector-icons';
 import { decode as atob } from 'base-64';
 import * as ImagePicker from 'expo-image-picker';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
-  Animated,
-  Easing,
   FlatList,
   Image,
   Keyboard,
@@ -17,6 +17,7 @@ import {
   Modal,
   Platform,
   Pressable,
+  StatusBar,
   StyleSheet,
   Text,
   TextInput,
@@ -136,27 +137,17 @@ const AsyncCommentImage = ({ path, onPress }: { path: string; onPress?: (url: st
   if (!u) return null;
   return (
     <TouchableOpacity activeOpacity={0.9} onPress={() => onPress?.(u)}>
-      <Image source={{ uri: u }} style={{ width: 240, height: 240, borderRadius: 10 }} />
+      <Image source={{ uri: u }} style={{ width: '100%', height: 200, borderRadius: 12, marginTop: 8 }} resizeMode="cover" />
     </TouchableOpacity>
   );
 };
 
 const SpinnerLogo = ({ visible }: { visible: boolean }) => {
-  const spin = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    if (!visible) return;
-    const loop = Animated.loop(
-      Animated.timing(spin, { toValue: 1, duration: 900, easing: Easing.linear, useNativeDriver: true })
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [visible]);
-  if (!visible || !LOGO) return null;
-  const rot = spin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
+  if (!visible) return null;
   return (
     <View style={styles.spinnerWrap}>
-      <Animated.Image source={LOGO} style={{ width: 42, height: 42, transform: [{ rotate: rot }] }} />
-      <Text style={{ color: '#fff', fontWeight: '800', marginTop: 8 }}>Yükleniyor…</Text>
+      <ActivityIndicator size="large" color="#fff" />
+      <Text style={{ color: '#fff', fontWeight: '800', marginTop: 12 }}>Yükleniyor...</Text>
     </View>
   );
 };
@@ -384,6 +375,37 @@ export default function CouponDetail() {
   const [reportingComment, setReportingComment] = useState<VComment | null>(null);
   const [reportSending, setReportSending] = useState(false);
 
+  // 🔥 EKSİK OLAN ŞİKAYET FONKSİYONLARI EKLENDİ
+  const reportComment = (c: VComment) => {
+    setReportingComment(c);
+  };
+
+  const submitReport = async (reason: string) => {
+    if (!reportingComment) return;
+    setReportSending(true);
+    try {
+      const { data: auth } = await supabase.auth.getUser();
+      const uid = auth?.user?.id;
+      if (!uid) {
+        Alert.alert('Giriş gerekli', 'Şikayet etmek için giriş yap.');
+        setReportSending(false);
+        return;
+      }
+      await supabase.from('comment_reports').insert({ 
+          comment_id: reportingComment.id, 
+          reporter_id: uid, 
+          reason, 
+          extra: null 
+      });
+      Alert.alert('Teşekkürler', 'Şikayetin alındı.');
+      setReportingComment(null);
+    } catch (e: any) {
+      Alert.alert('Hata', e?.message ?? 'Şikayet kaydedilemedi');
+    } finally {
+      setReportSending(false);
+    }
+  };
+
   const pickCommentImage = async () => {
     Keyboard.dismiss();
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -542,31 +564,80 @@ export default function CouponDetail() {
     };
   }, [couponId]);
 
-  /** ===== RENDER ===== */
-  const Pill = ({ label, color, children }: { label: string; color: 'yes' | 'no'; children?: any }) => (
-    <View style={[styles.pill, { backgroundColor: color === 'yes' ? '#EAF1FF' : '#FDEAF1' }]}>
-      <Text style={[styles.pillTxt, { color: color === 'yes' ? '#2A55FF' : '#D0146A' }]}>{label}</Text>
-      {children}
-    </View>
-  );
+  /** ===== RENDER COMPONENTS ===== */
+  
+  // 🔥 SEXY HEADER (Hero Image + Gradient + Modern Info)
+  const SexyHeader = () => {
+    const isMulti = coupon?.market_type === 'multi' && (coupon?.lines?.length ?? 0) > 0;
+    
+    return (
+      <View style={styles.headerContainer}>
+          <View style={styles.heroWrapper}>
+              {coupon?.image_url ? (
+                  <Image source={{ uri: coupon.image_url }} style={styles.heroImage} resizeMode="cover" />
+              ) : (
+                  <View style={[styles.heroImage, { backgroundColor: '#ddd' }]} />
+              )}
+              {/* Karartma Gradyanı */}
+              <LinearGradient colors={['transparent', 'rgba(0,0,0,0.85)']} style={styles.heroGradient} />
+              
+              <TouchableOpacity onPress={() => router.back()} style={[styles.backBtn, { top: insets.top + 10 }]}>
+                  <Ionicons name="arrow-back" size={24} color="#fff" />
+              </TouchableOpacity>
+          </View>
+
+          <View style={styles.infoContainer}>
+              <View style={styles.catBadge}>
+                  <Text style={styles.catText}>{coupon?.category || 'Genel'}</Text>
+              </View>
+              <Text style={styles.couponTitle}>{coupon?.title}</Text>
+              <Text style={styles.couponDate}>
+                  <Ionicons name="time-outline" size={14} color="#ccc" /> Kapanış: {coupon?.closing_date?.split('T')[0]}
+              </Text>
+          </View>
+
+          {!isMulti && (
+            <View style={styles.oddsContainer}>
+                <TouchableOpacity style={[styles.oddCard, { backgroundColor: '#E8F5E9', borderColor: '#C8E6C9' }]}>
+                    <Text style={[styles.oddLabel, { color: '#2E7D32' }]}>YES</Text>
+                    <Text style={[styles.oddValue, { color: '#1B5E20' }]}>{coupon?.yes_price?.toFixed(2)}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.oddCard, { backgroundColor: '#FFEBEE', borderColor: '#FFCDD2' }]}>
+                    <Text style={[styles.oddLabel, { color: '#C62828' }]}>NO</Text>
+                    <Text style={[styles.oddValue, { color: '#B71C1C' }]}>{coupon?.no_price?.toFixed(2)}</Text>
+                </TouchableOpacity>
+            </View>
+          )}
+
+          {isMulti && <LinesBlock />}
+
+          {!!coupon?.description && (
+              <View style={styles.descContainer}>
+                  <Text style={styles.descTitle}>Detaylar</Text>
+                  <Text style={styles.descText}>{coupon.description}</Text>
+              </View>
+          )}
+          
+          <Text style={styles.communityNote}>Topluluk kurallarına aykırı içerikleri bildirebilirsin.</Text>
+      </View>
+    );
+  };
 
   const LinesBlock = () => {
     const lines = coupon?.lines ?? [];
     if (!lines.length) return null;
     return (
-      <View style={{ marginTop: 12 }}>
+      <View style={{ paddingHorizontal: 20, marginBottom: 20 }}>
         {lines.map((l, idx) => {
           const y = typeof l.yesPrice === 'number' ? Math.max(1.01, l.yesPrice) : undefined;
           const n = typeof l.noPrice === 'number' ? Math.max(1.01, l.noPrice) : undefined;
           return (
             <View key={`${coupon?.id}-line-${idx}`} style={styles.lineRow}>
               {l.imageUrl ? <Image source={{ uri: l.imageUrl }} style={styles.lineAvatar} /> : <View style={[styles.lineAvatar, { backgroundColor: '#eee' }]} />}
-              <Text style={styles.lineName} numberOfLines={1}>
-                {l.name}
-              </Text>
+              <Text style={styles.lineName} numberOfLines={1}>{l.name}</Text>
               <View style={{ flex: 1 }} />
-              <Pill label={`Yes ${y?.toFixed(2) ?? '-'}`} color="yes" />
-              <Pill label={`No ${n?.toFixed(2) ?? '-'}`} color="no" />
+              <View style={[styles.miniPill, {backgroundColor:'#E8F5E9'}]}><Text style={{color:'#2E7D32', fontWeight:'800'}}>Y {y?.toFixed(2)}</Text></View>
+              <View style={[styles.miniPill, {backgroundColor:'#FFEBEE'}]}><Text style={{color:'#C62828', fontWeight:'800'}}>N {n?.toFixed(2)}</Text></View>
             </View>
           );
         })}
@@ -574,51 +645,11 @@ export default function CouponDetail() {
     );
   };
 
-  const HeaderCard = () => {
-    const isMulti = coupon?.market_type === 'multi' && (coupon?.lines?.length ?? 0) > 0;
-    const y = coupon?.yes_price ? Math.max(1.01, coupon.yes_price) : undefined;
-    const n = coupon?.no_price ? Math.max(1.01, coupon.no_price) : undefined;
-    return (
-      <View style={[styles.card, { marginHorizontal: 16 }]}>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          {coupon?.image_url ? <Image source={{ uri: coupon.image_url }} style={styles.hero} /> : <View style={[styles.hero, { backgroundColor: '#eee' }]} />}
-          <View style={{ marginLeft: 12, flex: 1 }}>
-            <Text style={styles.title}>{coupon?.title}</Text>
-            <Text style={styles.meta}>
-              {coupon?.category ? `${coupon.category} • ` : ''}Kapanış: {coupon?.closing_date?.split('T')[0]}
-            </Text>
-          </View>
-        </View>
-        {!isMulti && (
-          <>
-            <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 12, marginTop: 14 }}>
-              <Pill label={`Yes ${y?.toFixed(2) ?? '-'}`} color="yes" />
-              <Pill label={`No ${n?.toFixed(2) ?? '-'}`} color="no" />
-            </View>
-            <Text style={styles.payoutRow}>YES ≈ {Math.round((y || 0) * 100)} XP • NO ≈ {Math.round((n || 0) * 100)} XP</Text>
-          </>
-        )}
-        {isMulti && <LinesBlock />}
-        {!!coupon?.description && (
-          <View style={styles.ruleBox}>
-            <Text style={styles.ruleTitle}>Kurallar / Özet</Text>
-            <Text style={{ color: '#333' }}>{coupon.description}</Text>
-          </View>
-        )}
-        <Text style={{ color: '#888', marginTop: 10 }}>Topluluk kurallarına aykırı içerikleri bildirebilirsin.</Text>
-      </View>
-    );
-  };
-
-  const SectionTag = ({ title }: { title: string }) => (
-    <View style={styles.sectionTag}>
-      <Text style={styles.sectionTagTxt}>{title}</Text>
-    </View>
-  );
-
   const SimilarBlock = () => (
-    <>
-      <SectionTag title="Benzer Kuponlar" />
+    <View style={{marginTop: 20, marginBottom: 20}}>
+      <View style={styles.sectionHeader}>
+         <Text style={styles.sectionTitle}>Benzer Kuponlar</Text>
+      </View>
       {similar.map((s) => (
         <TouchableOpacity
           key={s.id}
@@ -627,11 +658,9 @@ export default function CouponDetail() {
           activeOpacity={0.85}
         >
           <AsyncThumb path={s.image_url ?? null} style={styles.simThumb} />
-          <View style={{ flex: 1, marginLeft: 10 }}>
-            <Text style={{ fontWeight: '800' }} numberOfLines={2}>
-              {s.title}
-            </Text>
-            <Text style={{ color: '#777', marginTop: 2 }}>Kapanış: {s.closing_date?.split('T')[0]}</Text>
+          <View style={{ flex: 1, marginLeft: 12 }}>
+            <Text style={{ fontWeight: '800', fontSize:14 }} numberOfLines={2}>{s.title}</Text>
+            <Text style={{ color: '#777', marginTop: 2, fontSize:12 }}>Kapanış: {s.closing_date?.split('T')[0]}</Text>
           </View>
           <View style={{ alignItems: 'flex-end', width: 64 }}>
             <Text style={{ color: '#2E7D32', fontWeight: '900' }}>{s.yes_price?.toFixed(2)}</Text>
@@ -639,86 +668,49 @@ export default function CouponDetail() {
           </View>
         </TouchableOpacity>
       ))}
-    </>
+    </View>
   );
 
-  const submitReport = async (reason: string) => {
-    if (!reportingComment) return;
-    setReportSending(true);
-    try {
-      const { data: auth } = await supabase.auth.getUser();
-      const uid = auth?.user?.id;
-      if (!uid) {
-        Alert.alert('Giriş gerekli', 'Şikayet etmek için giriş yap.');
-        setReportSending(false);
-        return;
-      }
-      await supabase.from('comment_reports').insert({ comment_id: reportingComment.id, reporter_id: uid, reason, extra: null });
-      Alert.alert('Teşekkürler', 'Şikayetin alındı.');
-      setReportingComment(null);
-    } catch (e: any) {
-      Alert.alert('Hata', e?.message ?? 'Şikayet kaydedilemedi');
-    } finally {
-      setReportSending(false);
-    }
-  };
-  const reportComment = (c: VComment) => {
-    setReportingComment(c);
-  };
+  const CommentItem = ({ item, isChild }: { item: VComment, isChild: boolean }) => {
+    const counts = countsMap.get(item.id) || { likes: 0, dislikes: 0, my: null };
+    const parent = item.parent_id ? byId.get(item.parent_id) : undefined;
 
-  const CommentRow = ({ c, isChild }: { c: VComment; isChild: boolean }) => {
-    const counts = countsMap.get(c.id) || { likes: 0, dislikes: 0, my: null };
-    const parent = c.parent_id ? byId.get(c.parent_id) : undefined;
     return (
-      <View style={[styles.commentRow, { marginLeft: isChild ? 44 : 0 }]}>
-        {c.avatar_url ? (
-          <Image source={{ uri: c.avatar_url }} style={styles.avatar} />
-        ) : (
-          <View style={[styles.avatar, { backgroundColor: '#eee', alignItems: 'center', justifyContent: 'center' }]}>
-            <Text style={{ fontWeight: '800', color: '#888' }}>{(c.full_name ?? 'A').slice(0, 1).toUpperCase()}</Text>
+      <View style={[styles.commentItem, isChild && { paddingLeft: 40 }]}>
+          <Image source={{ uri: item.avatar_url || 'https://via.placeholder.com/100' }} style={styles.commentAvatar} />
+          <View style={styles.commentBubble}>
+              <View style={styles.commentHeader}>
+                  <Text style={styles.commentAuthor}>{item.full_name || 'Anonim'}</Text>
+                  <Text style={styles.commentTime}>{formatWhen(item.created_at)}</Text>
+              </View>
+              <Text style={styles.commentContent}>
+                 {isChild && parent ? <Text style={{color: BRAND, fontWeight:'800'}}>@{parent.full_name} </Text> : null}
+                 {item.content}
+              </Text>
+              {item.image_url && <AsyncCommentImage path={item.image_url} onPress={(u) => setPreviewUrl(u)} />}
+              
+              <View style={styles.commentActions}>
+                  <TouchableOpacity onPress={() => { setReplyTo(item); setTimeout(() => inputRef.current?.focus(), 0); }} style={styles.actionBtn}>
+                      <Text style={styles.actionText}>Yanıtla</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => toggleReaction(item.id, 'like')} style={{flexDirection:'row', alignItems:'center', gap:4}}>
+                      <Ionicons name={counts.my === 'like' ? "heart" : "heart-outline"} size={16} color="#D32F2F" />
+                      <Text style={[styles.actionText, {color:'#D32F2F'}]}>{counts.likes}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => toggleReaction(item.id, 'dislike')} style={{flexDirection:'row', alignItems:'center', gap:4}}>
+                      <Ionicons name={counts.my === 'dislike' ? "thumbs-down" : "thumbs-down-outline"} size={16} color="#F9A825" />
+                      <Text style={[styles.actionText, {color:'#F9A825'}]}>{counts.dislikes}</Text>
+                  </TouchableOpacity>
+                  {me?.id === item.user_id && (
+                      <TouchableOpacity onPress={() => deleteComment(item)}>
+                          <Text style={[styles.actionText, { color: '#E53935' }]}>Sil</Text>
+                      </TouchableOpacity>
+                  )}
+                  <TouchableOpacity onPress={() => reportComment(item)}>
+                      <Ionicons name="ellipsis-horizontal" size={16} color="#999" />
+                  </TouchableOpacity>
+              </View>
           </View>
-        )}
-        <View style={{ flex: 1 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Text style={styles.commentUser}>{c.full_name || 'Anonim'}</Text>
-            <Text style={{ color: '#888' }}>• {formatWhen(c.created_at)}</Text>
-          </View>
-          {!!c.content && (
-            <Text style={styles.commentText}>
-              {isChild && parent?.full_name ? <Text style={{ color: '#3D5AFE', fontWeight: '800' }}>@{parent.full_name} </Text> : null}
-              {c.content}
-            </Text>
-          )}
-          {c.image_url && (
-            <View style={{ marginTop: 8 }}>
-              <AsyncCommentImage path={c.image_url} onPress={(u) => setPreviewUrl(u)} />
-            </View>
-          )}
-          <View style={{ flexDirection: 'row', gap: 16, marginTop: 8, alignItems: 'center' }}>
-            <TouchableOpacity
-              onPress={() => {
-                setReplyTo(c);
-                setTimeout(() => inputRef.current?.focus(), 0);
-              }}
-            >
-              <Text style={styles.link}>Cevapla</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => toggleReaction(c.id, 'like')}>
-              <Text style={[styles.link, { color: '#D32F2F', fontWeight: counts.my === 'like' ? '900' : '800' }]}>❤️ {counts.likes}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => toggleReaction(c.id, 'dislike')}>
-              <Text style={[styles.link, { color: '#F9A825', fontWeight: counts.my === 'dislike' ? '900' : '800' }]}>👎 {counts.dislikes}</Text>
-            </TouchableOpacity>
-            {me?.id === c.user_id && (
-              <TouchableOpacity onPress={() => deleteComment(c)}>
-                <Text style={[styles.link, { color: '#E53935' }]}>Sil</Text>
-              </TouchableOpacity>
-            )}
-            <TouchableOpacity onPress={() => reportComment(c)}>
-              <Text style={[styles.link, { color: '#888' }]}>…</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
       </View>
     );
   };
@@ -728,17 +720,19 @@ export default function CouponDetail() {
     const opened = expandedRoot.has(root.id);
     const visible = opened ? replies : replies.slice(0, 2);
     return (
-      <>
-        <CommentRow c={root} isChild={false} />
+      <View>
+        <CommentItem item={root} isChild={false} />
         {visible.map((r) => (
-          <CommentRow key={r.id} c={r} isChild={true} />
+          <CommentItem key={r.id} item={r} isChild={true} />
         ))}
         {replies.length > 2 && (
-          <TouchableOpacity onPress={() => toggleRoot(root.id)} style={{ marginLeft: 44, marginTop: 6 }}>
-            <Text style={[styles.link, { color: '#666' }]}>{opened ? 'Yanıtları gizle' : `Yanıtları göster (${replies.length - 2})`}</Text>
+          <TouchableOpacity onPress={() => toggleRoot(root.id)} style={{ marginLeft: 56, marginBottom: 10 }}>
+            <Text style={{ color: '#666', fontWeight: '700', fontSize: 13 }}>
+                {opened ? 'Yanıtları gizle' : `Diğer yanıtları gör (${replies.length - 2})`}
+            </Text>
           </TouchableOpacity>
         )}
-      </>
+      </View>
     );
   };
 
@@ -749,19 +743,18 @@ export default function CouponDetail() {
     return () => { show.remove(); hide.remove(); };
   }, []);
 
-  // 🔥 FİX: Klavye kapalıyken 90px yukarıda ve kenarlardan boşluklu (HAVALI FLOATING).
-  // Klavye açılınca 0px ve tam genişlik (KULLANIŞLI).
-  const bottomPosition = keyboardVisible ? 0 : 90; 
+  const bottomPosition = keyboardVisible ? 0 : 90;
   const horizontalMargin = keyboardVisible ? 0 : 16;
   const borderRad = keyboardVisible ? 0 : 24;
 
   return (
     <KeyboardAvoidingView 
-      style={{ flex: 1, backgroundColor: '#fff' }} 
+      style={{ flex: 1, backgroundColor: '#F8F9FA' }} 
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0} 
     >
-      <View style={{ flex: 1, backgroundColor: '#fff' }}>
+      <View style={{ flex: 1, backgroundColor: '#F8F9FA' }}>
+        <StatusBar barStyle="light-content" />
         <FlatList
           ref={listRef}
           data={roots}
@@ -769,26 +762,14 @@ export default function CouponDetail() {
           keyboardShouldPersistTaps="handled"
           onRefresh={loadComments}
           refreshing={refreshing}
-          // Liste altı boşluk: Composer + TabBar için yer açıyoruz
-          contentContainerStyle={{ paddingTop: 16, paddingBottom: 180 }} 
+          contentContainerStyle={{ paddingBottom: 180 }}
           ListHeaderComponent={
             <>
-              <View style={{ height: 10 }} />
-              <HeaderCard />
-              <SectionTag title="Yorumlar" />
+              <SexyHeader />
+              <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>Yorumlar</Text></View>
               {roots.length === 0 && (
                 <View style={styles.emptyHint}>
-                  {me?.avatar ? (
-                    <Image source={{ uri: me.avatar }} style={[styles.avatar, { marginRight: 10 }]} />
-                  ) : (
-                    <View style={[styles.avatar, { backgroundColor: '#eee', marginRight: 10, alignItems: 'center', justifyContent: 'center' }]}>
-                      <Text style={{ fontWeight: '800', color: '#888' }}>{(me?.name ?? 'S')[0]?.toUpperCase?.() ?? 'S'}</Text>
-                    </View>
-                  )}
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontWeight: '800' }}>{me?.name || 'Sen'}</Text>
-                    <Text style={{ color: '#666', marginTop: 2 }}>İlk yorumu sen yaz! </Text>
-                  </View>
+                  <Text style={{ color: '#666', fontStyle:'italic' }}>Henüz yorum yok. İlk sen yaz!</Text>
                 </View>
               )}
             </>
@@ -798,7 +779,7 @@ export default function CouponDetail() {
           showsVerticalScrollIndicator={false}
         />
 
-        {/* COMPOSER (MESAJ KUTUSU) - SEPET TARZI */}
+        {/* COMPOSER */}
         <View
           style={[
             styles.sexyComposer,
@@ -808,9 +789,8 @@ export default function CouponDetail() {
               right: horizontalMargin,
               bottom: bottomPosition,
               borderRadius: borderRad,
-              // Klavye kapalıyken border var, açılınca üst çizgi kalsın ama yanlar düzleşsin
-              borderWidth: 2, 
-              borderColor: BRAND, // 🔥 TURUNCU ÇERÇEVE
+              borderWidth: keyboardVisible ? 0 : 2, 
+              borderColor: BRAND,
             },
           ]}
         >
@@ -820,19 +800,16 @@ export default function CouponDetail() {
                 <View style={styles.replyPreview}>
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontSize: 11, color: BRAND, fontWeight: '800' }}>Yanıtlanıyor: {replyTo.full_name}</Text>
-                    <Text numberOfLines={1} style={{ fontSize: 12, color: '#444', marginTop: 2 }}>
-                      {replyTo.content}
-                    </Text>
+                    <Text numberOfLines={1} style={{ fontSize: 12, color: '#444', marginTop: 2 }}>{replyTo.content}</Text>
                   </View>
                   <TouchableOpacity onPress={() => setReplyTo(null)}>
                     <Ionicons name="close-circle" size={20} color="#999" />
                   </TouchableOpacity>
                 </View>
               )}
-
               {commentImageLocal && (
                 <View style={styles.imagePreview}>
-                  <Image source={{ uri: commentImageLocal }} style={{ width: 48, height: 48, borderRadius: 8 }} />
+                  <Image source={{ uri: commentImageLocal }} style={{ width: 40, height: 40, borderRadius: 8 }} />
                   <View style={{ marginLeft: 10, flex: 1 }}>
                     <Text style={{ fontSize: 12, fontWeight: '700', color: '#333' }}>Fotoğraf eklendi</Text>
                     <TouchableOpacity onPress={clearCommentImage}>
@@ -846,13 +823,7 @@ export default function CouponDetail() {
 
           <View style={styles.composerInputRow}>
             <TouchableOpacity onPress={pickCommentImage} disabled={uploading} style={styles.iconButton}>
-              {uploading ? (
-                <Animated.View>
-                  <Ionicons name="sync" size={24} color={BRAND} />
-                </Animated.View>
-              ) : (
-                <Ionicons name="camera" size={26} color="#666" />
-              )}
+              {uploading ? <ActivityIndicator color={BRAND} /> : <Ionicons name="camera" size={26} color="#666" />}
             </TouchableOpacity>
 
             <View style={styles.inputContainer}>
@@ -887,6 +858,9 @@ export default function CouponDetail() {
                 onPress={() => setPreviewUrl(null)}
               >
                 <Image source={{ uri: previewUrl }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+                <TouchableOpacity style={{position:'absolute', top:50, right:20}} onPress={()=>setPreviewUrl(null)}>
+                    <Ionicons name="close" size={32} color="#fff" />
+                </TouchableOpacity>
               </TouchableOpacity>
             )}
           </View>
@@ -917,39 +891,64 @@ export default function CouponDetail() {
   );
 }
 
-/** ========= STYLES ========= */
+/** ========= SEXY STYLES ========= */
 const styles = StyleSheet.create({
-  card: { backgroundColor: '#fff', borderRadius: 18, padding: 14, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 },
-  hero: { width: 64, height: 64, borderRadius: 12 },
-  title: { fontSize: 20, fontWeight: '900' },
-  meta: { color: '#666', marginTop: 6 },
-  pill: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 12 },
-  pillTxt: { fontWeight: '900' },
-  payoutRow: { textAlign: 'center', fontWeight: '900', color: '#666', marginTop: 10 },
-  ruleBox: { backgroundColor: BRAND_FAINT, borderWidth: 1, borderColor: '#FFD8B2', borderRadius: 12, padding: 12, marginTop: 12 },
-  ruleTitle: { fontWeight: '900', color: BRAND, marginBottom: 6 },
-  sectionTag: { backgroundColor: BRAND_FAINT, borderWidth: 1, borderColor: '#FFD8B2', marginHorizontal: 16, marginTop: 14, paddingVertical: 10, paddingHorizontal: 14, borderRadius: 12 },
-  sectionTagTxt: { fontWeight: '900', color: BRAND, fontSize: 16 },
-  simRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#eee', backgroundColor: '#fff' },
-  simThumb: { width: 48, height: 48, borderRadius: 10, backgroundColor: '#eee' },
-  commentRow: { flexDirection: 'row', gap: 10, paddingHorizontal: 16, paddingVertical: 10 },
-  avatar: { width: 32, height: 32, borderRadius: 16 },
-  commentUser: { fontWeight: '800' },
-  commentText: { color: '#333', marginTop: 2 },
-  avatarMe: { width: 36, height: 36, borderRadius: 18 },
-  link: { color: '#3D5AFE', fontWeight: '800' },
-  emptyHint: { marginHorizontal: 16, marginTop: 10, padding: 12, borderRadius: 12, backgroundColor: '#fafafa', borderWidth: 1, borderColor: '#eee', flexDirection: 'row', alignItems: 'center' },
-  spinnerWrap: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center' },
-  lineRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, paddingHorizontal: 8, borderRadius: 12, backgroundColor: '#fff', borderWidth: 1, borderColor: '#eee', marginBottom: 8 },
-  lineAvatar: { width: 36, height: 36, borderRadius: 18 },
-  lineName: { fontWeight: '800', maxWidth: 140 },
+  // HEADER
+  headerContainer: { backgroundColor: '#fff', borderBottomLeftRadius: 24, borderBottomRightRadius: 24, overflow: 'hidden', marginBottom: 16, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 10, elevation: 5 },
+  heroWrapper: { height: 280, position: 'relative' },
+  heroImage: { width: '100%', height: '100%' },
+  heroGradient: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 140 },
+  backBtn: { position: 'absolute', left: 16, width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.3)', alignItems: 'center', justifyContent: 'center' },
+  
+  infoContainer: { padding: 20, marginTop: -60 },
+  catBadge: { backgroundColor: BRAND, alignSelf: 'flex-start', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12, marginBottom: 8 },
+  catText: { color: '#fff', fontWeight: '800', fontSize: 12, textTransform: 'uppercase' },
+  couponTitle: { color: '#fff', fontSize: 24, fontWeight: '900', textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 4 },
+  couponDate: { color: '#eee', marginTop: 4, fontSize: 13, fontWeight: '600' },
 
-  // 🔥 YENİ SEXY COMPOSER STİLİ
+  // ODDS
+  oddsContainer: { flexDirection: 'row', gap: 12, paddingHorizontal: 20, marginBottom: 20 },
+  oddCard: { flex: 1, padding: 16, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  oddLabel: { fontSize: 14, fontWeight: '900', marginBottom: 4 },
+  oddValue: { fontSize: 22, fontWeight: '900' },
+
+  // DESC & LINES
+  descContainer: { paddingHorizontal: 20, paddingBottom: 10 },
+  descTitle: { fontSize: 16, fontWeight: '800', color: '#333', marginBottom: 6 },
+  descText: { fontSize: 14, color: '#666', lineHeight: 20 },
+  communityNote: { paddingHorizontal: 20, paddingBottom: 20, color: '#999', fontSize: 12 },
+  
+  lineRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
+  lineAvatar: { width: 36, height: 36, borderRadius: 18 },
+  lineName: { fontWeight: '800', maxWidth: 140, fontSize: 13, color:'#333' },
+  miniPill: { paddingVertical: 4, paddingHorizontal: 8, borderRadius: 8 },
+
+  // COMMENTS & SECTION
+  sectionHeader: { paddingHorizontal: 20, marginBottom: 10 },
+  sectionTitle: { fontSize: 18, fontWeight: '900', color: '#333' },
+  emptyHint: { padding: 20, alignItems: 'center' },
+
+  commentItem: { flexDirection: 'row', paddingHorizontal: 16, marginBottom: 12 },
+  commentAvatar: { width: 36, height: 36, borderRadius: 18, marginRight: 10, marginTop: 4 },
+  commentBubble: { flex: 1, backgroundColor: '#fff', borderRadius: 16, borderTopLeftRadius: 4, padding: 12, shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 4, elevation: 2 },
+  commentHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
+  commentAuthor: { fontWeight: '800', color: '#333', fontSize: 13 },
+  commentTime: { color: '#999', fontSize: 11 },
+  commentContent: { color: '#444', fontSize: 14, lineHeight: 19 },
+  commentActions: { flexDirection: 'row', marginTop: 8, gap: 16, alignItems: 'center' },
+  actionBtn: {},
+  actionText: { fontSize: 12, fontWeight: '700', color: '#666' },
+  link: { color: '#666', fontWeight:'700' }, // toggleRoot için gerekli
+
+  // SIMILAR
+  simRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 20, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
+  simThumb: { width: 48, height: 48, borderRadius: 10, backgroundColor: '#eee' },
+
+  // COMPOSER (Floating & Sexy)
   sexyComposer: {
     backgroundColor: '#fff',
     paddingVertical: 10,
     paddingHorizontal: 12,
-    // Gölge efekti (Sepet barı gibi havalı dursun)
     shadowColor: BRAND,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
@@ -957,60 +956,15 @@ const styles = StyleSheet.create({
     elevation: 6,
     zIndex: 999,
   },
-  composerPreviewContainer: {
-    marginBottom: 8,
-    gap: 8,
-  },
-  replyPreview: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFF2E6',
-    padding: 8,
-    borderRadius: 12,
-    borderLeftWidth: 3,
-    borderLeftColor: BRAND,
-  },
-  imagePreview: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F7F9FC',
-    padding: 8,
-    borderRadius: 12,
-  },
-  composerInputRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 10,
-  },
-  iconButton: {
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 2,
-  },
-  inputContainer: {
-    flex: 1,
-    backgroundColor: '#F7F7F7', // Hafif gri, beyaz kutu içinde sırıtmaması için
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 4,
-    minHeight: 40,
-    justifyContent: 'center',
-  },
-  modernInput: {
-    color: '#000',
-    fontSize: 15,
-    maxHeight: 100,
-    paddingTop: 10,
-    paddingBottom: 10,
-  },
-  sendButtonCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 2,
-  },
+  composerPreviewContainer: { marginBottom: 8, gap: 8 },
+  replyPreview: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF2E6', padding: 8, borderRadius: 12, borderLeftWidth: 3, borderLeftColor: BRAND },
+  imagePreview: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F7F9FC', padding: 8, borderRadius: 12 },
+  composerInputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 10 },
+  iconButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', marginBottom: 2 },
+  inputContainer: { flex: 1, backgroundColor: '#F7F7F7', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 4, minHeight: 40, justifyContent: 'center' },
+  modernInput: { color: '#000', fontSize: 15, maxHeight: 100, paddingTop: 10, paddingBottom: 10 },
+  sendButtonCircle: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', marginBottom: 2 },
+
+  // MODAL & SPINNER
+  spinnerWrap: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center', zIndex: 9999 },
 });

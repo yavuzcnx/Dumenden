@@ -61,6 +61,8 @@ export default function ProfilePage() {
   const [phone, setPhone] = useState('');
   const [birth, setBirth] = useState(''); // YYYY-MM-DD
   const [bio, setBio] = useState('');
+  
+  // 🔥 FİX: Avatar URL'i anlık değişmesi için state'te tutuyoruz
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
   const guessExt = (uri: string) => {
@@ -97,7 +99,8 @@ export default function ProfilePage() {
   const computePublicUrl = (path?: string | null) => {
     if (!path) return null;
     const { data } = supabase.storage.from('avatars').getPublicUrl(path);
-    return data?.publicUrl ? `${data.publicUrl}?v=${Date.now()}` : null;
+    // 🔥 CACHE BUSTER: URL sonuna zaman damgası ekleyerek tarayıcıyı/uygulamayı yeni resim olduğuna ikna ediyoruz
+    return data?.publicUrl ? `${data.publicUrl}?t=${Date.now()}` : null;
   };
 
   // Tek seferde veri yükleyici
@@ -120,7 +123,13 @@ export default function ProfilePage() {
         setPhone(row.phone_number ?? '');
         setBirth(row.birth_date ?? '');
         setBio(row.bio ?? '');
-        const url = row.avatar_url || computePublicUrl(row.avatar_path);
+        // URL veya Path'ten gelen veriye cache buster ekle
+        let url = row.avatar_url;
+        if (!url && row.avatar_path) {
+            url = computePublicUrl(row.avatar_path);
+        } else if (url) {
+            url = `${url}?t=${Date.now()}`;
+        }
         setAvatarUrl(url ?? null);
       }
 
@@ -203,18 +212,18 @@ export default function ProfilePage() {
     })();
 
   const { data: sub } = supabase.auth.onAuthStateChange(async (event, sess) => {
-  // 🔥 EKLENEN KISIM: Eğer çıkış yapıldıysa veya oturum yoksa direkt şutla
   if (event === 'SIGNED_OUT' || !sess) {
      router.replace('/login');
      return;
   }
 
-  // Burası senin eski kodun aynısı (Giriş yapıldıysa verileri çek)
   const u = sess?.user ?? null;
   if(u) {
       setAuthUserId(u.id);
       setEmail(u.email ?? '');
-      await loadAll.current!(u.id);
+      // loadAll çağrısı zaten ilk girişte yapılıyor, burada tekrar etmeye gerek yok
+      // ama emin olmak istersen:
+      // await loadAll.current!(u.id);
   }
 });
 
@@ -236,22 +245,24 @@ authListenerRef.current = sub;
   const isPlus = !!dbu?.is_plus;
   const { lvl, pct, need } = useMemo(() => levelFromXp(xp), [xp]);
 
-  /** ---------- avatar upload ---------- **/
+  /** ---------- avatar upload (FIXED) ---------- **/
   const pickImage = async () => {
     try {
       const r = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
-        quality: 0.5, // Hız için biraz daha düşürdük
+        quality: 0.5, 
       });
       
       if (r.canceled || r.assets.length === 0 || !authUserId) return;
 
-      setUploading(true); // Çark başlar
+      setUploading(true);
       
       const asset = r.assets[0];
       const ext = guessExt(asset.uri);
       const mime = contentType(ext);
+      // 🔥 BENZERSİZ DOSYA ADI: Önceki dosyanın üzerine yazmak yerine yeni isim veriyoruz.
+      // Bu, CDN cache sorununu %100 çözer.
       const timestamp = Date.now();
       const path = `${authUserId}/avatar_${timestamp}.${ext}`; 
 
@@ -259,50 +270,46 @@ authListenerRef.current = sub;
       const res = await fetch(asset.uri);
       const buf = await res.arrayBuffer();
 
-      // 1. Eski fotoğrafları temizlemek istersen burada silebilirsin ama direkt yükleyelim
       const { error: upErr } = await supabase.storage
         .from('avatars')
-        .upload(path, buf, { contentType: mime, upsert: true });
+        .upload(path, buf, { contentType: mime, upsert: false }); // upsert: false çünkü yeni isim veriyoruz
       
       if (upErr) throw upErr;
 
-      // 2. Public URL al
+      // Public URL al
       const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path);
-      // 🔥 CACHE BREAKER: URL sonuna v= ekleyerek uygulamanın hemen yenilemesini sağlıyoruz
-      const publicUrlWithCache = `${urlData.publicUrl}?v=${timestamp}`;
+      // URL sonuna parametre ekleyerek React Native Image cache'ini kırıyoruz
+      const publicUrlWithCache = `${urlData.publicUrl}?t=${timestamp}`;
 
-      // 3. Veritabanını güncelle (DB ve Auth'u ayırıyoruz ki takılmasın)
+      // Veritabanını güncelle
       const { error: dbErr } = await supabase
         .from('users')
         .update({ 
-            avatar_url: publicUrlWithCache, 
-            avatar_path: path 
+            avatar_url: publicUrlWithCache, // URL'i saklıyoruz
+            avatar_path: path // Path'i de saklıyoruz (temizlik için gerekebilir)
         })
         .eq('id', authUserId);
 
       if (dbErr) throw dbErr;
 
-      // Auth metadata güncelleme (Opsiyonel ama iyi olur)
+      // Auth metadata güncelleme
       await supabase.auth.updateUser({ 
         data: { avatar_url: publicUrlWithCache } 
-      }).catch(() => console.log("Auth meta update skipped"));
+      }).catch(() => {});
 
-      // 4. State'leri güncelle
+      // 🔥 STATE GÜNCELLEME: En önemlisi bu. State değişince UI render olur.
       setAvatarUrl(publicUrlWithCache);
       
-      // ✅ BAŞARILI: Çarkı burada durduruyoruz
       setUploading(false);
       Alert.alert('Başarılı', 'Profil fotoğrafın güncellendi! ✅');
 
     } catch (e: any) {
       console.error('Yükleme hatası:', e);
-      Alert.alert('Hata', 'Fotoğraf yüklenirken bir sorun oluştu: ' + (e.message || 'Bilinmeyen hata'));
-      setUploading(false); // Hata durumunda da durdur
-    } finally {
-      // 🚨 GARANTİ: Eğer yukarıdaki setUploading'ler bir şekilde çalışmazsa burası devreye girer
-      setTimeout(() => setUploading(false), 500);
+      Alert.alert('Hata', 'Fotoğraf yüklenirken bir sorun oluştu.');
+      setUploading(false);
     }
   };
+
   /** ---------- save profile ---------- **/
   const save = async () => {
     if (!authUserId) return;
@@ -313,8 +320,7 @@ authListenerRef.current = sub;
         phone_number: phone?.trim() || null,
         birth_date: birth?.trim() || null,
         bio: bio?.trim() || null,
-        // 🔥 BURAYA DİKKAT: Fotoğrafı burada ezmemek için mevcut state'i koruyoruz
-        avatar_url: avatarUrl 
+        avatar_url: avatarUrl // Güncel URL'i gönderiyoruz
       };
 
       const { data: updated, error } = await supabase
@@ -330,7 +336,6 @@ authListenerRef.current = sub;
       setShowEdit(false);
       setDbu(updated as DBUser);
       
-      // Veriyi tazelemek için loadAll çağırılabilir ama optimizasyon için state yeterli
       Alert.alert('Başarılı', 'Bilgilerin kaydedildi.');
     } catch (e: any) {
       Alert.alert('Hata', e?.message ?? 'Profil güncellenemedi.');
@@ -412,25 +417,17 @@ authListenerRef.current = sub;
   /** ---------- sign out (FIXED) ---------- **/
   const handleLogout = async () => {
     try {
-      setSaving(true); // Çarkı başlat ama sadece bu sayfada
+      setSaving(true); 
   
-      // 1. Önce tüm Realtime dinleyicilerini durdur (Bu çok önemli!)
       await supabase.removeAllChannels();
   
-      // 2. Oturumu kapat
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
   
-      // 3. 🔥 BURASI KRİTİK: Manuel yönlendirme yapma! 
-      // _layout.tsx'teki dinleyici zaten SIGNED_OUT'u yakalayıp seni login'e atacak.
-      // Manuel replace yaparsan kilitlenir.
-  
     } catch (e: any) {
       console.error('Logout hatası:', e.message);
-      // Hata olsa bile login'e zorla
       router.replace('/login');
     } finally {
-      // Sayfadan ayrılacağımız için setSaving(false)'a gerek yok ama güvenlik için:
       setSaving(false);
     }
   };
@@ -458,10 +455,12 @@ authListenerRef.current = sub;
         <View style={styles.avatarBorder}>
           <View style={styles.avatarWrap}>
             {uploading ? (
-              <ActivityIndicator />
+              <ActivityIndicator color={ORANGE} />
             ) : (
               <TouchableOpacity onPress={pickImage} activeOpacity={0.85}>
+                {/* Key prop'u ekleyerek Image bileşenini zorla yeniletiyoruz */}
                 <Image
+                  key={avatarUrl} 
                   source={
                     avatarUrl
                       ? { uri: avatarUrl }

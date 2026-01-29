@@ -264,18 +264,13 @@ export default function Explore() {
           marginBottom: 20, 
           backgroundColor: '#fff', 
           borderRadius: 16, 
-          // 🔥 1. KRİTİK FİX: iOS'ta border'ları görünür kılmak için ekliyoruz
           borderWidth: 1,
-          borderColor: '#F0F0F0', // Çok hafif bir gri, kutuyu belli eder
-          
-          // 🔥 2. KRİTİK FİX: Shadow ayarlarını iOS için netleştirdik
+          borderColor: '#F0F0F0',
           shadowColor: '#000', 
           shadowOpacity: 0.1, 
           shadowRadius: 8, 
           shadowOffset: { width: 0, height: 4 }, 
           elevation: 4, 
-          
-          // 🔥 3. KRİTİK FİX: 'hidden' gölgeyi keser, bunu kaldırıyoruz veya 'visible' yapıyoruz
           overflow: Platform.OS === 'ios' ? 'visible' : 'hidden', 
           transform: [{ scale }] 
         }}
@@ -290,7 +285,6 @@ export default function Explore() {
             width: '100%', 
             height: CARD_H, 
             backgroundColor: '#f2f2f2',
-            // 🔥 4. KRİTİK FİX: Üstteki görselin yuvarlanması için buraya taşıdık
             borderTopLeftRadius: 15,
             borderTopRightRadius: 15,
             overflow: 'hidden' 
@@ -299,7 +293,6 @@ export default function Explore() {
           {item.image_url ? <Image source={{ uri: item.image_url }} style={{ width: '100%', height: '100%' }} /> : null}
         </Pressable>
 
-        {/* Kanıt ve Sana Ait etiketleri aynen kalıyor... */}
         {hasProof && (
           <TouchableOpacity onPress={() => openProofs(item)}
             style={{ position: 'absolute', top: 10, left: 10, backgroundColor: '#16a34a', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12, transform: [{ rotate: '-5deg' }], zIndex: 10 }}>
@@ -315,7 +308,6 @@ export default function Explore() {
             <Pill><Ionicons name="time-outline" size={13} color="#6B7280" style={{ marginRight: 4 }} /><Text style={{ color: '#6B7280', fontWeight: '700', fontSize: 11 }}>{new Date(item.closing_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text></Pill>
           </View>
 
-          {/* ... Yes/No Butonları kısmı aynı kalabilir ... */}
           {!isMine ? (
               <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
                 <TouchableOpacity disabled={locked || !item.yes_price} onPress={() => addOnceToBasket(item, 'YES')}
@@ -344,243 +336,247 @@ export default function Explore() {
     return (<SafeAreaView style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator /></SafeAreaView>);
   }
 
+  // 🔴 İŞTE BURASI: HOME SAYFASINDAN BİREBİR KOPYALANAN RETURN BLOĞU
+  // SafeAreaView içinde Header ve Grid var.
+  // Sepet Barı ise SafeAreaView'ın DIŞINDA ve bottom: 0 ile en alta sabitlendi.
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
-      {/* HEADER */}
-      <View style={{ paddingHorizontal: 16, paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) : 0, paddingBottom: 8 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <Text style={{ fontSize: 28, fontWeight: '900', color: '#FF6B00' }}>Keşfet</Text>
-          <View style={{ marginLeft: 'auto', backgroundColor: '#FFF2E8', borderWidth: 1, borderColor: '#FF6B00', paddingVertical: 6, paddingHorizontal: 10, borderRadius: 20 }}>
-            <Text style={{ color: '#FF6B00', fontWeight: '800' }}>
-              {xpLoading ? '...' : (xpLocal ?? xp).toLocaleString('tr-TR')} XP
-            </Text>
-          </View>
-        </View>
-        <Text style={{ color: '#6B7280', marginTop: 4 }}>Plus kullanıcılarının en iyi kuponları</Text>
-
-        <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
-          {CATS.map((c) => (
-            <TouchableOpacity key={c} onPress={() => setCat(c)} style={{ paddingVertical: 8, paddingHorizontal: 14, borderRadius: 12, backgroundColor: cat === c ? '#FF6B00' : '#eee' }}>
-              <Text style={{ color: cat === c ? '#fff' : '#333', fontWeight: '700' }}>{c}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View>
-
-      {/* GRID */}
-      <FlatList
-        data={rows}
-        keyExtractor={(i) => String(i.id)}
-        numColumns={2}
-        columnWrapperStyle={{ paddingHorizontal: H_PADDING, gap: 12 }}
-        contentContainerStyle={{ paddingBottom: 140, paddingTop: 8 }}
-        renderItem={({ item }) => <Card item={item} />}
-        showsVerticalScrollIndicator={false}
-      />
-
-      {boom > 0 && <EmojiBurst onDone={() => setBoom(0)} />}
-
-      {/* ====== SEPET MODAL ====== */}
-      <Modal visible={showBasket} transparent animationType="fade" onRequestClose={() => setShowBasket(false)}>
-        <View style={{ flex: 1 }}>
-          <Pressable style={{ flex: 1 }} onPress={() => setShowBasket(false)}>
-            <BlurView intensity={35} tint="light" style={{ position: 'absolute', inset: 0 }} />
-          </Pressable>
-
-          <View style={{
-            position: 'absolute', left: 0, right: 0, bottom: 0,
-            padding: 16, paddingBottom: 24, backgroundColor: '#fff',
-            borderTopLeftRadius: 20, borderTopRightRadius: 20,
-            shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 10, elevation: 8
-          }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
-              <Text style={{ fontWeight: '900', fontSize: 18 }}>Sepet</Text>
-              <TouchableOpacity onPress={() => setShowBasket(false)} style={{ marginLeft: 'auto' }}>
-                <Text style={{ fontWeight: '800' }}>Kapat</Text>
-              </TouchableOpacity>
-            </View>
-
-            {basket.length === 0 ? (
-              <Text style={{ color: '#666' }}>Sepet boş.</Text>
-            ) : (
-              <ScrollView style={{ maxHeight: height * 0.45 }}>
-                {basket.map((b) => (
-                  <View key={`${b.coupon_id}`} style={{ borderWidth: 1, borderColor: '#eee', borderRadius: 14, padding: 12, marginBottom: 10, backgroundColor: '#FAFAFB' }}>
-                    <Text style={{ fontWeight: '800' }}>{b.title}</Text>
-                    <Text style={{ color: '#666', marginTop: 4 }}>{b.side} • Fiyat: {b.price.toFixed(2)} • XP: {b.stake}</Text>
-                    <TouchableOpacity onPress={() => removeFromBasket(b.coupon_id)} style={{ position: 'absolute', right: 12, top: 12, backgroundColor: '#ef4444', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 6 }}>
-                      <Text style={{ color: '#fff', fontWeight: '800' }}>Sil</Text>
-                    </TouchableOpacity>
-                  </View>
-                ))}
-              </ScrollView>
-            )}
-
-            <View style={{ marginTop: 8 }}>
-              <Text style={{ fontWeight: '900' }}>Toplam Stake: {totalStake} XP</Text>
-            </View>
-
-            <View style={{ flexDirection: 'row', gap: 10, marginTop: 12 }}>
-              <TouchableOpacity disabled={basket.length === 0 || busy} onPress={confirmBasket}
-                style={{ flex: 1, backgroundColor: (basket.length === 0 || busy) ? '#f3a774' : '#FF6B00', padding: 14, borderRadius: 14, alignItems: 'center' }}>
-                <Text style={{ color: '#fff', fontWeight: '900' }}>{busy ? 'İşleniyor…' : 'Onayla / Oyna'}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity disabled={basket.length === 0 || busy} onPress={() => setBasket([])}
-                style={{ flex: 1, backgroundColor: '#F0F1F4', padding: 14, borderRadius: 14, alignItems: 'center', opacity: (basket.length === 0 || busy) ? 0.6 : 1 }}>
-                <Text style={{ fontWeight: '900' }}>Sepeti Temizle</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* ====== KANIT MODAL ====== */}
-      <Modal
-        transparent
-        visible={!!proofSheet}
-        animationType="slide"
-        onRequestClose={() => setProofSheet(null)}
-      >
-        <View style={{ flex: 1, justifyContent: 'flex-end' }}>
-          <Pressable style={{ flex: 1 }} onPress={() => setProofSheet(null)}>
-            <BlurView intensity={40} tint="light" style={{ position: 'absolute', inset: 0 }} />
-          </Pressable>
-
-          <View
-            style={{
-              backgroundColor: '#fff',
-              borderTopLeftRadius: 22,
-              borderTopRightRadius: 22,
-              paddingTop: 10,
-              paddingHorizontal: 0, // Resmi kenarlara yapıştırmak için paddingi kaldırdım (içeride vereceğim)
-              paddingBottom: 24,
-              maxHeight: height * 0.90, // 🔥 DAHA YÜKSEK MODAL (Altta kalmasın diye)
-              shadowColor: '#000',
-              shadowOpacity: 0.2,
-              shadowRadius: 12,
-              elevation: 12,
-            }}
-          >
-            <View style={{ alignItems: 'center', marginBottom: 10, marginTop: 6 }}>
-              <View style={{ width: 48, height: 5, borderRadius: 3, backgroundColor: '#E5E7EB' }} />
-            </View>
-
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12, paddingHorizontal: 16 }}>
-              <Text style={{ fontWeight: '900', fontSize: 18 }} numberOfLines={1}>
-               {proofSheet?.title}
+    <View style={{ flex: 1, backgroundColor: '#fff' }}>
+      <SafeAreaView style={{ flex: 1 }}>
+        {/* HEADER */}
+        <View style={{ paddingHorizontal: 16, paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) : 0, paddingBottom: 8 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <Text style={{ fontSize: 28, fontWeight: '900', color: '#FF6B00' }}>Keşfet</Text>
+            <View style={{ marginLeft: 'auto', backgroundColor: '#FFF2E8', borderWidth: 1, borderColor: '#FF6B00', paddingVertical: 6, paddingHorizontal: 10, borderRadius: 20 }}>
+              <Text style={{ color: '#FF6B00', fontWeight: '800' }}>
+                {xpLoading ? '...' : (xpLocal ?? xp).toLocaleString('tr-TR')} XP
               </Text>
-              <TouchableOpacity onPress={() => setProofSheet(null)} style={{ marginLeft: 'auto' }}>
-                <Text style={{ fontWeight: '800', color: '#666' }}>Kapat</Text>
-              </TouchableOpacity>
             </View>
+          </View>
+          <Text style={{ color: '#6B7280', marginTop: 4 }}>Plus kullanıcılarının en iyi kuponları</Text>
 
-            {loadingProofs ? (
-              <ActivityIndicator style={{ marginVertical: 40 }} color="#FF6B00" />
-            ) : proofs.length === 0 ? (
-              <Text style={{ color: '#666', paddingHorizontal: 16 }}>Onaylı kanıt yok.</Text>
-            ) : (
-              <ScrollView contentContainerStyle={{ paddingHorizontal: 16 }}>
-                <View style={{ gap: 16, paddingBottom: 20 }}>
-                  {proofs.map((p) => (
-                    <View
-                      key={p.id}
-                      style={{
-                        borderRadius: 16,
-                        overflow: 'hidden',
-                        backgroundColor: '#000', // 🔥 SİYAH FON (Sinema modu)
-                      }}
-                    >
-                      {!!p.image_url && (
-                        <Image
-                          source={{ uri: p.image_url }}
-                          style={{
-                            width: '100%',
-                            height: Math.min(height * 0.55, 450), // 🔥 DAHA BÜYÜK GÖRSEL ALANI
-                            backgroundColor: '#000'
-                          }}
-                          resizeMode="contain" // 🔥 KESİLMEDEN TAM GÖSTER
-                        />
-                      )}
-                      {!!p.title && (
-                        <View style={{ backgroundColor: '#fff', padding: 12 }}>
-                            <Text style={{ fontWeight: '800', color: '#333' }} numberOfLines={2}>
-                            {p.title}
-                            </Text>
-                            <Text style={{ color: '#666', fontSize: 11, marginTop: 4 }}>
-                                {new Date(p.created_at).toLocaleDateString()} tarihinde eklendi
-                            </Text>
-                        </View>
-                      )}
+          <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+            {CATS.map((c) => (
+              <TouchableOpacity key={c} onPress={() => setCat(c)} style={{ paddingVertical: 8, paddingHorizontal: 14, borderRadius: 12, backgroundColor: cat === c ? '#FF6B00' : '#eee' }}>
+                <Text style={{ color: cat === c ? '#fff' : '#333', fontWeight: '700' }}>{c}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        {/* GRID */}
+        <FlatList
+          data={rows}
+          keyExtractor={(i) => String(i.id)}
+          numColumns={2}
+          columnWrapperStyle={{ paddingHorizontal: H_PADDING, gap: 12 }}
+          contentContainerStyle={{ paddingBottom: 140, paddingTop: 8 }}
+          renderItem={({ item }) => <Card item={item} />}
+          showsVerticalScrollIndicator={false}
+        />
+
+        {boom > 0 && <EmojiBurst onDone={() => setBoom(0)} />}
+
+        {/* ====== SEPET MODAL ====== */}
+        <Modal visible={showBasket} transparent animationType="fade" onRequestClose={() => setShowBasket(false)}>
+          <View style={{ flex: 1 }}>
+            <Pressable style={{ flex: 1 }} onPress={() => setShowBasket(false)}>
+              <BlurView intensity={35} tint="light" style={{ position: 'absolute', inset: 0 }} />
+            </Pressable>
+
+            <View style={{
+              position: 'absolute', left: 0, right: 0, bottom: 0,
+              padding: 16, paddingBottom: 24, backgroundColor: '#fff',
+              borderTopLeftRadius: 20, borderTopRightRadius: 20,
+              shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 10, elevation: 8
+            }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
+                <Text style={{ fontWeight: '900', fontSize: 18 }}>Sepet</Text>
+                <TouchableOpacity onPress={() => setShowBasket(false)} style={{ marginLeft: 'auto' }}>
+                  <Text style={{ fontWeight: '800' }}>Kapat</Text>
+                </TouchableOpacity>
+              </View>
+
+              {basket.length === 0 ? (
+                <Text style={{ color: '#666' }}>Sepet boş.</Text>
+              ) : (
+                <ScrollView style={{ maxHeight: height * 0.45 }}>
+                  {basket.map((b) => (
+                    <View key={`${b.coupon_id}`} style={{ borderWidth: 1, borderColor: '#eee', borderRadius: 14, padding: 12, marginBottom: 10, backgroundColor: '#FAFAFB' }}>
+                      <Text style={{ fontWeight: '800' }}>{b.title}</Text>
+                      <Text style={{ color: '#666', marginTop: 4 }}>{b.side} • Fiyat: {b.price.toFixed(2)} • XP: {b.stake}</Text>
+                      <TouchableOpacity onPress={() => removeFromBasket(b.coupon_id)} style={{ position: 'absolute', right: 12, top: 12, backgroundColor: '#ef4444', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 6 }}>
+                        <Text style={{ color: '#fff', fontWeight: '800' }}>Sil</Text>
+                      </TouchableOpacity>
                     </View>
                   ))}
-                </View>
-              </ScrollView>
-            )}
-          </View>
-        </View>
-      </Modal>
+                </ScrollView>
+              )}
 
-      {/* Focus card (Aynen kaldı) */}
-      <Modal visible={!!focusCard} transparent animationType="fade" onRequestClose={() => setFocusCard(null)}>
-        {/* ... (Bu kısım değişmediği için kısaltıyorum, önceki kodunla aynı) ... */}
-         <View style={{ flex: 1 }}>
-          <Pressable style={{ flex: 1 }} onPress={() => setFocusCard(null)}>
-            <BlurView intensity={40} tint="light" style={{ position: 'absolute', inset: 0 }} />
-          </Pressable>
-          {focusCard && (
-            <View style={{ position: 'absolute', left: 16, right: 16, top: Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) + 24 : 24, bottom: 24, justifyContent: 'center' }}>
-              <View style={{ borderRadius: 20, backgroundColor: '#fff', overflow: 'hidden', shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 12, elevation: 8 }}>
-                {focusCard.image_url ? (<Image source={{ uri: focusCard.image_url }} style={{ width: '100%', height: Math.min(height * 0.45, 420) }} />) : null}
-                <View style={{ padding: 16, gap: 10 }}>
-                  <Text style={{ fontWeight: '900', fontSize: 20 }}>{focusCard.title}</Text>
-                  <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-                    {!!focusCard.category && <Pill><Text style={{ color: '#FF6B00', fontWeight: '900' }}>{focusCard.category}</Text></Pill>}
-                    <Pill><Ionicons name="calendar-outline" size={16} color="#6B7280" style={{ marginRight: 6 }} /><Text style={{ color: '#6B7280', fontWeight: '700' }}>{new Date(focusCard.closing_date).toLocaleDateString()}</Text></Pill>
-                    <Pill><Ionicons name="alarm-outline"  size={16} color="#6B7280" style={{ marginRight: 6 }} /><Text style={{ color: '#6B7280', fontWeight: '700' }}>{new Date(focusCard.closing_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text></Pill>
-                  </View>
-                  
-                  {myId && focusCard.created_by === myId ? (
-                      <View style={{ padding: 12, backgroundColor: '#FFF3E0', borderRadius: 12, alignItems: 'center', marginTop:12, borderWidth: 1, borderColor: '#FFE0B2' }}>
-                          <Text style={{ color: '#E65100', fontWeight: '800', fontSize: 14 }}>Sana ait kupon (Bahis Kapalı)</Text>
-                      </View>
-                  ) : (
-                      <View style={{ flexDirection: 'row', gap: 10, marginTop: 12 }}>
-                        <TouchableOpacity disabled={basket.length === 0 || busy} onPress={confirmBasket}
-                          style={{ flex: 1, backgroundColor: (basket.length === 0 || busy) ? '#f3a774' : '#FF6B00', padding: 14, borderRadius: 14, alignItems: 'center' }}>
-                          <Text style={{ color: '#fff', fontWeight: '900' }}>{busy ? 'İşleniyor…' : 'Onayla / Oyna'}</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity disabled={basket.length === 0 || busy} onPress={() => setBasket([])}
-                          style={{ flex: 1, backgroundColor: '#F0F1F4', padding: 14, borderRadius: 14, alignItems: 'center', opacity: (basket.length === 0 || busy) ? 0.6 : 1 }}>
-                          <Text style={{ fontWeight: '900' }}>Sepeti Temizle</Text>
-                        </TouchableOpacity>
-                      </View>
-                  )}
-                </View>
+              <View style={{ marginTop: 8 }}>
+                <Text style={{ fontWeight: '900' }}>Toplam Stake: {totalStake} XP</Text>
+              </View>
+
+              <View style={{ flexDirection: 'row', gap: 10, marginTop: 12 }}>
+                <TouchableOpacity disabled={basket.length === 0 || busy} onPress={confirmBasket}
+                  style={{ flex: 1, backgroundColor: (basket.length === 0 || busy) ? '#f3a774' : '#FF6B00', padding: 14, borderRadius: 14, alignItems: 'center' }}>
+                  <Text style={{ color: '#fff', fontWeight: '900' }}>{busy ? 'İşleniyor…' : 'Onayla / Oyna'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity disabled={basket.length === 0 || busy} onPress={() => setBasket([])}
+                  style={{ flex: 1, backgroundColor: '#F0F1F4', padding: 14, borderRadius: 14, alignItems: 'center', opacity: (basket.length === 0 || busy) ? 0.6 : 1 }}>
+                  <Text style={{ fontWeight: '900' }}>Sepeti Temizle</Text>
+                </TouchableOpacity>
               </View>
             </View>
-          )}
-        </View>
-      </Modal>
+          </View>
+        </Modal>
+
+        {/* ====== KANIT MODAL ====== */}
+        <Modal
+          transparent
+          visible={!!proofSheet}
+          animationType="slide"
+          onRequestClose={() => setProofSheet(null)}
+        >
+          <View style={{ flex: 1, justifyContent: 'flex-end' }}>
+            <Pressable style={{ flex: 1 }} onPress={() => setProofSheet(null)}>
+              <BlurView intensity={40} tint="light" style={{ position: 'absolute', inset: 0 }} />
+            </Pressable>
+
+            <View
+              style={{
+                backgroundColor: '#fff',
+                borderTopLeftRadius: 22,
+                borderTopRightRadius: 22,
+                paddingTop: 10,
+                paddingHorizontal: 0,
+                paddingBottom: 24,
+                maxHeight: height * 0.90,
+                shadowColor: '#000',
+                shadowOpacity: 0.2,
+                shadowRadius: 12,
+                elevation: 12,
+              }}
+            >
+              <View style={{ alignItems: 'center', marginBottom: 10, marginTop: 6 }}>
+                <View style={{ width: 48, height: 5, borderRadius: 3, backgroundColor: '#E5E7EB' }} />
+              </View>
+
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12, paddingHorizontal: 16 }}>
+                <Text style={{ fontWeight: '900', fontSize: 18 }} numberOfLines={1}>
+                 {proofSheet?.title}
+                </Text>
+                <TouchableOpacity onPress={() => setProofSheet(null)} style={{ marginLeft: 'auto' }}>
+                  <Text style={{ fontWeight: '800', color: '#666' }}>Kapat</Text>
+                </TouchableOpacity>
+              </View>
+
+              {loadingProofs ? (
+                <ActivityIndicator style={{ marginVertical: 40 }} color="#FF6B00" />
+              ) : proofs.length === 0 ? (
+                <Text style={{ color: '#666', paddingHorizontal: 16 }}>Onaylı kanıt yok.</Text>
+              ) : (
+                <ScrollView contentContainerStyle={{ paddingHorizontal: 16 }}>
+                  <View style={{ gap: 16, paddingBottom: 20 }}>
+                    {proofs.map((p) => (
+                      <View
+                        key={p.id}
+                        style={{
+                          borderRadius: 16,
+                          overflow: 'hidden',
+                          backgroundColor: '#000',
+                        }}
+                      >
+                        {!!p.image_url && (
+                          <Image
+                            source={{ uri: p.image_url }}
+                            style={{
+                              width: '100%',
+                              height: Math.min(height * 0.55, 450),
+                              backgroundColor: '#000'
+                            }}
+                            resizeMode="contain"
+                          />
+                        )}
+                        {!!p.title && (
+                          <View style={{ backgroundColor: '#fff', padding: 12 }}>
+                              <Text style={{ fontWeight: '800', color: '#333' }} numberOfLines={2}>
+                              {p.title}
+                              </Text>
+                              <Text style={{ color: '#666', fontSize: 11, marginTop: 4 }}>
+                                  {new Date(p.created_at).toLocaleDateString()} tarihinde eklendi
+                              </Text>
+                          </View>
+                        )}
+                      </View>
+                    ))}
+                  </View>
+                </ScrollView>
+              )}
+            </View>
+          </View>
+        </Modal>
+
+        {/* Focus card */}
+        <Modal visible={!!focusCard} transparent animationType="fade" onRequestClose={() => setFocusCard(null)}>
+           <View style={{ flex: 1 }}>
+            <Pressable style={{ flex: 1 }} onPress={() => setFocusCard(null)}>
+              <BlurView intensity={40} tint="light" style={{ position: 'absolute', inset: 0 }} />
+            </Pressable>
+            {focusCard && (
+              <View style={{ position: 'absolute', left: 16, right: 16, top: Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) + 24 : 24, bottom: 24, justifyContent: 'center' }}>
+                <View style={{ borderRadius: 20, backgroundColor: '#fff', overflow: 'hidden', shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 12, elevation: 8 }}>
+                  {focusCard.image_url ? (<Image source={{ uri: focusCard.image_url }} style={{ width: '100%', height: Math.min(height * 0.45, 420) }} />) : null}
+                  <View style={{ padding: 16, gap: 10 }}>
+                    <Text style={{ fontWeight: '900', fontSize: 20 }}>{focusCard.title}</Text>
+                    <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                      {!!focusCard.category && <Pill><Text style={{ color: '#FF6B00', fontWeight: '900' }}>{focusCard.category}</Text></Pill>}
+                      <Pill><Ionicons name="calendar-outline" size={16} color="#6B7280" style={{ marginRight: 6 }} /><Text style={{ color: '#6B7280', fontWeight: '700' }}>{new Date(focusCard.closing_date).toLocaleDateString()}</Text></Pill>
+                      <Pill><Ionicons name="alarm-outline"  size={16} color="#6B7280" style={{ marginRight: 6 }} /><Text style={{ color: '#6B7280', fontWeight: '700' }}>{new Date(focusCard.closing_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text></Pill>
+                    </View>
+                    
+                    {myId && focusCard.created_by === myId ? (
+                        <View style={{ padding: 12, backgroundColor: '#FFF3E0', borderRadius: 12, alignItems: 'center', marginTop:12, borderWidth: 1, borderColor: '#FFE0B2' }}>
+                            <Text style={{ color: '#E65100', fontWeight: '800', fontSize: 14 }}>Sana ait kupon (Bahis Kapalı)</Text>
+                        </View>
+                    ) : (
+                        <View style={{ flexDirection: 'row', gap: 10, marginTop: 12 }}>
+                          <TouchableOpacity disabled={basket.length === 0 || busy} onPress={confirmBasket}
+                            style={{ flex: 1, backgroundColor: (basket.length === 0 || busy) ? '#f3a774' : '#FF6B00', padding: 14, borderRadius: 14, alignItems: 'center' }}>
+                            <Text style={{ color: '#fff', fontWeight: '900' }}>{busy ? 'İşleniyor…' : 'Onayla / Oyna'}</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity disabled={basket.length === 0 || busy} onPress={() => setBasket([])}
+                            style={{ flex: 1, backgroundColor: '#F0F1F4', padding: 14, borderRadius: 14, alignItems: 'center', opacity: (basket.length === 0 || busy) ? 0.6 : 1 }}>
+                            <Text style={{ fontWeight: '900' }}>Sepeti Temizle</Text>
+                          </TouchableOpacity>
+                        </View>
+                    )}
+                  </View>
+                </View>
+              </View>
+            )}
+          </View>
+        </Modal>
+
+      </SafeAreaView>
+
+      {/* 🔥 HOME İLE AYNI: EN ALTA YAPIŞIK, SAFE AREA DIŞINDA */}
       <View 
         pointerEvents="box-none" 
         style={{ 
           position: 'absolute', 
           left: 0, 
           right: 0, 
-          // 🔥 iOS'ta o sarı çizgili boşluğu (Safe Area) öldürmek için değeri 38-40 bandına çektik
-          bottom: Platform.OS === 'ios' ? 38 : 65, 
-          zIndex: 999 
+          bottom: 0, 
+          zIndex: 99
         }}
       >
         <CartRibbon
           count={basket.length}
-          // 🔥 HATA FİX: Explore'da totals yok, direkt totalStake var
           totalXp={totalStake} 
-          // 🔥 HATA FİX: Explore'da setBasketOpen yok, setShowBasket var
           onPress={() => setShowBasket(true)} 
           fabDiameter={84}
         />
       </View>
-    </SafeAreaView>
+    </View>
   );
 }

@@ -1,9 +1,8 @@
-// app/admin/add-market.tsx
 'use client';
 
 import { supabase } from '@/lib/supabaseClient';
 import { decode as atob } from 'base-64';
-import * as FileSystem from 'expo-file-system/legacy';
+import * as FileSystem from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import { useEffect, useMemo, useState } from 'react';
 import {
@@ -28,10 +27,12 @@ const guessExt = (uri: string) => {
   return ext === 'jpeg' ? 'jpg' : ext;
 };
 const contentType = (ext: string) => (ext === 'jpg' ? 'image/jpeg' : ext === 'heic' ? 'image/heic' : `image/${ext}`);
+
 async function uploadToMediaBucket(uri: string, path: string) {
   const ext = guessExt(uri);
   const ct = contentType(ext);
-  const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+  // 🔥 FIX BURADA: EncodingType yerine direkt 'base64' stringi kullanıldı
+  const base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
   const bin = atob(base64);
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
@@ -124,10 +125,12 @@ export default function AddMarket() {
   const loadItems = async () => {
     if (!activeCat) { setItems([]); return; }
     setLoadingList(true);
+    // 🔥 SADECE AKTİF ÜRÜNLERİ GETİRİYORUZ (Silinenler gelmesin)
     const { data, error } = await supabase
       .from('rewards')
       .select('id,name,image_url,int_price,stock,category_id')
       .eq('category_id', activeCat)
+      .eq('is_active', true) 
       .order('created_at', { ascending: false });
     if (!error) setItems((data ?? []) as RewardRow[]);
     setLoadingList(false);
@@ -155,7 +158,7 @@ export default function AddMarket() {
     if (localUri) {
       const path = await uploadToMediaBucket(localUri, `rewards/${activeCat}/${uid()}.${guessExt(localUri)}`);
       const pub = supabase.storage.from(MEDIA_BUCKET).getPublicUrl(path).data?.publicUrl;
-      image_url = pub ?? path; // eski davranış aynı
+      image_url = pub ?? path;
     }
     const { error } = await supabase.from('rewards').insert([{
       category_id: activeCat,
@@ -163,7 +166,8 @@ export default function AddMarket() {
       description: desc.trim() || null,
       int_price: Number(price),
       stock: Number(stock || '0'),
-      image_url
+      image_url,
+      is_active: true // Yeni eklenenler aktif olsun
     }]);
     if (error) return Alert.alert('Hata', error.message);
 
@@ -172,33 +176,23 @@ export default function AddMarket() {
     Alert.alert('OK', 'Ödül eklendi');
   };
 
-  // public URL → storage path çıkarımı (varsa)
-  function pathFromImageUrl(u?: string | null): string | null {
-    if (!u) return null;
-    try {
-      const url = new URL(u);
-      const marker = `/object/public/${MEDIA_BUCKET}/`;
-      const idx = url.pathname.indexOf(marker);
-      if (idx >= 0) return decodeURIComponent(url.pathname.slice(idx + marker.length));
-    } catch {
-      // http olmayan değer zaten path olabilir
-    }
-    if (!u.startsWith('http')) return u;
-    return null;
-  }
-
-  // ödül sil
+  // 🔥 SOFT DELETE (GİZLEME) FONKSİYONU
   const deleteItem = async (row: RewardRow) => {
-    Alert.alert('Silinsin mi?', `"${row.name}" kalıcı olarak silinecek.`, [
+    Alert.alert('Silinsin mi?', `"${row.name}" marketten kaldırılacak.`, [
       { text: 'Vazgeç' },
       {
         text: 'Sil', style: 'destructive',
         onPress: async () => {
           try {
-            const { error } = await supabase.from('rewards').delete().eq('id', row.id);
+            // DELETE yerine UPDATE yapıyoruz -> is_active = false
+            const { error } = await supabase
+              .from('rewards')
+              .update({ is_active: false })
+              .eq('id', row.id);
+
             if (error) throw error;
-            const path = pathFromImageUrl(row.image_url);
-            if (path) await supabase.storage.from(MEDIA_BUCKET).remove([path]);
+            
+            // Listeden anında siliyoruz (UI güncellemesi)
             setItems(prev => prev.filter(i => i.id !== row.id));
           } catch (e: any) {
             Alert.alert('Silinemedi', e?.message ?? 'Bilinmeyen hata');
@@ -208,37 +202,42 @@ export default function AddMarket() {
     ]);
   };
 
-  // *** KATEGORİ SİLME ***
+  // *** KATEGORİ SİLME (Soft Delete Entegreli) ***
   const deleteCategory = async (catId: string, catName: string) => {
     try {
-      // Bu kategoride ürün var mı?
+      // Bu kategorideki aktif ürün sayısı
       const countRes = await supabase
         .from('rewards')
         .select('id', { count: 'exact', head: true })
-        .eq('category_id', catId);
+        .eq('category_id', catId)
+        .eq('is_active', true);
       const total = countRes.count ?? 0;
 
       const msg = total > 0
         ? `"${catName}" kategorisinde ${total} ürün var.\n\n` +
-          '• "Kategoriyi Sil (Ürünler kalır)" dersen ürünler kategorisiz kalır.\n' +
-          '• "Vazgeç" ile iptal edebilirsin.'
+          '• "Kategoriyi Sil" dersen ürünler gizlenir.'
         : `"${catName}" kategorisini silmek istiyor musun?`;
 
       Alert.alert('Kategori Sil', msg, [
         { text: 'Vazgeç' },
         {
-          text: 'Kategoriyi Sil (Ürünler kalır)',
+          text: 'Kategoriyi Sil',
           style: 'destructive',
           onPress: async () => {
-            // 1) Ürünleri kategorisiz yap
-            await supabase.from('rewards').update({ category_id: null }).eq('category_id', catId);
-            // 2) Kategoriyi sil
+            // 1) Önce ürünleri gizle
+            await supabase.from('rewards').update({ is_active: false }).eq('category_id', catId);
+            
+            // 2) Sonra kategoriyi sil
             const { error } = await supabase.from('reward_categories').delete().eq('id', catId);
-            if (error) { Alert.alert('Hata', error.message); return; }
-            // 3) UI refresh
+            
+            if (error) { 
+                Alert.alert('Bilgi', 'Kategori ilişkili veriler nedeniyle tam silinemedi ama ürünler gizlendi.'); 
+            } else {
+                Alert.alert('OK', 'Kategori silindi');
+            }
+            
             if (activeCat === catId) { setActiveCat(null); setItems([]); }
             await loadCats();
-            Alert.alert('OK', 'Kategori silindi');
           }
         }
       ]);

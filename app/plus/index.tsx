@@ -1,7 +1,6 @@
 import { supabase } from '@/lib/supabaseClient';
-import { usePlus } from '@/src/contexts/hooks/usePlus';
-import { Ionicons } from '@expo/vector-icons'; // İkonlar için ekledim
-import { LinearGradient } from 'expo-linear-gradient'; // Gradient için
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -22,6 +21,7 @@ const BRAND  = '#FF6B00';
 const SOFT   = '#FFF2E8';
 const BORDER = '#F2D9C8';
 
+// Eğer resim yolun farklıysa burayı güncelle, ama genelde böyledir
 const MASCOT_SRC = require('@/assets/images/dumendenci.png');
 
 type Quota = { used_last7: number; remaining_last7: number };
@@ -30,12 +30,9 @@ export default function PlusHome() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   
-  // 🔥 Animasyon değeri
+  // Animasyon değerleri
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(20)).current;
-
-  // 🔥 ARTIK PAYWALL KONTROLÜ YOK - Direkt Giriş
-  const { isPlus, loading } = usePlus(); 
 
   const [busy, setBusy] = useState(true);
   const [user, setUser] = useState<{ name: string; xp: number; avatar?: string | null }>({
@@ -51,9 +48,12 @@ export default function PlusHome() {
       Animated.timing(slideAnim, { toValue: 0, duration: 600, useNativeDriver: true })
     ]).start();
 
+    // Verileri çek
     (async () => {
       const { data: au } = await supabase.auth.getUser();
       const uid = au?.user?.id;
+      
+      // Giriş yoksa login'e atabilirsin ama şimdilik sadece loading dursun
       if (!uid) { setBusy(false); return; }
 
       // 1. Kullanıcı verisi
@@ -87,7 +87,7 @@ export default function PlusHome() {
     })();
   }, []);
 
-  if (loading || busy) {
+  if (busy) {
     return (
       <SafeAreaView style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator color={BRAND} size="large" />
@@ -113,7 +113,7 @@ export default function PlusHome() {
       >
         <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
           
-          {/* MODERN HEADER */}
+          {/* HEADER KART */}
           <LinearGradient
             colors={['#ffffff', '#FFF8F3']}
             start={{ x: 0, y: 0 }}
@@ -136,7 +136,7 @@ export default function PlusHome() {
             </View>
           </LinearGradient>
 
-          {/* KOTA DURUMU (ÖNEMLİ) */}
+          {/* KOTA DURUMU */}
           <View style={styles.quotaSection}>
             <View style={styles.quotaHeader}>
               <Text style={styles.sectionTitle}>Haftalık Gönderim Hakkın</Text>
@@ -162,7 +162,7 @@ export default function PlusHome() {
             </View>
           </View>
 
-          {/* KISAYOLLAR */}
+          {/* BUTONLAR (Grid) */}
           <View style={styles.actionGrid}>
             <ActionButton 
               title="Kupon Ekle" 
@@ -195,7 +195,7 @@ export default function PlusHome() {
             />
           </View>
 
-          {/* Diğer İşlemler */}
+          {/* Geçmiş Butonu */}
           <Text style={[styles.sectionTitle, { marginTop: 24, marginBottom: 12 }]}>Geçmiş</Text>
           <TouchableOpacity 
             style={styles.historyBtn}
@@ -218,8 +218,7 @@ export default function PlusHome() {
   );
 }
 
-/* ---- SEXY COMPONENTS ---- */
-
+/* ---- YARDIMCI BİLEŞEN ---- */
 function ActionButton({ title, desc, icon, color, onPress, isPrimary = false }: any) {
   return (
     <TouchableOpacity 
@@ -241,8 +240,7 @@ function ActionButton({ title, desc, icon, color, onPress, isPrimary = false }: 
   );
 }
 
-/* ---- STYLES ---- */
-
+/* ---- STİL DOSYASI ---- */
 const styles = StyleSheet.create({
   headerCard: {
     flexDirection: 'row',

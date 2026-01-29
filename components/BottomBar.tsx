@@ -57,9 +57,9 @@ function BottomBar() {
 
         {/* Orta FAB */}
         <Pressable
-          onPress={() =>
-            go((isPlus ? '/plus' : '/(modals)/plus-paywall') as Href)
-          }
+         onPress={() =>
+  go('/plus' as Href)
+}
           android_ripple={{ color: '#ffe4d1', borderless: true, radius: FAB_SIZE / 2 }}
           style={styles.fab}
           hitSlop={8}

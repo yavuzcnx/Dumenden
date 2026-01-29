@@ -199,12 +199,13 @@ export default function Market() {
   };
   // -------------------------------------------------------------
 
-  useEffect(() => {
+ useEffect(() => {
     (async () => {
       setLoading(true);
       const [cRes, rRes] = await Promise.all([
         supabase.from('reward_categories').select('id,name').order('name'),
-        supabase.from('rewards').select('*').order('int_price', { ascending: false }),
+        // 🔥 BURAYA DİKKAT: .eq('is_active', true) EKLENDİ
+        supabase.from('rewards').select('*').eq('is_active', true).order('int_price', { ascending: false }),
       ]);
       setCats([{ id: 'all', name: 'Tümü' }, ...((cRes.data ?? []) as Category[])] as Category[]);
       setRewards((rRes.data ?? []) as Reward[]);

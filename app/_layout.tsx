@@ -32,19 +32,21 @@ export default function RootLayout() {
         // BURASI ÇOK ÖNEMLİ: Promise.allSettled kullanıyoruz.
         // Reklam hata verse bile uygulama açılmaya devam eder.
         await Promise.allSettled([
-           // Reklamları başlat (Hata olsa bile catch ile yakala, durdurma)
-           initAds().catch(e => console.warn("Ad Init Fail:", e)),
-           
-           // Session ve Bootstrap işlemleri
-           (async () => {
-             const { data: { session } } = await supabase.auth.getSession();
-             if (session?.user) {
-               await ensureBootstrapAndProfile().catch(() => {});
-             }
-           })()
+          // Reklamları başlat (Hata olsa bile catch ile yakala, durdurma)
+          initAds().catch((e) => console.warn('Ad Init Fail:', e)),
+
+          // Session ve Bootstrap işlemleri
+          (async () => {
+            const {
+              data: { session },
+            } = await supabase.auth.getSession();
+            if (session?.user) {
+              await ensureBootstrapAndProfile().catch(() => {});
+            }
+          })(),
         ]);
       } catch (e) {
-        console.warn("Global Init Error:", e);
+        console.warn('Global Init Error:', e);
       } finally {
         // İşlemler bitince uygulamayı "Hazır" olarak işaretle
         setAppIsReady(true);
@@ -61,14 +63,56 @@ export default function RootLayout() {
     }
   }, [appIsReady]);
 
-  // Auth Listener (Senin orijinal kodun - aynen duruyor)
-  useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'SIGNED_OUT') router.replace('/login');
-      else if (event === 'SIGNED_IN' && session) router.replace('/');
-    });
-    return () => subscription.unsubscribe();
-  }, []);
+  // ✅ AUTH LISTENER (ÇAKIŞMASIZ - LOOP YOK + ADMIN YÖNLENDİRME VAR)
+ useEffect(() => {
+  const adminEmails = ['admin1@dumenden.com', 'admin2@dumenden.com', 'admin3@dumenden.com'];
+
+  const isAuthRoute = (p: string) =>
+    p.startsWith('/login') ||
+    p.startsWith('/register') ||
+    p.startsWith('/google-auth') ||
+    p.startsWith('/splash');
+
+  // ⚠️ reset-password’i auth route saymıyoruz, çünkü orada kalması lazım.
+  const isResetRoute = (p: string) => p.startsWith('/reset-password');
+
+  const getDestForUser = (email?: string) => {
+    const e = (email || '').trim().toLowerCase();
+    if (adminEmails.includes(e)) return '/admin/landing';
+    return '/home';
+  };
+
+  const didNavRef = { current: false };
+
+  const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const u = session?.user;
+
+    if (event === 'SIGNED_OUT') {
+      didNavRef.current = false;
+      // reset sayfasında da istersen login’e dönebilirsin; ben dokunmuyorum.
+      if (!(pathname || '').startsWith('/login')) router.replace('/login');
+      return;
+    }
+
+    // SIGNED_IN/INITIAL_SESSION -> SADECE login/register ekranındaysa yönlendir
+    if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && u) {
+      const current = pathname || '';
+
+      // ✅ reset-password’teyken KESİNLİKLE yönlendirme yok
+      if (isResetRoute(current)) return;
+
+      // ✅ sadece login/register gibi auth sayfalarındayken yönlendir
+      if (!isAuthRoute(current)) return;
+
+      if (didNavRef.current) return;
+      didNavRef.current = true;
+
+      router.replace(getDestForUser(u.email));
+    }
+  });
+
+  return () => subscription.unsubscribe();
+}, [pathname]);
 
   // Eğer uygulama hazır değilse React tarafında boş dönüyoruz.
   // Çünkü zaten ekranda Native Splash (Senin Logon) var. Kullanıcı beyaz ekran görmüyor.
@@ -83,9 +127,8 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <XpProvider>
         <StatusBar barStyle="dark-content" backgroundColor="white" translucent />
-        
+
         <View style={{ flex: 1, backgroundColor: 'white' }}>
-          
           {/* SENİN BİLEŞENLERİN: NavigationWatcher ve Timer BURADA DURUYOR */}
           {/* Sadece appIsReady true olduğunda çalışıyorlar ki hata vermesinler */}
           {appIsReady && (
@@ -120,10 +163,12 @@ export default function RootLayout() {
 function BottomBarWrapper() {
   const insets = useSafeAreaInsets();
   return (
-    <View style={{ 
-      backgroundColor: 'white', 
-      paddingBottom: Platform.OS === 'ios' ? 0 : 0 
-    }}>
+    <View
+      style={{
+        backgroundColor: 'white',
+        paddingBottom: Platform.OS === 'ios' ? 0 : 0,
+      }}
+    >
       <BottomBar />
     </View>
   );
@@ -132,12 +177,14 @@ function BottomBarWrapper() {
 function NavigationWatcher() {
   const pathname = usePathname();
   // TypeScript hatasını önlemek için tip ekledik
-  const prevPathRef = useRef<string | null>(null); 
+  const prevPathRef = useRef<string | null>(null);
   const { registerNavTransition, showIfEligible } = useInterstitial();
 
   useEffect(() => {
     if (prevPathRef.current !== null && prevPathRef.current !== pathname) {
-        registerNavTransition().then(() => showIfEligible("nav")).catch(() => {});
+      registerNavTransition()
+        .then(() => showIfEligible('nav'))
+        .catch(() => {});
     }
     prevPathRef.current = pathname || null;
   }, [pathname]);
@@ -151,7 +198,7 @@ function GlobalAdTimer() {
 
   useEffect(() => {
     intervalRef.current = setInterval(() => {
-      showIfEligible("home_enter");
+      showIfEligible('home_enter');
     }, 240000);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);

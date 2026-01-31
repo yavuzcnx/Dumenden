@@ -177,9 +177,10 @@ async function ensureUserProfile() {
   if (!u) return;
   const full_name =
     (u.user_metadata?.full_name as string) || (u.email ? u.email.split('@')[0] : 'Kullanıcı');
-  const avatar_url = (u.user_metadata?.avatar_url as string) || null;
-  await supabase.from('users').upsert({ id: u.id, full_name, avatar_url }, { onConflict: 'id' });
-}
+await supabase.from('users').upsert(
+  { id: u.id, full_name },
+  { onConflict: 'id' }
+);}
 
 /* ===================== OYNA (RPC çağrıları) ===================== */
 type BasketItem = {

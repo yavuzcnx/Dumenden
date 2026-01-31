@@ -2,7 +2,7 @@
 
 import { supabase } from '@/lib/supabaseClient';
 import * as ImagePicker from 'expo-image-picker';
-import { useFocusEffect, useRouter } from 'expo-router'; // 🔥 Tab değişimi için eklendi
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -56,13 +56,19 @@ export default function ProfilePage() {
   const [email, setEmail] = useState('');
   const [dbu, setDbu] = useState<DBUser | null>(null);
 
+  // 🔥 KRİTİK FIX: authUserId closure bug için ref
+  const authUserIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    authUserIdRef.current = authUserId;
+  }, [authUserId]);
+
   // editable
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
   const [birth, setBirth] = useState(''); // YYYY-MM-DD
   const [bio, setBio] = useState('');
-  
-  // 🔥 FİX: Avatar URL'i anlık değişmesi için state'te tutuyoruz
+
+  // 🔥 Avatar URL anlık değişsin diye state
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
   const guessExt = (uri: string) => {
@@ -86,7 +92,6 @@ export default function ProfilePage() {
   const [pwSaving, setPwSaving] = useState(false);
   const authListenerRef = useRef<any>(null);
 
-
   // stats
   const [playsCount, setPlaysCount] = useState<number>(0);
   const [topCategory, setTopCategory] = useState<string>('-');
@@ -102,13 +107,12 @@ export default function ProfilePage() {
   const computePublicUrl = (path?: string | null) => {
     if (!path) return null;
     const { data } = supabase.storage.from('avatars').getPublicUrl(path);
-    // 🔥 CACHE BUSTER: URL sonuna zaman damgası ekleyerek tarayıcıyı/uygulamayı yeni resim olduğuna ikna ediyoruz
     return data?.publicUrl ? `${data.publicUrl}?t=${Date.now()}` : null;
   };
 
   // Tek seferde veri yükleyici
   const loadAll = async (uid: string) => {
-    // Eğer o sırada fotoğraf yükleniyorsa, veri çekmeyi durdur (Eski veriyi çekmemesi için)
+    // Eğer o sırada fotoğraf yükleniyorsa, veri çekmeyi durdur (Eski veriyi çekmesin)
     if (isUploadingRef.current) return;
 
     // Eğer zaten veri varsa loading'i true yapıp ekranı karartma, arka planda güncelle
@@ -118,9 +122,7 @@ export default function ProfilePage() {
       // users
       const { data: row } = await supabase
         .from('users')
-        .select(
-          'id, full_name, phone_number, birth_date, created_at, is_plus, xp, avatar_url, avatar_path, bio'
-        )
+        .select('id, full_name, phone_number, birth_date, created_at, is_plus, xp, avatar_url, avatar_path, bio')
         .eq('id', uid)
         .maybeSingle();
 
@@ -130,19 +132,16 @@ export default function ProfilePage() {
         setPhone(row.phone_number ?? '');
         setBirth(row.birth_date ?? '');
         setBio(row.bio ?? '');
-        
+
         // URL veya Path'ten gelen veriye cache buster ekle
         let url = row.avatar_url;
         if (!url && row.avatar_path) {
-            url = computePublicUrl(row.avatar_path);
+          url = computePublicUrl(row.avatar_path);
         } else if (url) {
-             // Eğer URL'de zaten ?t= yoksa ekle, varsa güncelleme
-             if (!url.includes('?t=')) {
-                 url = `${url}?t=${Date.now()}`;
-             }
+          if (!url.includes('?t=')) url = `${url}?t=${Date.now()}`;
         }
-        // Sadece eğer URL gerçekten değiştiyse veya ilk yüklemeyse set et
-        if (url !== avatarUrl) setAvatarUrl(url ?? null);
+
+        setAvatarUrl(url ?? null);
       }
 
       // wallet
@@ -166,6 +165,7 @@ export default function ProfilePage() {
           .from('coupon_plays')
           .select('category')
           .eq('user_id', uid);
+
         if (catRows?.length) {
           const map: Record<string, number> = {};
           for (const r of catRows as any[]) {
@@ -190,24 +190,22 @@ export default function ProfilePage() {
     }
   };
 
-  // 🔥 SİHİRLİ DOKUNUŞ: Sayfaya her odaklandığında (Tab değişimi dahil) veriyi tazele
+  // 🔥 Sayfaya her odaklandığında (Tab değişimi dahil) veriyi tazele
   useFocusEffect(
     useCallback(() => {
-      // Eğer kullanıcı ID'si varsa veriyi tazele
       if (authUserId) {
-          loadAll(authUserId);
+        loadAll(authUserId);
       } else {
-          // Kullanıcı ID yoksa, session kontrolü yap
-          supabase.auth.getUser().then(({ data }) => {
-              if (data?.user?.id) {
-                  setAuthUserId(data.user.id);
-                  setEmail(data.user.email ?? '');
-                  loadAll(data.user.id);
-              } else {
-                  // Oturum yoksa login'e at (ama loop'a girmesin)
-                  // router.replace('/login'); 
-              }
-          });
+        supabase.auth.getUser().then(({ data }) => {
+          if (data?.user?.id) {
+            setAuthUserId(data.user.id);
+            setEmail(data.user.email ?? '');
+            loadAll(data.user.id);
+          } else {
+            // İstersen burayı açabilirsin:
+            // router.replace('/login');
+          }
+        });
       }
     }, [authUserId])
   );
@@ -245,24 +243,23 @@ export default function ProfilePage() {
       }
     })();
 
-  const { data: sub } = supabase.auth.onAuthStateChange(async (event, sess) => {
-  // 🔥 Sadece çıkış yapıldığında sayfadan at, diğer durumlarda elleme.
-  if (event === 'SIGNED_OUT') {
-     router.replace('/login');
-     return;
-  }
-  
-  // 🔥 Eğer oturum varsa ama bizdeki ID boşsa (ilk yükleme kaçmışsa) doldur.
-  const u = sess?.user ?? null;
-  if(u && !authUserId) {
-      setAuthUserId(u.id);
-      setEmail(u.email ?? '');
-      await loadAll(u.id);
-  }
-});
+    const { data: sub } = supabase.auth.onAuthStateChange(async (event, sess) => {
+      // 🔥 Sadece çıkış yapıldığında sayfadan at
+      if (event === 'SIGNED_OUT') {
+        router.replace('/login');
+        return;
+      }
 
-authListenerRef.current = sub;
+      // 🔥 KRİTİK FIX: closure bug yok, ref ile kontrol
+      const u = sess?.user ?? null;
+      if (u && !authUserIdRef.current) {
+        setAuthUserId(u.id);
+        setEmail(u.email ?? '');
+        await loadAll(u.id);
+      }
+    });
 
+    authListenerRef.current = sub;
 
     return () => {
       try {
@@ -285,67 +282,66 @@ authListenerRef.current = sub;
       const r = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
-        quality: 0.5, 
+        quality: 0.5,
       });
-      
+
       if (r.canceled || r.assets.length === 0 || !authUserId) return;
 
-      // 🔥 Yükleme başladığını işaretle (Auth listener karışmasın diye)
       isUploadingRef.current = true;
       setUploading(true);
-      
+
       const asset = r.assets[0];
       const ext = guessExt(asset.uri);
       const mime = contentType(ext);
-      // 🔥 BENZERSİZ DOSYA ADI: Önceki dosyanın üzerine yazmak yerine yeni isim veriyoruz.
-      const timestamp = Date.now();
-      const path = `${authUserId}/avatar_${timestamp}.${ext}`; 
 
-      // Dosyayı hazırla
+      const timestamp = Date.now();
+      const path = `${authUserId}/avatar_${timestamp}.${ext}`;
+
       const res = await fetch(asset.uri);
       const buf = await res.arrayBuffer();
 
-      // 1. Storage'a Yükle
-      const { error: upErr } = await supabase.storage
-        .from('avatars')
-        .upload(path, buf, { contentType: mime, upsert: false }); // upsert: false çünkü yeni isim veriyoruz
-      
+      const { error: upErr } = await supabase.storage.from('avatars').upload(path, buf, {
+        contentType: mime,
+        upsert: false,
+      });
       if (upErr) throw upErr;
 
-      // 2. URL Hazırla (Temiz URL - Parametresiz)
       const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path);
-      // URL sonuna parametre ekleyerek React Native Image cache'ini kırıyoruz
       const cleanUrl = urlData.publicUrl;
       const displayUrl = `${cleanUrl}?t=${timestamp}`;
 
-      // 3. Veritabanını güncelle
       const { error: dbErr } = await supabase
         .from('users')
-        .update({ 
-            avatar_url: cleanUrl, // Temiz URL'i kaydet
-            avatar_path: path 
+        .update({
+          avatar_url: cleanUrl, // DB’ye temiz URL
+          avatar_path: path,
         })
         .eq('id', authUserId);
-
       if (dbErr) throw dbErr;
 
-      // 🔥 4. STATE GÜNCELLEME: En önemlisi bu. State değişince UI render olur.
+      // 🔥 UI’yı anında güncelle (cache kırılmış URL)
       setAvatarUrl(displayUrl);
-      if (dbu) {
-          setDbu({ ...dbu, avatar_url: displayUrl });
-      }
-      
+
+      // 🔥 KRİTİK FIX: dbu state’e cleanUrl bas (db tutarlılığı)
+      setDbu((prev) =>
+        prev
+          ? {
+              ...prev,
+              avatar_url: cleanUrl,
+              avatar_path: path,
+            }
+          : prev
+      );
+
       Alert.alert('Başarılı', 'Profil fotoğrafın güncellendi! ✅');
-
-      // 🔥 Auth metadata güncellemesini KALDIRDIM. Oturum düşmesin diye.
-
     } catch (e: any) {
       console.error('Yükleme hatası:', e);
       Alert.alert('Hata', 'Fotoğraf yüklenirken bir sorun oluştu.');
     } finally {
-        setUploading(false);
-        // Kilit açmayı 1 saniye geciktir ki veritabanı senkronize olsun
-        setTimeout(() => { isUploadingRef.current = false; }, 1000);
+      setUploading(false);
+      setTimeout(() => {
+        isUploadingRef.current = false;
+      }, 1000);
     }
   };
 
@@ -359,7 +355,6 @@ authListenerRef.current = sub;
         phone_number: phone?.trim() || null,
         birth_date: birth?.trim() || null,
         bio: bio?.trim() || null,
-        // avatar_url: avatarUrl // Avatarı buradan güncellemiyoruz
       };
 
       const { data: updated, error } = await supabase
@@ -374,7 +369,7 @@ authListenerRef.current = sub;
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       setShowEdit(false);
       setDbu(updated as DBUser);
-      
+
       Alert.alert('Başarılı', 'Bilgilerin kaydedildi.');
     } catch (e: any) {
       Alert.alert('Hata', e?.message ?? 'Profil güncellenemedi.');
@@ -382,6 +377,7 @@ authListenerRef.current = sub;
       setSaving(false);
     }
   };
+
   /** ---------- change password ---------- **/
   const changePassword = async () => {
     if (!newPw || newPw.length < 8) {
@@ -453,32 +449,65 @@ authListenerRef.current = sub;
     }, 7000);
   };
 
-  /** ---------- sign out (FIXED) ---------- **/
+  /** ---------- sign out (KESİN FIX) ---------- **/
   const handleLogout = async () => {
+    setSaving(true);
+
+    // ✅ signOut bazen takılabiliyor → timeout + local scope
+    const timeout = (ms: number) =>
+      new Promise((_, rej) => setTimeout(() => rej(new Error('signOut timeout')), ms));
+
     try {
-      setSaving(true); 
-  
-      await supabase.removeAllChannels();
-  
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
-  
+      await Promise.race([
+        // local scope: internet beklemeden session temizler
+        // supabase-js v2 destekliyor
+        supabase.auth.signOut({ scope: 'local' } as any),
+        timeout(3500),
+      ]);
     } catch (e: any) {
-      console.error('Logout hatası:', e.message);
-      // Hata olsa bile login'e zorla
-      router.replace('/login');
+      console.error('Logout hatası:', e?.message || e);
+      // burada bile login’e atacağız
     } finally {
       setSaving(false);
+      router.replace('/login'); // ✅ artık kesin çalışır
     }
   };
+
+  const handleDeleteAccount = async () => {
+    Alert.alert('Hesabı Sil', 'Bu işlem geri alınamaz. Hesabın ve ilişkili verilerin silinecek. Devam edelim mi?', [
+      { text: 'Vazgeç', style: 'cancel' },
+      {
+        text: 'Evet, sil',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            setSaving(true);
+
+            const { error } = await supabase.functions.invoke('delete-account', {
+              body: { confirm: true },
+            });
+
+            if (error) throw error;
+
+            router.replace('/login');
+          } catch (e: any) {
+            console.error('Hesap silme hatası:', e?.message || e);
+            Alert.alert('Hata', 'Hesap silinemedi. Lütfen tekrar dene veya destekle iletişime geç.');
+          } finally {
+            setSaving(false);
+          }
+        },
+      },
+    ]);
+  };
+
   /** ---------- ui ---------- **/
-  // Loading sadece ilk açılışta ve veri yokken
   if (loadingData && !dbu) {
-      return (
-        <View style={{flex:1, backgroundColor: BG, justifyContent:'center', alignItems:'center'}}>
-            <ActivityIndicator color={ORANGE} size="large" />
-        </View>
-      );
+    return (
+      <View style={{ flex: 1, backgroundColor: BG, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator color={ORANGE} size="large" />
+      </View>
+    );
   }
 
   return (
@@ -507,14 +536,9 @@ authListenerRef.current = sub;
               <ActivityIndicator color={ORANGE} />
             ) : (
               <TouchableOpacity onPress={pickImage} activeOpacity={0.85}>
-                {/* Key prop'u ekleyerek Image bileşenini zorla yeniletiyoruz */}
                 <Image
-                  key={avatarUrl} 
-                  source={
-                    avatarUrl
-                      ? { uri: avatarUrl }
-                      : require('@/assets/images/dumendenci.png')
-                  }
+                  key={avatarUrl ?? 'default'}
+                  source={avatarUrl ? { uri: avatarUrl } : require('@/assets/images/dumendenci.png')}
                   style={styles.avatar}
                 />
               </TouchableOpacity>
@@ -531,22 +555,14 @@ authListenerRef.current = sub;
 
       {/* LEVEL / XP */}
       <View style={styles.card}>
-        <View
-          style={{
-            flexDirection: 'row',
-            justifyContent: 'space-between',
-            marginBottom: 8,
-          }}
-        >
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
           <Text style={styles.cardTitle}>Seviye {lvl}</Text>
           <Text style={styles.cardSub}>{xp.toLocaleString('tr-TR')} XP</Text>
         </View>
         <View style={styles.progressTrack}>
           <View style={[styles.progressFill, { width: `${pct}%` }]} />
         </View>
-        <Text style={styles.cardHint}>
-          {`Sonraki seviye için ${need} XP`}
-        </Text>
+        <Text style={styles.cardHint}>{`Sonraki seviye için ${need} XP`}</Text>
       </View>
 
       {/* STATS */}
@@ -569,25 +585,9 @@ authListenerRef.current = sub;
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Bilgiler</Text>
 
-        <Field
-          label="İsim Soyisim"
-          value={fullName}
-          editable={showEdit}
-          onChange={setFullName}
-        />
-        <Field
-          label="Telefon"
-          value={phone}
-          editable={showEdit}
-          onChange={setPhone}
-          keyboardType="phone-pad"
-        />
-        <Field
-          label="Doğum Tarihi (YYYY-AA-GG)"
-          value={birth}
-          editable={showEdit}
-          onChange={setBirth}
-        />
+        <Field label="İsim Soyisim" value={fullName} editable={showEdit} onChange={setFullName} />
+        <Field label="Telefon" value={phone} editable={showEdit} onChange={setPhone} keyboardType="phone-pad" />
+        <Field label="Doğum Tarihi (YYYY-AA-GG)" value={birth} editable={showEdit} onChange={setBirth} />
         <Field label="Bio" value={bio} editable={showEdit} onChange={setBio} multiline />
 
         <View style={{ height: 8 }} />
@@ -595,9 +595,7 @@ authListenerRef.current = sub;
           onPress={() => setShowEdit((v) => !v)}
           style={[styles.actionBtn, { backgroundColor: showEdit ? '#F3F4F6' : ORANGE }]}
         >
-          <Text
-            style={[styles.actionTxt, { color: showEdit ? TEXT : '#fff' }]}
-          >
+          <Text style={[styles.actionTxt, { color: showEdit ? TEXT : '#fff' }]}>
             {showEdit ? 'Düzenlemeyi Kapat' : 'Profili Düzenle'}
           </Text>
         </TouchableOpacity>
@@ -608,11 +606,7 @@ authListenerRef.current = sub;
             disabled={saving}
             style={[styles.actionBtn, { backgroundColor: '#16a34a' }]}
           >
-            {saving ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={[styles.actionTxt, { color: '#fff' }]}>Kaydet</Text>
-            )}
+            {saving ? <ActivityIndicator color="#fff" /> : <Text style={[styles.actionTxt, { color: '#fff' }]}>Kaydet</Text>}
           </TouchableOpacity>
         )}
       </View>
@@ -631,13 +625,8 @@ authListenerRef.current = sub;
         </View>
 
         {!pwOpen ? (
-          <TouchableOpacity
-            onPress={() => setPwOpen(true)}
-            style={[styles.actionBtn, { backgroundColor: '#334155' }]}
-          >
-            <Text style={[styles.actionTxt, { color: '#fff' }]}>
-              Şifre Değiştir
-            </Text>
+          <TouchableOpacity onPress={() => setPwOpen(true)} style={[styles.actionBtn, { backgroundColor: '#334155' }]}>
+            <Text style={[styles.actionTxt, { color: '#fff' }]}>Şifre Değiştir</Text>
           </TouchableOpacity>
         ) : (
           <>
@@ -657,34 +646,17 @@ authListenerRef.current = sub;
               secureTextEntry
               style={styles.input}
             />
-            <TouchableOpacity
-              onPress={changePassword}
-              disabled={pwSaving}
-              style={[styles.actionBtn, { backgroundColor: '#16a34a' }]}
-            >
-              {pwSaving ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={[styles.actionTxt, { color: '#fff' }]}>
-                  Onayla
-                </Text>
-              )}
+            <TouchableOpacity onPress={changePassword} disabled={pwSaving} style={[styles.actionBtn, { backgroundColor: '#16a34a' }]}>
+              {pwSaving ? <ActivityIndicator color="#fff" /> : <Text style={[styles.actionTxt, { color: '#fff' }]}>Onayla</Text>}
             </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => setPwOpen(false)}
-              disabled={pwSaving}
-              style={[styles.actionBtn, { backgroundColor: '#F3F4F6' }]}
-            >
+            <TouchableOpacity onPress={() => setPwOpen(false)} disabled={pwSaving} style={[styles.actionBtn, { backgroundColor: '#F3F4F6' }]}>
               <Text style={[styles.actionTxt, { color: TEXT }]}>Vazgeç</Text>
             </TouchableOpacity>
           </>
         )}
 
         {/* ÇIKIŞ */}
-        <TouchableOpacity
-          onPress={handleLogout}
-          style={[styles.actionBtn, { backgroundColor: '#dc2626', marginTop: 6 }]}
-        >
+        <TouchableOpacity onPress={handleLogout} style={[styles.actionBtn, { backgroundColor: '#dc2626', marginTop: 6 }]}>
           <Text style={[styles.actionTxt, { color: '#fff' }]}>Çıkış Yap</Text>
         </TouchableOpacity>
       </View>
@@ -704,12 +676,7 @@ authListenerRef.current = sub;
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Ödüllerim</Text>
         <Text style={styles.cardSub}>
-          Toplanan:{' '}
-          {Number(playsCount >= 1) +
-            Number(xp >= 100) +
-            Number(xp >= 1000) +
-            Number(isPlus)}{' '}
-          / 4
+          Toplanan: {Number(playsCount >= 1) + Number(xp >= 100) + Number(xp >= 1000) + Number(isPlus)} / 4
         </Text>
         <View style={{ height: 10 }} />
         <View style={styles.badges}>
@@ -718,25 +685,17 @@ authListenerRef.current = sub;
           <Badge text="Kaptan Dumenci" active={xp >= 1000} />
           <Badge text="Plus Elit" active={isPlus} />
         </View>
-        <Text style={styles.cardHint}>
-          Yakında: “Kanıt Ustası”, “Gündem Avcısı”, “Seri Yorumcu”…
-        </Text>
+        <Text style={styles.cardHint}>Yakında: “Kanıt Ustası”, “Gündem Avcısı”, “Seri Yorumcu”…</Text>
       </View>
 
-      {/* SHORTCUTS – Kuponlarım + Market + Keşfet */}
+      {/* SHORTCUTS */}
       <View style={styles.rowCards}>
         <Shortcut title="Kuponlarım" onPress={() => router.push('/my-bets')} />
-        <Shortcut
-          title="Market"
-          onPress={() => router.push('/market') /* Market ekranın yolu */}
-        />
-        <Shortcut
-          title="Keşfet"
-          onPress={() => router.push('/explore') /* Keşfet ekranın yolu */}
-        />
+        <Shortcut title="Market" onPress={() => router.push('/market')} />
+        <Shortcut title="Keşfet" onPress={() => router.push('/explore')} />
       </View>
 
-      {/* FAQ – Dümenden'e özel sexy sorular */}
+      {/* FAQ */}
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Sıkça Sorulan Sorular</Text>
         <Accordion
@@ -765,280 +724,296 @@ authListenerRef.current = sub;
         />
       </View>
 
-      {/* PROCEDURES – Dümenden prosedürleri */}
+      {/* PROCEDURES */}
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Prosedürler</Text>
         <Text style={styles.cardBody}>
-          <Text style={{ fontWeight: '800' }}>1. Kupon Yayınlama Süreci:</Text> Adminler veya
-          yetkili içerik üreticileri tarafından eklenen kuponlar; dil, içerik ve topluluk
-          kurallarına uygunluk açısından kontrol edilir. Uygunsuz görülen kuponlar yayına alınmaz
-          veya sonradan kaldırılabilir.
+          <Text style={{ fontWeight: '800' }}>1. Kupon Yayınlama Süreci:</Text> Adminler veya yetkili içerik üreticileri
+          tarafından eklenen kuponlar; dil, içerik ve topluluk kurallarına uygunluk açısından kontrol edilir. Uygunsuz
+          görülen kuponlar yayına alınmaz veya sonradan kaldırılabilir.
         </Text>
         <Text style={styles.cardBody}>
-          <Text style={{ fontWeight: '800' }}>2. Kanıt Kontrolü:</Text> Kullanıcıların eklediği
-          kanıtlar (görsel/ekran görüntüsü vb.) otomatik ve manuel kontrole tabidir. Sahte, yanıltıcı
-          veya kişisel veri içeren kanıtlar reddedilir ve tekrar eden ihlallerde hesap kısıtlanabilir.
+          <Text style={{ fontWeight: '800' }}>2. Kanıt Kontrolü:</Text> Kullanıcıların eklediği kanıtlar (görsel/ekran
+          görüntüsü vb.) otomatik ve manuel kontrole tabidir. Sahte, yanıltıcı veya kişisel veri içeren kanıtlar reddedilir
+          ve tekrar eden ihlallerde hesap kısıtlanabilir.
         </Text>
         <Text style={styles.cardBody}>
-          <Text style={{ fontWeight: '800' }}>3. Şikayet & İtiraz:</Text> Bir kupon, kullanıcı veya
-          karar hakkında itiraz etmek istersen uygulama içindeki “Bildir” veya destek kanallarını
-          kullanabilirsin. Talebin incelenir, gerekli durumlarda sonuç yeniden değerlendirilir.
+          <Text style={{ fontWeight: '800' }}>3. Şikayet & İtiraz:</Text> Bir kupon, kullanıcı veya karar hakkında itiraz
+          etmek istersen uygulama içindeki “Bildir” veya destek kanallarını kullanabilirsin. Talebin incelenir, gerekli
+          durumlarda sonuç yeniden değerlendirilir.
         </Text>
         <Text style={styles.cardBody}>
-          <Text style={{ fontWeight: '800' }}>4. Topluluk Kuralları:</Text> Küfür, nefret söylemi,
-          ayrımcılık, taciz ve benzeri davranışlara tolerans yoktur. Bu tür davranışlar tespit
-          edildiğinde ilgili içerik kaldırılır, kullanıcı uyarılır veya kalıcı olarak engellenebilir.
+          <Text style={{ fontWeight: '800' }}>4. Topluluk Kuralları:</Text> Küfür, nefret söylemi, ayrımcılık, taciz ve
+          benzeri davranışlara tolerans yoktur. Bu tür davranışlar tespit edildiğinde ilgili içerik kaldırılır, kullanıcı
+          uyarılır veya kalıcı olarak engellenebilir.
         </Text>
       </View>
+
+      <TouchableOpacity onPress={handleDeleteAccount} style={styles.deleteLinkWrap}>
+        <Text style={styles.deleteLinkText}>Hesabımı Sil</Text>
+      </TouchableOpacity>
     </ScrollView>
   );
 }
 
 /** ---------- small components ---------- **/
 function Field({
-  label,
-  value,
-  editable,
-  onChange,
-  keyboardType,
-  multiline,
+  label,
+  value,
+  editable,
+  onChange,
+  keyboardType,
+  multiline,
 }: {
-  label: string;
-  value: string;
-  editable: boolean;
-  onChange: (t: string) => void;
-  keyboardType?: any;
-  multiline?: boolean;
+  label: string;
+  value: string;
+  editable: boolean;
+  onChange: (t: string) => void;
+  keyboardType?: any;
+  multiline?: boolean;
 }) {
-  if (!editable) {
-    return (
-      <View style={styles.fieldRow}>
-        <Text style={styles.fieldLabel}>{label}</Text>
-        <Text style={styles.fieldValue}>{value?.length ? value : '-'}</Text>
-      </View>
-    );
-  }
-  return (
-    <View style={{ marginTop: 8 }}>
-      <Text style={styles.fieldLabel}>{label}</Text>
-      <TextInput
-        value={value}
-        onChangeText={onChange}
-        placeholder={label}
-        placeholderTextColor={MUTED}
-        keyboardType={keyboardType}
-        multiline={multiline}
-        style={[styles.input, multiline && { height: 92, textAlignVertical: 'top' }]}
-      />
-    </View>
-  );
+  if (!editable) {
+    return (
+      <View style={styles.fieldRow}>
+        <Text style={styles.fieldLabel}>{label}</Text>
+        <Text style={styles.fieldValue}>{value?.length ? value : '-'}</Text>
+      </View>
+    );
+  }
+  return (
+    <View style={{ marginTop: 8 }}>
+      <Text style={styles.fieldLabel}>{label}</Text>
+      <TextInput
+        value={value}
+        onChangeText={onChange}
+        placeholder={label}
+        placeholderTextColor={MUTED}
+        keyboardType={keyboardType}
+        multiline={multiline}
+        style={[styles.input, multiline && { height: 92, textAlignVertical: 'top' }]}
+      />
+    </View>
+  );
 }
 
 function Badge({ text, active }: { text: string; active: boolean }) {
-  return (
-    <View
-      style={[
-        styles.badge,
-        { opacity: active ? 1 : 0.4, borderColor: active ? ORANGE : BORDER },
-      ]}
-    >
-      <Text style={{ color: TEXT, fontSize: 12, fontWeight: '700' }}>{text}</Text>
-    </View>
-  );
+  return (
+    <View
+      style={[
+        styles.badge,
+        { opacity: active ? 1 : 0.4, borderColor: active ? ORANGE : BORDER },
+      ]}
+    >
+      <Text style={{ color: TEXT, fontSize: 12, fontWeight: '700' }}>{text}</Text>
+    </View>
+  );
 }
 
 function Shortcut({ title, onPress }: { title: string; onPress: () => void }) {
-  return (
-    <TouchableOpacity onPress={onPress} style={styles.shortcut} activeOpacity={0.85}>
-      <Text style={{ color: TEXT, fontWeight: '900' }}>{title}</Text>
-    </TouchableOpacity>
-  );
+  return (
+    <TouchableOpacity onPress={onPress} style={styles.shortcut} activeOpacity={0.85}>
+      <Text style={{ color: TEXT, fontWeight: '900' }}>{title}</Text>
+    </TouchableOpacity>
+  );
 }
 
 function Accordion({ q, a }: { q: string; a: string }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <View style={{ borderTopWidth: 1, borderTopColor: BORDER, paddingVertical: 10 }}>
-      <TouchableOpacity
-        onPress={() => setOpen((v) => !v)}
-        style={{ paddingVertical: 6 }}
-        activeOpacity={0.8}
-      >
-        <Text style={{ color: TEXT, fontWeight: '800' }}>{q}</Text>
-      </TouchableOpacity>
-      {open && <Text style={styles.cardBody}>{a}</Text>}
-    </View>
-  );
+  const [open, setOpen] = useState(false);
+  return (
+    <View style={{ borderTopWidth: 1, borderTopColor: BORDER, paddingVertical: 10 }}>
+      <TouchableOpacity
+        onPress={() => setOpen((v) => !v)}
+        style={{ paddingVertical: 6 }}
+        activeOpacity={0.8}
+      >
+        <Text style={{ color: TEXT, fontWeight: '800' }}>{q}</Text>
+      </TouchableOpacity>
+      {open && <Text style={styles.cardBody}>{a}</Text>}
+    </View>
+  );
 }
 
 /** ---------- styles ---------- **/
 const styles = StyleSheet.create({
-  topbar: {
-    height: 52,
-    backgroundColor: ORANGE,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  brand: {
-    color: '#fff',
-    fontSize: 26,
-    fontWeight: '900',
-    letterSpacing: 2,
-    textTransform: 'uppercase',
-    fontStyle: 'italic',
-  },
+  topbar: {
+    height: 52,
+    backgroundColor: ORANGE,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  brand: {
+    color: '#fff',
+    fontSize: 26,
+    fontWeight: '900',
+    letterSpacing: 2,
+    textTransform: 'uppercase',
+    fontStyle: 'italic',
+  },
 
-  header: {
-    height: 90,
-    backgroundColor: BG,
-    justifyContent: 'flex-end',
-    paddingHorizontal: 18,
-    paddingBottom: 8,
-  },
-  title: { fontSize: 28, fontWeight: '900', color: TEXT },
+  header: {
+    height: 90,
+    backgroundColor: BG,
+    justifyContent: 'flex-end',
+    paddingHorizontal: 18,
+    paddingBottom: 8,
+  },
+  title: { fontSize: 28, fontWeight: '900', color: TEXT },
 
-  inline: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-    paddingVertical: 6,
-  },
-  inlineLbl: { color: TEXT, fontWeight: '800' },
+  inline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingVertical: 6,
+  },
+  inlineLbl: { color: TEXT, fontWeight: '800' },
 
-  avatarBorder: {
-    padding: 3,
-    borderRadius: 28,
-    borderWidth: 3,
-    borderColor: ORANGE,
-    backgroundColor: '#fff',
-    elevation: 4,
-    shadowColor: ORANGE,
-    shadowOpacity: 0.15,
-    shadowRadius: 10,
-  },
-  avatarWrap: {
-    width: 150,
-    height: 150,
-    borderRadius: 24,
-    overflow: 'hidden',
-    backgroundColor: '#f2f2f2',
-    justifyContent:'center',
-    alignItems:'center'
-  },
-  avatar: { width: 150, height: 150 },
-  changeBtn: {
-    position: 'absolute',
-    bottom: 6,
-    right: 6,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.2)',
-  },
-  changeBtnTxt: { color: '#fff', fontWeight: '800', fontSize: 12 },
+  avatarBorder: {
+    padding: 3,
+    borderRadius: 28,
+    borderWidth: 3,
+    borderColor: ORANGE,
+    backgroundColor: '#fff',
+    elevation: 4,
+    shadowColor: ORANGE,
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+  },
 
-  nameTxt: { color: TEXT, fontSize: 18, fontWeight: '900', marginTop: 12 },
-  emailTxt: { color: MUTED, marginTop: 4 },
+  deleteLinkWrap: {
+    marginTop: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+  },
+  deleteLinkText: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    textDecorationLine: 'underline',
+  },
 
-  card: {
-    backgroundColor: CARD,
-    borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 16,
-    padding: 14,
-    marginHorizontal: 14,
-    marginTop: 12,
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 10,
-  },
-  cardTitle: { color: TEXT, fontWeight: '900', marginBottom: 8, fontSize: 16 },
-  cardSub: { color: '#374151', fontWeight: '800' },
-  cardHint: { color: MUTED, marginTop: 8, fontSize: 12 },
-  cardBody: { color: TEXT, marginTop: 6, lineHeight: 20 },
+  avatarWrap: {
+    width: 150,
+    height: 150,
+    borderRadius: 24,
+    overflow: 'hidden',
+    backgroundColor: '#f2f2f2',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avatar: { width: 150, height: 150 },
+  changeBtn: {
+    position: 'absolute',
+    bottom: 6,
+    right: 6,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.2)',
+  },
+  changeBtnTxt: { color: '#fff', fontWeight: '800', fontSize: 12 },
 
-  progressTrack: {
-    height: 12,
-    backgroundColor: '#F1F1F1',
-    borderRadius: 999,
-    overflow: 'hidden',
-  },
-  progressFill: { height: 12, backgroundColor: ORANGE },
+  nameTxt: { color: TEXT, fontSize: 18, fontWeight: '900', marginTop: 12 },
+  emailTxt: { color: MUTED, marginTop: 4 },
 
-  rowCards: {
-    flexDirection: 'row',
-    gap: 10,
-    paddingHorizontal: 14,
-    marginTop: 12,
-  },
-  miniCard: {
-    flex: 1,
-    backgroundColor: CARD,
-    borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 16,
-    padding: 12,
-    alignItems: 'center',
-  },
-  miniVal: { color: TEXT, fontWeight: '900', fontSize: 18 },
-  miniLbl: { color: MUTED, marginTop: 4, fontSize: 12 },
+  card: {
+    backgroundColor: CARD,
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 16,
+    padding: 14,
+    marginHorizontal: 14,
+    marginTop: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
+  },
+  cardTitle: { color: TEXT, fontWeight: '900', marginBottom: 8, fontSize: 16 },
+  cardSub: { color: '#374151', fontWeight: '800' },
+  cardHint: { color: MUTED, marginTop: 8, fontSize: 12 },
+  cardBody: { color: TEXT, marginTop: 6, lineHeight: 20 },
 
-  fieldRow: {
-    borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 12,
-    padding: 12,
-    marginTop: 6,
-    backgroundColor: '#FFF',
-  },
-  fieldLabel: { color: '#374151', fontWeight: '800', marginBottom: 6 },
-  fieldValue: { color: TEXT, fontWeight: '600' },
+  progressTrack: {
+    height: 12,
+    backgroundColor: '#F1F1F1',
+    borderRadius: 999,
+    overflow: 'hidden',
+  },
+  progressFill: { height: 12, backgroundColor: ORANGE },
 
-  input: {
-    borderWidth: 1,
-    borderColor: BORDER,
-    backgroundColor: '#FFF',
-    color: TEXT,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: Platform.OS === 'ios' ? 12 : 10,
-    marginTop: 6,
-  },
+  rowCards: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 14,
+    marginTop: 12,
+  },
+  miniCard: {
+    flex: 1,
+    backgroundColor: CARD,
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 16,
+    padding: 12,
+    alignItems: 'center',
+  },
+  miniVal: { color: TEXT, fontWeight: '900', fontSize: 18 },
+  miniLbl: { color: MUTED, marginTop: 4, fontSize: 12 },
 
-  actionBtn: {
-    marginTop: 10,
-    paddingVertical: 12,
-    borderRadius: 12,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.06)',
-  },
-  actionTxt: { color: TEXT, fontWeight: '900' },
+  fieldRow: {
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 6,
+    backgroundColor: '#FFF',
+  },
+  fieldLabel: { color: '#374151', fontWeight: '800', marginBottom: 6 },
+  fieldValue: { color: TEXT, fontWeight: '600' },
 
-  badges: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 4,
-  },
-  badge: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 999,
-    borderWidth: 1,
-    backgroundColor: '#FFF',
-  },
+  input: {
+    borderWidth: 1,
+    borderColor: BORDER,
+    backgroundColor: '#FFF',
+    color: TEXT,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: Platform.OS === 'ios' ? 12 : 10,
+    marginTop: 6,
+  },
 
-  shortcut: {
-    flex: 1,
-    backgroundColor: CARD,
-    borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 14,
-    paddingVertical: 16,
-    alignItems: 'center',
-  },
+  actionBtn: {
+    marginTop: 10,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.06)',
+  },
+  actionTxt: { color: TEXT, fontWeight: '900' },
+
+  badges: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 4,
+  },
+  badge: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    backgroundColor: '#FFF',
+  },
+
+  shortcut: {
+    flex: 1,
+    backgroundColor: CARD,
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 14,
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
 });

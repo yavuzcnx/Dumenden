@@ -203,14 +203,7 @@ export default function CouponDetail() {
       const { data: prof } = await supabase.from('users').select('id, full_name, avatar_url').eq('id', u.id).single();
       if (prof) setMe({ id: prof.id, name: prof.full_name ?? 'Kullanıcı', avatar: prof.avatar_url });
     })();
-    const sub = supabase.auth.onAuthStateChange(async () => {
-      const { data } = await supabase.auth.getUser();
-      const u = data?.user;
-      if (!u) return;
-      const { data: prof } = await supabase.from('users').select('id, full_name, avatar_url').eq('id', u.id).single();
-      if (prof) setMe({ id: prof.id, name: prof.full_name ?? 'Kullanıcı', avatar: prof.avatar_url });
-    });
-    return () => sub.data.subscription.unsubscribe();
+  
   }, []);
 
   /** coupon + lines */

@@ -62,8 +62,7 @@ export function XpProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
     })();
 
-    const { data: listener } = supabase.auth.onAuthStateChange(() => refresh());
-    return () => listener.subscription.unsubscribe();
+   
   }, []);
 
   // UID varsa realtime aç

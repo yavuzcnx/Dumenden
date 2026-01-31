@@ -56,7 +56,7 @@ export default function ProfilePage() {
   const [email, setEmail] = useState('');
   const [dbu, setDbu] = useState<DBUser | null>(null);
 
-  // 🔥 KRİTİK FIX: authUserId closure bug için ref
+  // closure bug için ref (kalsın)
   const authUserIdRef = useRef<string | null>(null);
   useEffect(() => {
     authUserIdRef.current = authUserId;
@@ -68,7 +68,7 @@ export default function ProfilePage() {
   const [birth, setBirth] = useState(''); // YYYY-MM-DD
   const [bio, setBio] = useState('');
 
-  // 🔥 Avatar URL anlık değişsin diye state
+  // Avatar URL anlık değişsin diye state
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
   const guessExt = (uri: string) => {
@@ -84,13 +84,15 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [notifOn, setNotifOn] = useState(true);
+  // logout ayrı state (saving ile karışmasın)
+const [logoutLoading, setLogoutLoading] = useState(false);
+
 
   // password change
   const [pwOpen, setPwOpen] = useState(false);
   const [newPw, setNewPw] = useState('');
   const [newPw2, setNewPw2] = useState('');
   const [pwSaving, setPwSaving] = useState(false);
-  const authListenerRef = useRef<any>(null);
 
   // stats
   const [playsCount, setPlaysCount] = useState<number>(0);
@@ -100,7 +102,7 @@ export default function ProfilePage() {
   const [walletBalance, setWalletBalance] = useState<number>(0);
   const [loadingData, setLoadingData] = useState(true);
 
-  // 🔥 Fotoğraf yüklenirken veri çekmeyi engellemek için Ref
+  // Fotoğraf yüklenirken veri çekmeyi engelle
   const isUploadingRef = useRef(false);
 
   /** ---------- helpers ---------- **/
@@ -112,10 +114,7 @@ export default function ProfilePage() {
 
   // Tek seferde veri yükleyici
   const loadAll = async (uid: string) => {
-    // Eğer o sırada fotoğraf yükleniyorsa, veri çekmeyi durdur (Eski veriyi çekmesin)
     if (isUploadingRef.current) return;
-
-    // Eğer zaten veri varsa loading'i true yapıp ekranı karartma, arka planda güncelle
     if (!dbu) setLoadingData(true);
 
     try {
@@ -133,14 +132,12 @@ export default function ProfilePage() {
         setBirth(row.birth_date ?? '');
         setBio(row.bio ?? '');
 
-        // URL veya Path'ten gelen veriye cache buster ekle
         let url = row.avatar_url;
         if (!url && row.avatar_path) {
           url = computePublicUrl(row.avatar_path);
         } else if (url) {
           if (!url.includes('?t=')) url = `${url}?t=${Date.now()}`;
         }
-
         setAvatarUrl(url ?? null);
       }
 
@@ -190,7 +187,7 @@ export default function ProfilePage() {
     }
   };
 
-  // 🔥 Sayfaya her odaklandığında (Tab değişimi dahil) veriyi tazele
+  // Sayfaya odaklandığında yenile
   useFocusEffect(
     useCallback(() => {
       if (authUserId) {
@@ -202,26 +199,30 @@ export default function ProfilePage() {
             setEmail(data.user.email ?? '');
             loadAll(data.user.id);
           } else {
-            // İstersen burayı açabilirsin:
-            // router.replace('/login');
+            // login’e atmayı _layout.tsx hallediyor
           }
         });
       }
     }, [authUserId])
   );
 
-  /** ---------- auth & realtime ---------- **/
+  /** ---------- init & realtime (SADECE WALLET REALTIME KALDI) ---------- **/
   useEffect(() => {
     let walletChannel: any;
+    let alive = true;
 
     (async () => {
       const { data: s } = await supabase.auth.getSession();
       const user = s.session?.user;
+
+      if (!alive) return;
+
       if (user) {
         setAuthUserId(user.id);
         setEmail(user.email ?? '');
         await loadAll(user.id);
 
+        // realtime wallet balance
         walletChannel = supabase
           .channel('xp_wallets_changes')
           .on(
@@ -243,30 +244,10 @@ export default function ProfilePage() {
       }
     })();
 
-    const { data: sub } = supabase.auth.onAuthStateChange(async (event, sess) => {
-      // 🔥 Sadece çıkış yapıldığında sayfadan at
-      if (event === 'SIGNED_OUT') {
-        router.replace('/login');
-        return;
-      }
-
-      // 🔥 KRİTİK FIX: closure bug yok, ref ile kontrol
-      const u = sess?.user ?? null;
-      if (u && !authUserIdRef.current) {
-        setAuthUserId(u.id);
-        setEmail(u.email ?? '');
-        await loadAll(u.id);
-      }
-    });
-
-    authListenerRef.current = sub;
-
     return () => {
+      alive = false;
       try {
-        sub.subscription.unsubscribe();
-      } catch {}
-      try {
-        supabase.removeChannel(walletChannel);
+        if (walletChannel) supabase.removeChannel(walletChannel);
       } catch {}
     };
   }, []);
@@ -276,7 +257,7 @@ export default function ProfilePage() {
   const isPlus = !!dbu?.is_plus;
   const { lvl, pct, need } = useMemo(() => levelFromXp(xp), [xp]);
 
-  /** ---------- avatar upload (FIXED & CACHE FREE) ---------- **/
+  /** ---------- avatar upload ---------- **/
   const pickImage = async () => {
     try {
       const r = await ImagePicker.launchImageLibraryAsync({
@@ -313,16 +294,13 @@ export default function ProfilePage() {
       const { error: dbErr } = await supabase
         .from('users')
         .update({
-          avatar_url: cleanUrl, // DB’ye temiz URL
+          avatar_url: cleanUrl,
           avatar_path: path,
         })
         .eq('id', authUserId);
       if (dbErr) throw dbErr;
 
-      // 🔥 UI’yı anında güncelle (cache kırılmış URL)
       setAvatarUrl(displayUrl);
-
-      // 🔥 KRİTİK FIX: dbu state’e cleanUrl bas (db tutarlılığı)
       setDbu((prev) =>
         prev
           ? {
@@ -390,115 +368,69 @@ export default function ProfilePage() {
     }
 
     setPwSaving(true);
-    let finished = false;
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPw });
+      if (error) throw error;
 
-    const finishOk = () => {
-      if (finished) return;
-      finished = true;
       setPwSaving(false);
       setPwOpen(false);
       setNewPw('');
       setNewPw2('');
       Alert.alert('Tamam', 'Şifren başarıyla değiştirildi.');
-    };
-    const finishErr = (msg: string) => {
-      if (finished) return;
-      finished = true;
-      setPwSaving(false);
-      Alert.alert('Hata', msg);
-    };
-
-    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'USER_UPDATED') finishOk();
-    });
-
-    try {
-      const { error } = await supabase.auth.updateUser({ password: newPw });
-      if (error) return finishErr(error.message);
-      finishOk();
-    } catch {}
-
-    setTimeout(async () => {
-      if (finished) {
-        try {
-          sub?.subscription?.unsubscribe?.();
-        } catch {}
-        return;
-      }
-      try {
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email,
-          password: newPw,
-        });
-        if (!error && data?.user) finishOk();
-        else {
-          setPwSaving(false);
-          Alert.alert(
-            'Bilgi',
-            'Sunucu geç yanıt verdi. Şifren büyük ihtimalle değişti. Giriş yapmayı deneyebilirsin.'
-          );
-        }
-      } catch (err: any) {
-        setPwSaving(false);
-        Alert.alert('Ağ hatası', err?.message ?? 'İşlem tamamlanamadı.');
-      } finally {
-        try {
-          sub?.subscription?.unsubscribe?.();
-        } catch {}
-      }
-    }, 7000);
-  };
-
-  /** ---------- sign out (KESİN FIX) ---------- **/
-  const handleLogout = async () => {
-    setSaving(true);
-
-    // ✅ signOut bazen takılabiliyor → timeout + local scope
-    const timeout = (ms: number) =>
-      new Promise((_, rej) => setTimeout(() => rej(new Error('signOut timeout')), ms));
-
-    try {
-      await Promise.race([
-        // local scope: internet beklemeden session temizler
-        // supabase-js v2 destekliyor
-        supabase.auth.signOut({ scope: 'local' } as any),
-        timeout(3500),
-      ]);
     } catch (e: any) {
-      console.error('Logout hatası:', e?.message || e);
-      // burada bile login’e atacağız
-    } finally {
-      setSaving(false);
-      router.replace('/login'); // ✅ artık kesin çalışır
+      setPwSaving(false);
+      Alert.alert('Hata', e?.message ?? 'Şifre değiştirilemedi.');
     }
   };
 
+  /** ---------- sign out (KESİN FIX) ---------- **/
+/** ---------- sign out (UI ayrı state) ---------- **/
+const handleLogout = async () => {
+  if (logoutLoading) return;
+  setLogoutLoading(true);
+
+  try {
+    await supabase.auth.signOut();
+    // router.replace('/login') YOK!
+    // yönlendirmeyi _layout.tsx yapıyor
+  } catch (e: any) {
+    console.error('Logout hatası:', e?.message || e);
+    Alert.alert('Hata', 'Çıkış yapılamadı. Tekrar dene.');
+  } finally {
+    setLogoutLoading(false);
+  }
+};
+
+
   const handleDeleteAccount = async () => {
-    Alert.alert('Hesabı Sil', 'Bu işlem geri alınamaz. Hesabın ve ilişkili verilerin silinecek. Devam edelim mi?', [
-      { text: 'Vazgeç', style: 'cancel' },
-      {
-        text: 'Evet, sil',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            setSaving(true);
+    Alert.alert(
+      'Hesabı Sil',
+      'Bu işlem geri alınamaz. Hesabın ve ilişkili verilerin silinecek. Devam edelim mi?',
+      [
+        { text: 'Vazgeç', style: 'cancel' },
+        {
+          text: 'Evet, sil',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setSaving(true);
+              const { error } = await supabase.functions.invoke('delete-account', {
+                body: { confirm: true },
+              });
+              if (error) throw error;
 
-            const { error } = await supabase.functions.invoke('delete-account', {
-              body: { confirm: true },
-            });
-
-            if (error) throw error;
-
-            router.replace('/login');
-          } catch (e: any) {
-            console.error('Hesap silme hatası:', e?.message || e);
-            Alert.alert('Hata', 'Hesap silinemedi. Lütfen tekrar dene veya destekle iletişime geç.');
-          } finally {
-            setSaving(false);
-          }
+              // signOut da yapmak daha güvenli
+              await supabase.auth.signOut().catch(() => {});
+            } catch (e: any) {
+              console.error('Hesap silme hatası:', e?.message || e);
+              Alert.alert('Hata', 'Hesap silinemedi. Lütfen tekrar dene veya destekle iletişime geç.');
+            } finally {
+              setSaving(false);
+            }
+          },
         },
-      },
-    ]);
+      ]
+    );
   };
 
   /** ---------- ui ---------- **/
@@ -656,9 +588,20 @@ export default function ProfilePage() {
         )}
 
         {/* ÇIKIŞ */}
-        <TouchableOpacity onPress={handleLogout} style={[styles.actionBtn, { backgroundColor: '#dc2626', marginTop: 6 }]}>
-          <Text style={[styles.actionTxt, { color: '#fff' }]}>Çıkış Yap</Text>
-        </TouchableOpacity>
+      <TouchableOpacity
+  onPress={handleLogout}
+  disabled={logoutLoading}
+  style={[
+    styles.actionBtn,
+    { backgroundColor: '#dc2626', marginTop: 6, opacity: logoutLoading ? 0.6 : 1 },
+  ]}
+>
+  {logoutLoading ? (
+    <ActivityIndicator color="#fff" />
+  ) : (
+    <Text style={[styles.actionTxt, { color: '#fff' }]}>Çıkış Yap</Text>
+  )}
+</TouchableOpacity>
       </View>
 
       {/* BADGES */}
@@ -720,7 +663,7 @@ export default function ProfilePage() {
         />
         <Accordion
           q="Şüpheli ya da rahatsız edici bir içerik görürsem ne yapmalıyım?"
-          a="Kupon detayında veya yorumlarda 'Bildir' alanını kullanarak içeriği moderasyon ekibine iletebilirsin. İnceleme sonrasında ilgili içerik kaldırılabilir ve kullanıcı uyarılabilir."
+          a="Kupon detayında veya yorumlarda 'Bildir' alanını kullanarak içeriği moderasyon ekibine iletebilirsin."
         />
       </View>
 
@@ -729,23 +672,16 @@ export default function ProfilePage() {
         <Text style={styles.cardTitle}>Prosedürler</Text>
         <Text style={styles.cardBody}>
           <Text style={{ fontWeight: '800' }}>1. Kupon Yayınlama Süreci:</Text> Adminler veya yetkili içerik üreticileri
-          tarafından eklenen kuponlar; dil, içerik ve topluluk kurallarına uygunluk açısından kontrol edilir. Uygunsuz
-          görülen kuponlar yayına alınmaz veya sonradan kaldırılabilir.
+          tarafından eklenen kuponlar kontrol edilir.
         </Text>
         <Text style={styles.cardBody}>
-          <Text style={{ fontWeight: '800' }}>2. Kanıt Kontrolü:</Text> Kullanıcıların eklediği kanıtlar (görsel/ekran
-          görüntüsü vb.) otomatik ve manuel kontrole tabidir. Sahte, yanıltıcı veya kişisel veri içeren kanıtlar reddedilir
-          ve tekrar eden ihlallerde hesap kısıtlanabilir.
+          <Text style={{ fontWeight: '800' }}>2. Kanıt Kontrolü:</Text> Kanıtlar otomatik ve manuel kontrole tabidir.
         </Text>
         <Text style={styles.cardBody}>
-          <Text style={{ fontWeight: '800' }}>3. Şikayet & İtiraz:</Text> Bir kupon, kullanıcı veya karar hakkında itiraz
-          etmek istersen uygulama içindeki “Bildir” veya destek kanallarını kullanabilirsin. Talebin incelenir, gerekli
-          durumlarda sonuç yeniden değerlendirilir.
+          <Text style={{ fontWeight: '800' }}>3. Şikayet & İtiraz:</Text> “Bildir” veya destek kanallarını kullanabilirsin.
         </Text>
         <Text style={styles.cardBody}>
-          <Text style={{ fontWeight: '800' }}>4. Topluluk Kuralları:</Text> Küfür, nefret söylemi, ayrımcılık, taciz ve
-          benzeri davranışlara tolerans yoktur. Bu tür davranışlar tespit edildiğinde ilgili içerik kaldırılır, kullanıcı
-          uyarılır veya kalıcı olarak engellenebilir.
+          <Text style={{ fontWeight: '800' }}>4. Topluluk Kuralları:</Text> Taciz, nefret söylemi vb. davranışlara tolerans yoktur.
         </Text>
       </View>
 
@@ -798,12 +734,7 @@ function Field({
 
 function Badge({ text, active }: { text: string; active: boolean }) {
   return (
-    <View
-      style={[
-        styles.badge,
-        { opacity: active ? 1 : 0.4, borderColor: active ? ORANGE : BORDER },
-      ]}
-    >
+    <View style={[styles.badge, { opacity: active ? 1 : 0.4, borderColor: active ? ORANGE : BORDER }]}>
       <Text style={{ color: TEXT, fontSize: 12, fontWeight: '700' }}>{text}</Text>
     </View>
   );
@@ -821,11 +752,7 @@ function Accordion({ q, a }: { q: string; a: string }) {
   const [open, setOpen] = useState(false);
   return (
     <View style={{ borderTopWidth: 1, borderTopColor: BORDER, paddingVertical: 10 }}>
-      <TouchableOpacity
-        onPress={() => setOpen((v) => !v)}
-        style={{ paddingVertical: 6 }}
-        activeOpacity={0.8}
-      >
+      <TouchableOpacity onPress={() => setOpen((v) => !v)} style={{ paddingVertical: 6 }} activeOpacity={0.8}>
         <Text style={{ color: TEXT, fontWeight: '800' }}>{q}</Text>
       </TouchableOpacity>
       {open && <Text style={styles.cardBody}>{a}</Text>}

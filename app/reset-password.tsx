@@ -3,163 +3,176 @@
 import { supabase } from '@/lib/supabaseClient';
 import * as Linking from 'expo-linking';
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
-const COLORS = {
-  bg: '#FFFFFF',
-  text: '#111111',
-  sub: '#666666',
-  border: '#E0E0E0',
-  primary: '#FF6B00',
-  error: '#D32F2F',
-};
+const ORANGE = '#FF6B00';
+const BG = '#FFFFFF';
+const TEXT = '#111111';
+const MUTED = '#6B7280';
+const BORDER = '#E9E9E9';
 
-function parseParamsFromUrl(rawUrl: string) {
-  // Supabase bazen #access_token=... şeklinde döner.
-  // URLSearchParams sadece ? ile daha rahat parse eder.
-  let url = rawUrl;
+function parseParamsFromUrl(url: string) {
+  // hem query (?a=b) hem hash (#a=b) okumalı
+  const out: Record<string, string> = {};
 
-  const hashIndex = url.indexOf('#');
-  if (hashIndex !== -1) {
-    url = url.slice(0, hashIndex) + '?' + url.slice(hashIndex + 1);
+  try {
+    // URL polyfill sende _layout’ta var, yine de fallback ile gidelim
+    const u = new URL(url);
+    u.searchParams.forEach((v, k) => (out[k] = v));
+
+    if (u.hash && u.hash.startsWith('#')) {
+      const hash = u.hash.slice(1); // remove #
+      const sp = new URLSearchParams(hash);
+      sp.forEach((v, k) => (out[k] = v));
+    }
+    return out;
+  } catch {
+    // fallback: manuel
+    const [baseAndQuery, hashPart] = url.split('#');
+    const queryPart = baseAndQuery.includes('?') ? baseAndQuery.split('?')[1] : '';
+    const q = new URLSearchParams(queryPart || '');
+    q.forEach((v, k) => (out[k] = v));
+
+    if (hashPart) {
+      const h = new URLSearchParams(hashPart);
+      h.forEach((v, k) => (out[k] = v));
+    }
+    return out;
   }
-
-  const qIndex = url.indexOf('?');
-  const query = qIndex !== -1 ? url.slice(qIndex + 1) : '';
-  const sp = new URLSearchParams(query);
-
-  const obj: Record<string, string> = {};
-  sp.forEach((v, k) => (obj[k] = v));
-  return obj;
 }
 
 export default function ResetPasswordPage() {
   const router = useRouter();
 
-  const [phase, setPhase] = useState<'checking' | 'ready' | 'error'>('checking');
-  const [msg, setMsg] = useState('Link doğrulanıyor...');
-  const [newPass, setNewPass] = useState('');
-  const [newPass2, setNewPass2] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [stage, setStage] = useState<'verifying' | 'ready' | 'error'>('verifying');
+  const [err, setErr] = useState<string>('');
 
-  // iOS/Android initial URL + runtime URL yakalama
-  useEffect(() => {
-    let sub: any;
+  const [pw1, setPw1] = useState('');
+  const [pw2, setPw2] = useState('');
+  const [saving, setSaving] = useState(false);
 
-    const handle = async (url: string) => {
-      try {
-        setPhase('checking');
-        setMsg('Link doğrulanıyor...');
+  const handledRef = useRef(false);
 
-        const p = parseParamsFromUrl(url);
+  const verifyFromUrl = async (url: string) => {
+    if (handledRef.current) return;
+    handledRef.current = true;
 
-        // Hata paramı gelirse göster
-        if (p.error || p.error_description) {
-          setPhase('error');
-          setMsg(p.error_description || p.error || 'Link doğrulanamadı.');
-          return;
-        }
+    console.log('🔗 Reset URL:', url);
 
-        // 1) access_token + refresh_token geldiyse: direkt session set et
-        if (p.access_token && p.refresh_token) {
-          const { error } = await supabase.auth.setSession({
-            access_token: p.access_token,
-            refresh_token: p.refresh_token,
-          });
-          if (error) throw error;
+    const p = parseParamsFromUrl(url);
+    console.log('🧩 Parsed Params:', p);
 
-          setPhase('ready');
-          setMsg('Yeni şifreyi belirle.');
-          return;
-        }
-
-        // 2) code geldiyse (PKCE akışı): exchangeCodeForSession
-        if (p.code) {
-          const { error } = await supabase.auth.exchangeCodeForSession(p.code);
-          if (error) throw error;
-
-          setPhase('ready');
-          setMsg('Yeni şifreyi belirle.');
-          return;
-        }
-
-        // 3) Hiçbir şey gelmediyse: belki session zaten var mı diye bak
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session) {
-          setPhase('ready');
-          setMsg('Yeni şifreyi belirle.');
-          return;
-        }
-
-        setPhase('error');
-        setMsg('Token bulunamadı. Lütfen maildeki linki tekrar aç.');
-      } catch (e: any) {
-        setPhase('error');
-        setMsg(e?.message || 'Doğrulama sırasında hata oluştu.');
-      }
-    };
-
-    (async () => {
-      const initial = await Linking.getInitialURL();
-      if (initial) await handle(initial);
-
-      sub = Linking.addEventListener('url', ({ url }) => {
-        handle(url);
-      });
-    })();
-
-    return () => {
-      sub?.remove?.();
-    };
-  }, []);
-
-  const submit = async () => {
-    if (busy) return;
-
-    if (!newPass || newPass.length < 6) {
-      Alert.alert('Hata', 'Şifre en az 6 karakter olmalı.');
-      return;
-    }
-    if (newPass !== newPass2) {
-      Alert.alert('Hata', 'Şifreler aynı değil.');
-      return;
-    }
-
-    setBusy(true);
     try {
-      const { error } = await supabase.auth.updateUser({ password: newPass });
-      if (error) throw error;
+      // 1) code varsa (PKCE flow)
+      if (p.code) {
+        const { error } = await supabase.auth.exchangeCodeForSession(p.code);
+        if (error) throw error;
 
-      Alert.alert('Başarılı', 'Şifren güncellendi. Lütfen tekrar giriş yap.');
-      // Güvenli: reset sonrası signOut + login
-      await supabase.auth.signOut().catch(() => {});
-      router.replace('/login');
+        setStage('ready');
+        return;
+      }
+
+      // 2) hash içinde access_token & refresh_token varsa (implicit flow)
+      if (p.access_token && p.refresh_token) {
+        const { error } = await supabase.auth.setSession({
+          access_token: p.access_token,
+          refresh_token: p.refresh_token,
+        });
+        if (error) throw error;
+
+        setStage('ready');
+        return;
+      }
+
+      // 3) hiçbir şey yoksa -> hata
+      setErr('Link içinden doğrulama bilgisi alınamadı. (Token yok)');
+      setStage('error');
     } catch (e: any) {
-      Alert.alert('Hata', e?.message || 'Şifre güncellenemedi.');
-    } finally {
-      setBusy(false);
+      console.log('❌ Verify error:', e?.message || e);
+      setErr(e?.message || 'Link doğrulanamadı.');
+      setStage('error');
     }
   };
 
-  if (phase === 'checking') {
+  useEffect(() => {
+    let alive = true;
+
+    // 1) initial url
+    Linking.getInitialURL().then((url) => {
+      if (!alive) return;
+      if (url) verifyFromUrl(url);
+      else {
+        // initial url yoksa bir süre sonra hata ver (sonsuz spinner olmasın)
+        setTimeout(() => {
+          if (!alive) return;
+          if (stage === 'verifying') {
+            setErr('Reset linki uygulamaya ulaşmadı. Mail içindeki linki tekrar açmayı dene.');
+            setStage('error');
+          }
+        }, 7000);
+      }
+    });
+
+    // 2) runtime deep link
+    const sub = Linking.addEventListener('url', (ev) => {
+      if (!alive) return;
+      if (ev?.url) verifyFromUrl(ev.url);
+    });
+
+    return () => {
+      alive = false;
+      // @ts-ignore
+      sub?.remove?.();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const canSubmit = useMemo(() => pw1.length >= 8 && pw1 === pw2, [pw1, pw2]);
+
+  const submitNewPassword = async () => {
+    if (pw1.length < 8) {
+      Alert.alert('Uyarı', 'Şifre en az 8 karakter olmalı.');
+      return;
+    }
+    if (pw1 !== pw2) {
+      Alert.alert('Uyarı', 'Şifreler uyuşmuyor.');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ password: pw1 });
+      if (error) throw error;
+
+      Alert.alert('Başarılı', 'Yeni şifren kaydedildi. Giriş ekranına yönlendiriliyorsun.');
+      await supabase.auth.signOut().catch(() => {});
+      router.replace('/login');
+    } catch (e: any) {
+      Alert.alert('Hata', e?.message || 'Şifre değiştirilemedi.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (stage === 'verifying') {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
-        <Text style={styles.sub}>{msg}</Text>
-        <TouchableOpacity onPress={() => router.replace('/login')} style={{ marginTop: 18 }}>
-          <Text style={{ color: COLORS.primary, fontWeight: '800' }}>Giriş Ekranına Dön</Text>
-        </TouchableOpacity>
+        <ActivityIndicator size="large" color={ORANGE} />
+        <Text style={styles.title}>Link doğrulanıyor…</Text>
+        <Text style={styles.sub}>Lütfen bekle</Text>
       </View>
     );
   }
 
-  if (phase === 'error') {
+  if (stage === 'error') {
     return (
       <View style={styles.center}>
-        <Text style={[styles.sub, { color: COLORS.error, fontWeight: '700' }]}>{msg}</Text>
-        <TouchableOpacity onPress={() => router.replace('/login')} style={{ marginTop: 18 }}>
-          <Text style={{ color: COLORS.primary, fontWeight: '800' }}>Giriş Ekranına Dön</Text>
+        <Text style={[styles.title, { color: '#D32F2F' }]}>Doğrulama Hatası</Text>
+        <Text style={styles.sub}>{err || 'Bir hata oluştu.'}</Text>
+
+        <TouchableOpacity style={[styles.btn, { marginTop: 16 }]} onPress={() => router.replace('/login')}>
+          <Text style={styles.btnTxt}>Girişe Dön</Text>
         </TouchableOpacity>
       </View>
     );
@@ -167,47 +180,58 @@ export default function ResetPasswordPage() {
 
   // ready
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.wrap}>
-      <View style={styles.card}>
-        <Text style={styles.title}>Yeni Şifre Belirle</Text>
-        <Text style={styles.sub}>Yeni şifreni gir ve kaydet.</Text>
+    <View style={styles.wrap}>
+      <Text style={styles.h1}>Yeni Şifre Belirle</Text>
 
-        <TextInput
-          value={newPass}
-          onChangeText={setNewPass}
-          placeholder="Yeni şifre"
-          secureTextEntry
-          style={styles.input}
-          placeholderTextColor="#999"
-        />
-        <TextInput
-          value={newPass2}
-          onChangeText={setNewPass2}
-          placeholder="Yeni şifre (tekrar)"
-          secureTextEntry
-          style={styles.input}
-          placeholderTextColor="#999"
-        />
+      <TextInput
+        value={pw1}
+        onChangeText={setPw1}
+        placeholder="Yeni şifre (min 8)"
+        placeholderTextColor={MUTED}
+        secureTextEntry
+        style={styles.input}
+      />
+      <TextInput
+        value={pw2}
+        onChangeText={setPw2}
+        placeholder="Yeni şifre (tekrar)"
+        placeholderTextColor={MUTED}
+        secureTextEntry
+        style={styles.input}
+      />
 
-        <TouchableOpacity style={[styles.btn, busy && { opacity: 0.6 }]} onPress={submit} disabled={busy}>
-          {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>Kaydet</Text>}
-        </TouchableOpacity>
+      <TouchableOpacity
+        style={[styles.btn, (!canSubmit || saving) && { opacity: 0.6 }]}
+        disabled={!canSubmit || saving}
+        onPress={submitNewPassword}
+      >
+        {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnTxt}>Kaydet</Text>}
+      </TouchableOpacity>
 
-        <TouchableOpacity onPress={() => router.replace('/login')} style={{ marginTop: 14 }}>
-          <Text style={{ textAlign: 'center', color: COLORS.primary, fontWeight: '800' }}>Giriş Ekranına Dön</Text>
-        </TouchableOpacity>
-      </View>
-    </KeyboardAvoidingView>
+      <Text style={styles.tip}>
+        Not: Bu ekran sadece “recovery session” aktifken açılır. Link bozuksa tekrar “Şifremi Unuttum” gönder.
+      </Text>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: { flex: 1, backgroundColor: COLORS.bg, justifyContent: 'center', padding: 20 },
-  center: { flex: 1, backgroundColor: COLORS.bg, alignItems: 'center', justifyContent: 'center', padding: 20 },
-  card: { backgroundColor: '#fff', borderRadius: 16, padding: 20, borderWidth: 1, borderColor: COLORS.border },
-  title: { fontSize: 22, fontWeight: '900', color: COLORS.text, textAlign: 'center', marginBottom: 10 },
-  sub: { fontSize: 14, color: COLORS.sub, textAlign: 'center' },
-  input: { borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, padding: 12, marginTop: 12, height: 50, color: COLORS.text },
-  btn: { backgroundColor: COLORS.primary, height: 50, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginTop: 16 },
-  btnText: { color: '#fff', fontWeight: '900', fontSize: 16 },
+  center: { flex: 1, backgroundColor: BG, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  wrap: { flex: 1, backgroundColor: BG, padding: 24, paddingTop: Platform.OS === 'ios' ? 80 : 60 },
+  title: { marginTop: 14, fontSize: 18, fontWeight: '800', color: TEXT },
+  sub: { marginTop: 6, fontSize: 13, color: MUTED, textAlign: 'center' },
+  h1: { fontSize: 24, fontWeight: '900', color: TEXT, marginBottom: 18 },
+  input: {
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: Platform.OS === 'ios' ? 12 : 10,
+    marginTop: 10,
+    color: TEXT,
+    backgroundColor: '#fff',
+  },
+  btn: { backgroundColor: ORANGE, borderRadius: 12, height: 50, alignItems: 'center', justifyContent: 'center', marginTop: 16 },
+  btnTxt: { color: '#fff', fontWeight: '900' },
+  tip: { marginTop: 12, fontSize: 12, color: MUTED, lineHeight: 18 },
 });

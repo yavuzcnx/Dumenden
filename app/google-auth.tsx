@@ -1,54 +1,63 @@
 import { ensureBootstrapAndProfile } from '@/lib/bootstrap';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'expo-router';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { ActivityIndicator, Text, View } from 'react-native';
 
 export default function GoogleAuthCallback() {
   const router = useRouter();
+  const didNavigateRef = useRef(false);
 
   useEffect(() => {
-    // 1. Supabase'in auth durumunu dinleyen bir listener kuruyoruz.
-    // Uygulama URL'den token'ı kaptığı anda bu tetiklenecek.
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      
-      console.log("📌 Auth Event Tetiklendi:", event);
+    let mounted = true;
 
-      if (session) {
-        console.log("✅ Google Session Yakalandı:", session.user.id);
-        
-        // Kullanıcı ve Cüzdan oluşturma işlemini yap
-        await ensureBootstrapAndProfile();
-        
-        // İşlem bitince anasayfaya yönlendir
+    const goHomeIfSession = async () => {
+      if (!mounted || didNavigateRef.current) return;
+
+      // 1) Session kontrol
+      const { data } = await supabase.auth.getSession();
+      const sess = data.session;
+
+      // 2) getUser ile doğrula (stale olmasın)
+      if (sess?.user) {
+        const { data: u } = await supabase.auth.getUser();
+        if (!u?.user?.id) return;
+
+        // bootstrap
+        await ensureBootstrapAndProfile().catch(() => {});
+
+        if (!mounted || didNavigateRef.current) return;
+        didNavigateRef.current = true;
         router.replace('/home');
       }
-    });
-
-    // 2. Çok nadiren de olsa event tetiklenmezse diye manuel kontrol (Backup)
-    const checkSessionManually = async () => {
-        const { data } = await supabase.auth.getSession();
-        if (data.session) {
-            console.log("✅ Manuel Kontrol: Session Zaten Var");
-            await ensureBootstrapAndProfile();
-            router.replace('/home');
-        }
     };
-    
-    // Ufak bir gecikme ile manuel kontrolü de çalıştır (ne olur ne olmaz)
-    setTimeout(checkSessionManually, 1000);
+
+    // 10 saniyeye kadar kısa aralıklarla dene
+    let tries = 0;
+    const timer = setInterval(async () => {
+      tries += 1;
+      await goHomeIfSession();
+
+      if (didNavigateRef.current || tries >= 20) {
+        clearInterval(timer);
+        if (!didNavigateRef.current) {
+          // olmadıysa login’e dön (kullanıcı takılı kalmasın)
+          router.replace('/login');
+        }
+      }
+    }, 500);
 
     return () => {
-      // Sayfadan çıkarken dinlemeyi bırak
-      subscription.unsubscribe();
+      mounted = false;
+      clearInterval(timer);
     };
   }, []);
 
   return (
     <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
       <ActivityIndicator size="large" color="#FF6B00" />
-      <Text style={{ marginTop: 20, color: '#444', fontWeight:'500' }}>Google ile bağlanılıyor...</Text>
-      <Text style={{ marginTop: 5, color: '#999', fontSize:12 }}>Lütfen bekleyiniz</Text>
+      <Text style={{ marginTop: 20, color: '#444', fontWeight: '500' }}>Google ile bağlanılıyor...</Text>
+      <Text style={{ marginTop: 5, color: '#999', fontSize: 12 }}>Lütfen bekleyiniz</Text>
     </View>
   );
 }

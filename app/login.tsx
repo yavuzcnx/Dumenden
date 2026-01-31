@@ -3,7 +3,9 @@
 import AnimatedLogo from '@/components/AnimatedLogo';
 import { ensureBootstrapAndProfile } from '@/lib/bootstrap';
 import { supabase } from '@/lib/supabaseClient';
+import * as Linking from 'expo-linking';
 import { useRouter } from 'expo-router';
+
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -51,7 +53,7 @@ export default function LoginPage() {
 
   const adminEmails = ['admin1@dumenden.com', 'admin2@dumenden.com', 'admin3@dumenden.com'];
 
-  // ✅ yönlendirme çakışmasını engellemek için tek sefer kilit
+  // yönlendirme çakışmasını engellemek için tek sefer kilit
   const didNavigateRef = useRef(false);
 
   const navigateBasedOnUser = (userEmail: string | undefined) => {
@@ -71,21 +73,18 @@ export default function LoginPage() {
 
     const checkInitial = async () => {
       try {
-        // 1) Session var mı?
         const { data } = await supabase.auth.getSession();
         const sess = data.session;
 
         if (sess?.user && mounted) {
-          // 2) ✅ STALE SESSION KONTROLÜ
-          // getSession bazı edge durumlarda eski session döndürebilir.
-          // getUser ile doğrulayalım:
+          // stale session kontrolü: getUser ile doğrula
           const { data: u } = await supabase.auth.getUser();
           if (u?.user?.id) {
             navigateBasedOnUser(sess.user.email);
             return;
           }
 
-          // getUser yoksa: session stale → lokal temizle, login'de kal
+          // stale ise lokal temizle
           try {
             await supabase.auth.signOut({ scope: 'local' } as any);
           } catch {}
@@ -97,27 +96,8 @@ export default function LoginPage() {
 
     checkInitial();
 
-    // ✅ SIGNED_IN olayı gelirse tek sefer yönlendir
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (!mounted) return;
-
-      if (event === 'SIGNED_IN' && session?.user) {
-        setBusy(false);
-        navigateBasedOnUser(session.user.email);
-      }
-
-      // logout’tan sonra login’de kaldığımızı garanti etmek istersen:
-      if (event === 'SIGNED_OUT') {
-        didNavigateRef.current = false;
-        setBusy(false);
-      }
-    });
-
     return () => {
       mounted = false;
-      try {
-        authListener.subscription.unsubscribe();
-      } catch {}
     };
   }, []);
 
@@ -144,18 +124,15 @@ export default function LoginPage() {
         return;
       }
 
-      // Session geldiyse bootstrap’i bekletebiliriz (çok uzarsa UI dönüyor gibi olur)
       if (data.session) {
+        // bootstrap yap (çok uzarsa, UI dönüyor gibi görünmesin diye catch)
         await ensureBootstrapAndProfile().catch(() => {});
       }
 
-      // ✅ KRİTİK: Listener gelmezse bile asla sonsuz dönmesin
-      // Ayrıca yönlendirme çakışmasını didNavigateRef engelliyor.
       if (data.session?.user) {
         setBusy(false);
         navigateBasedOnUser(data.session.user.email);
       } else {
-        // Çok nadir: session yoksa busy kapat
         setBusy(false);
       }
     } catch (e: any) {
@@ -164,29 +141,32 @@ export default function LoginPage() {
     }
   };
 
-  const handleResetPassword = async () => {
-    if (!forgotEmail) {
-      Alert.alert('Uyarı', 'Lütfen e-posta adresinizi girin.');
-      return;
-    }
-    setForgotLoading(true);
+ const handleResetPassword = async () => {
+  if (!forgotEmail) {
+    Alert.alert('Uyarı', 'Lütfen e-posta adresinizi girin.');
+    return;
+  }
+  setForgotLoading(true);
 
-    try {
-      const { error } = await supabase.auth.resetPasswordForEmail(forgotEmail, {
-        redirectTo: 'dumenden://reset-password',
-      });
+  try {
+    // ✅ HANGİ SCHEME İLE ÇALIŞIYORSA ONU ÜRETİR (dumenden:// veya com.dumenden.app://)
+    const redirectTo = Linking.createURL('reset-password');
 
-      if (error) throw error;
+    const { error } = await supabase.auth.resetPasswordForEmail(forgotEmail, {
+      redirectTo,
+    });
 
-      Alert.alert('Başarılı', 'Sıfırlama bağlantısı gönderildi.');
-      setForgotModalVisible(false);
-      setForgotEmail('');
-    } catch (e: any) {
-      Alert.alert('Hata', e?.message || 'Sıfırlama maili gönderilemedi.');
-    } finally {
-      setForgotLoading(false);
-    }
-  };
+    if (error) throw error;
+
+    Alert.alert('Başarılı', 'Sıfırlama bağlantısı gönderildi.');
+    setForgotModalVisible(false);
+    setForgotEmail('');
+  } catch (e: any) {
+    Alert.alert('Hata', e?.message || 'Sıfırlama maili gönderilemedi.');
+  } finally {
+    setForgotLoading(false);
+  }
+};
 
   if (checkingSession) {
     return (
@@ -207,7 +187,10 @@ export default function LoginPage() {
           <TextInput
             placeholder="E-posta"
             value={email}
-            onChangeText={setEmail}
+            onChangeText={(t) => {
+              didNavigateRef.current = false;
+              setEmail(t);
+            }}
             style={styles.input}
             keyboardType="email-address"
             autoCapitalize="none"
@@ -218,8 +201,11 @@ export default function LoginPage() {
             <TextInput
               placeholder="Şifre"
               value={password}
-              onChangeText={setPassword}
-              style={[styles.input, { flex: 1, marginBottom: 0 }]}
+              onChangeText={(t) => {
+                didNavigateRef.current = false;
+                setPassword(t);
+              }}
+              style={[styles.input, { flex: 1, marginBottom: 0, borderWidth: 0 }]}
               secureTextEntry={!showPassword}
               placeholderTextColor={COLORS.placeholder}
             />
@@ -277,7 +263,11 @@ export default function LoginPage() {
                     style={[styles.modalBtn, { backgroundColor: COLORS.primary }]}
                     disabled={forgotLoading}
                   >
-                    {forgotLoading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={{ color: '#fff', fontWeight: '700' }}>Gönder</Text>}
+                    {forgotLoading ? (
+                      <ActivityIndicator color="#fff" size="small" />
+                    ) : (
+                      <Text style={{ color: '#fff', fontWeight: '700' }}>Gönder</Text>
+                    )}
                   </TouchableOpacity>
                 </View>
               </View>
@@ -304,6 +294,7 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     backgroundColor: '#fff',
     height: 50,
+    marginBottom: 12,
   },
 
   passRow: {

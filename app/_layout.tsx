@@ -34,9 +34,18 @@ export default function RootLayout() {
         await Promise.allSettled([
           initAds().catch((e) => console.warn('Ad Init Fail:', e)),
           (async () => {
-            const {
-              data: { session },
-            } = await supabase.auth.getSession();
+            // ✅ BOZUK SESSION FIX: Invalid Refresh Token -> local temizle
+            const { data, error } = await supabase.auth.getSession();
+
+            if (
+              error?.message?.toLowerCase().includes('invalid refresh token') ||
+              error?.message?.toLowerCase().includes('refresh token not found')
+            ) {
+              await supabase.auth.signOut({ scope: 'local' } as any).catch(() => {});
+              return;
+            }
+
+            const session = data?.session;
             if (session?.user) {
               await ensureBootstrapAndProfile().catch(() => {});
             }
@@ -58,58 +67,73 @@ export default function RootLayout() {
     }
   }, [appIsReady]);
 
+  // ✅ AUTH LISTENER (reset-password akışı bozulmasın diye özel kurallar)
   useEffect(() => {
-  const adminEmails = ['admin1@dumenden.com', 'admin2@dumenden.com', 'admin3@dumenden.com'];
+    const adminEmails = ['admin1@dumenden.com', 'admin2@dumenden.com', 'admin3@dumenden.com'];
 
-  // ✅ login benzeri ekranlar (signed-in olunca /home'a atılabilir)
-  const isLoginLikeRoute = (p: string) =>
-    p.startsWith('/login') ||
-    p.startsWith('/register') ||
-    p.startsWith('/google-auth') ||
-    p.startsWith('/splash');
+    const isResetRoute = (p: string) => (p || '').startsWith('/reset-password');
 
-  // ✅ auth ekranları (signed-out olunca login'e atmak için)
-  const isAuthRoute = (p: string) => isLoginLikeRoute(p) || p.startsWith('/reset-password');
+    // sadece "login gibi" ekranlar: signed-in olunca /home'a atılabilir
+    const isLoginLikeRoute = (p: string) =>
+      (p || '').startsWith('/login') ||
+      (p || '').startsWith('/register') ||
+      (p || '').startsWith('/google-auth') ||
+      (p || '').startsWith('/splash');
 
-  const getDestForUser = (email?: string) => {
-    const e = (email || '').trim().toLowerCase();
-    if (adminEmails.includes(e)) return '/admin/landing';
-    return '/home';
-  };
+    // signed-out olunca login'e atmak için auth route'lar
+    const isAuthRoute = (p: string) => isLoginLikeRoute(p) || isResetRoute(p);
 
-  const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-    const current = pathname || '';
-    const u = session?.user;
+    const getDestForUser = (email?: string) => {
+      const e = (email || '').trim().toLowerCase();
+      if (adminEmails.includes(e)) return '/admin/landing';
+      return '/home';
+    };
 
-    // SIGNED_OUT: auth route’ta değilsek login’e bas
-    if (event === 'SIGNED_OUT') {
-      didNavRef.current = false;
-      if (!isAuthRoute(current)) router.replace('/login');
-      return;
-    }
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      const current = pathname || '';
+      const u = session?.user;
 
-    // ✅ reset akışı: bu event gelince ASLA yönlendirme yapma
-    if (event === 'PASSWORD_RECOVERY') {
-      return;
-    }
+      // ✅ PASSWORD RECOVERY: reset ekranında kal / reset'e yönlendir
+      if (event === 'PASSWORD_RECOVERY') {
+        didNavRef.current = false;
+        if (!isResetRoute(current)) {
+          router.replace('/reset-password');
+        }
+        return;
+      }
 
-    // SIGNED_IN / INITIAL_SESSION: sadece login ekranlarındayken yönlendir
-    if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && u) {
-      // ❗ reset-password ekranındayken dokunma
-      if (!isLoginLikeRoute(current)) return;
+      // SIGNED_OUT: auth route'ta değilsek login’e bas
+      if (event === 'SIGNED_OUT') {
+        didNavRef.current = false;
+        if (!isAuthRoute(current)) {
+          router.replace('/login');
+        }
+        return;
+      }
 
-      if (didNavRef.current) return;
-      didNavRef.current = true;
+      // SIGNED_IN / INITIAL_SESSION:
+      if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && u) {
+        // ❗ reset-password ekranındayken ASLA /home’a atma
+        if (isResetRoute(current)) return;
 
-      void ensureBootstrapAndProfile().catch(() => {});
-      router.replace(getDestForUser(u.email));
-    }
-  });
+        // sadece login benzeri ekranlardayken yönlendir
+        if (!isLoginLikeRoute(current)) return;
 
-  return () => {
-    try { subscription.unsubscribe(); } catch {}
-  };
-}, [pathname, router]);
+        if (didNavRef.current) return;
+        didNavRef.current = true;
+
+        // bootstrap arkaplanda
+        void ensureBootstrapAndProfile().catch(() => {});
+        router.replace(getDestForUser(u.email));
+      }
+    });
+
+    return () => {
+      try {
+        subscription.unsubscribe();
+      } catch {}
+    };
+  }, [pathname, router]);
 
   // Uygulama hazır değilse zaten Native Splash görünüyor -> boş dön
   if (!appIsReady) {

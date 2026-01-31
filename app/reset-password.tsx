@@ -13,22 +13,19 @@ const MUTED = '#6B7280';
 const BORDER = '#E9E9E9';
 
 function parseParamsFromUrl(url: string) {
-  // hem query (?a=b) hem hash (#a=b) okumalı
   const out: Record<string, string> = {};
 
   try {
-    // URL polyfill sende _layout’ta var, yine de fallback ile gidelim
     const u = new URL(url);
     u.searchParams.forEach((v, k) => (out[k] = v));
 
     if (u.hash && u.hash.startsWith('#')) {
-      const hash = u.hash.slice(1); // remove #
+      const hash = u.hash.slice(1);
       const sp = new URLSearchParams(hash);
       sp.forEach((v, k) => (out[k] = v));
     }
     return out;
   } catch {
-    // fallback: manuel
     const [baseAndQuery, hashPart] = url.split('#');
     const queryPart = baseAndQuery.includes('?') ? baseAndQuery.split('?')[1] : '';
     const q = new URLSearchParams(queryPart || '');
@@ -55,16 +52,20 @@ export default function ResetPasswordPage() {
   const handledRef = useRef(false);
 
   const verifyFromUrl = async (url: string) => {
-    if (handledRef.current) return;
-    handledRef.current = true;
-
     console.log('🔗 Reset URL:', url);
 
     const p = parseParamsFromUrl(url);
     console.log('🧩 Parsed Params:', p);
 
+    // ✅ Eğer gerekli param yoksa KİLİTLEME (yanlış/boş url gelebiliyor)
+    const hasUseful = !!(p.code || (p.access_token && p.refresh_token));
+    if (!hasUseful) return;
+
+    if (handledRef.current) return;
+    handledRef.current = true;
+
     try {
-      // 1) code varsa (PKCE flow)
+      // 1) PKCE: ?code=...
       if (p.code) {
         const { error } = await supabase.auth.exchangeCodeForSession(p.code);
         if (error) throw error;
@@ -73,7 +74,7 @@ export default function ResetPasswordPage() {
         return;
       }
 
-      // 2) hash içinde access_token & refresh_token varsa (implicit flow)
+      // 2) implicit: #access_token & #refresh_token
       if (p.access_token && p.refresh_token) {
         const { error } = await supabase.auth.setSession({
           access_token: p.access_token,
@@ -85,8 +86,7 @@ export default function ResetPasswordPage() {
         return;
       }
 
-      // 3) hiçbir şey yoksa -> hata
-      setErr('Link içinden doğrulama bilgisi alınamadı. (Token yok)');
+      setErr('Link içinden doğrulama bilgisi alınamadı.');
       setStage('error');
     } catch (e: any) {
       console.log('❌ Verify error:', e?.message || e);
@@ -102,16 +102,6 @@ export default function ResetPasswordPage() {
     Linking.getInitialURL().then((url) => {
       if (!alive) return;
       if (url) verifyFromUrl(url);
-      else {
-        // initial url yoksa bir süre sonra hata ver (sonsuz spinner olmasın)
-        setTimeout(() => {
-          if (!alive) return;
-          if (stage === 'verifying') {
-            setErr('Reset linki uygulamaya ulaşmadı. Mail içindeki linki tekrar açmayı dene.');
-            setStage('error');
-          }
-        }, 7000);
-      }
     });
 
     // 2) runtime deep link
@@ -120,8 +110,18 @@ export default function ResetPasswordPage() {
       if (ev?.url) verifyFromUrl(ev.url);
     });
 
+    // ✅ 7sn sonra hâlâ handled olmadıysa hata ver (sonsuz spinner yok)
+    const t = setTimeout(() => {
+      if (!alive) return;
+      if (!handledRef.current && stage === 'verifying') {
+        setErr('Reset linki uygulamaya ulaşmadı. Mail içindeki linki Safari/Apple Mail ile açmayı dene.');
+        setStage('error');
+      }
+    }, 7000);
+
     return () => {
       alive = false;
+      clearTimeout(t);
       // @ts-ignore
       sub?.remove?.();
     };
@@ -209,7 +209,7 @@ export default function ResetPasswordPage() {
       </TouchableOpacity>
 
       <Text style={styles.tip}>
-        Not: Bu ekran sadece “recovery session” aktifken açılır. Link bozuksa tekrar “Şifremi Unuttum” gönder.
+        Not: Maili Gmail içinden açınca bazen app’e düşmüyor. Safari/Apple Mail ile açmayı dene.
       </Text>
     </View>
   );

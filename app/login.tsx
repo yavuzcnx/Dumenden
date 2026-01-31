@@ -150,8 +150,8 @@ export default function LoginPage() {
 
   try {
     // ✅ HANGİ SCHEME İLE ÇALIŞIYORSA ONU ÜRETİR (dumenden:// veya com.dumenden.app://)
-    const redirectTo = Linking.createURL('reset-password');
-
+   const redirectTo = Linking.createURL('/reset-password'); // başına / koy
+console.log('RESET redirectTo =>', redirectTo);
     const { error } = await supabase.auth.resetPasswordForEmail(forgotEmail, {
       redirectTo,
     });
@@ -197,24 +197,25 @@ export default function LoginPage() {
             placeholderTextColor={COLORS.placeholder}
           />
 
-          <View style={styles.passRow}>
-            <TextInput
-              placeholder="Şifre"
-              value={password}
-              onChangeText={(t) => {
-                didNavigateRef.current = false;
-                setPassword(t);
-              }}
-              style={[styles.input, { flex: 1, marginBottom: 0, borderWidth: 0 }]}
-              secureTextEntry={!showPassword}
-              placeholderTextColor={COLORS.placeholder}
-            />
-            <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeBtn}>
-              <Text style={{ color: COLORS.primary, fontWeight: '700', fontSize: 12 }}>
-                {showPassword ? 'GİZLE' : 'GÖSTER'}
-              </Text>
-            </TouchableOpacity>
-          </View>
+         <View style={styles.passRow}>
+  <TextInput
+    placeholder="Şifre"
+    value={password}
+    onChangeText={(t) => {
+      didNavigateRef.current = false;
+      setPassword(t);
+    }}
+    style={styles.passInput}   // ✅ styles.input DEĞİL
+    secureTextEntry={!showPassword}
+    placeholderTextColor={COLORS.placeholder}
+  />
+
+  <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeBtn}>
+    <Text style={{ color: COLORS.primary, fontWeight: '700', fontSize: 12 }}>
+      {showPassword ? 'GİZLE' : 'GÖSTER'}
+    </Text>
+  </TouchableOpacity>
+</View>
 
           <View style={{ marginBottom: 14 }} />
 
@@ -298,16 +299,32 @@ const styles = StyleSheet.create({
   },
 
   passRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 12,
-    paddingRight: 12,
-    height: 50,
-    marginBottom: 0,
-  },
-  eyeBtn: { padding: 4 },
+  flexDirection: 'row',
+  alignItems: 'center',
+  borderWidth: 1,
+  borderColor: COLORS.border,
+  borderRadius: 12,
+  height: 50,
+  backgroundColor: '#fff',
+  overflow: 'hidden',              // ✅ çizgiler kaybolmasın diye
+},
+
+passInput: {
+  flex: 1,
+  height: '100%',
+  paddingHorizontal: 12,
+  color: COLORS.text,
+  backgroundColor: 'transparent',
+},
+
+eyeBtn: {
+  height: '100%',
+  paddingHorizontal: 14,
+  justifyContent: 'center',
+  borderLeftWidth: 1,              // ✅ sağ taraf çizgisi net olsun
+  borderLeftColor: COLORS.border,
+},
+
 
   topRow: { flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 20 },
   button: { backgroundColor: COLORS.primary, padding: 14, borderRadius: 12, alignItems: 'center', height: 50, justifyContent: 'center' },

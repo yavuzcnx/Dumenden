@@ -149,9 +149,7 @@ export default function CreateCouponModal() {
     })();
   }, []);
 
-  useEffect(() => {
-    if (!xpLoading && !isPlus) router.replace('/(modals)/plus-paywall');
-  }, [xpLoading, isPlus, router]);
+  
 
   const [title, setTitle]   = useState('');
   const [desc, setDesc]     = useState('');

@@ -58,7 +58,12 @@ export default function ResetPasswordPage() {
     console.log('🧩 Parsed Params:', p);
 
     // ✅ Eğer gerekli param yoksa KİLİTLEME (yanlış/boş url gelebiliyor)
-    const hasUseful = !!(p.code || (p.access_token && p.refresh_token));
+    const hasUseful = !!(
+      p.code ||
+      (p.access_token && p.refresh_token) ||
+      p.token_hash ||
+      p.token
+    );
     if (!hasUseful) return;
 
     if (handledRef.current) return;
@@ -86,6 +91,20 @@ export default function ResetPasswordPage() {
         return;
       }
 
+      // 3) token_hash / token (custom email template -> deep link directly to app)
+      if (p.token_hash || p.token) {
+        const type = (p.type || 'recovery') as any;
+        const payload = p.token_hash
+          ? { token_hash: p.token_hash, type }
+          : { token: p.token, type, email: p.email };
+
+        const { error } = await supabase.auth.verifyOtp(payload as any);
+        if (error) throw error;
+
+        setStage('ready');
+        return;
+      }
+
       setErr('Link içinden doğrulama bilgisi alınamadı.');
       setStage('error');
     } catch (e: any) {
@@ -97,6 +116,22 @@ export default function ResetPasswordPage() {
 
   useEffect(() => {
     let alive = true;
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!alive) return;
+      if (event === 'PASSWORD_RECOVERY' && session?.user) {
+        handledRef.current = true;
+        setStage('ready');
+      }
+    });
+
+    supabase.auth.getSession().then(({ data }) => {
+      if (!alive) return;
+      if (data.session?.user && stage === 'verifying') {
+        handledRef.current = true;
+        setStage('ready');
+      }
+    });
 
     // 1) initial url
     Linking.getInitialURL().then((url) => {
@@ -122,6 +157,9 @@ export default function ResetPasswordPage() {
     return () => {
       alive = false;
       clearTimeout(t);
+      try {
+        subscription.unsubscribe();
+      } catch {}
       // @ts-ignore
       sub?.remove?.();
     };

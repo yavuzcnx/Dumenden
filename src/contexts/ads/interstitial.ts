@@ -1,13 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useRef, useState } from 'react';
 import { Platform } from 'react-native';
-import { AdEventType, InterstitialAd, TestIds } from 'react-native-google-mobile-ads';
 
 const PROD_INTERSTITIAL_ANDROID = 'ca-app-pub-3837426346942059/8002763076';
 const PROD_INTERSTITIAL_IOS = 'ca-app-pub-3837426346942059/7530153923';
-const adUnitId = Platform.OS === 'ios' 
-  ? TestIds.INTERSTITIAL 
-  : (__DEV__ ? TestIds.INTERSTITIAL : PROD_INTERSTITIAL_ANDROID);
+
 const FOUR_MIN_MS = 4 * 60 * 1000;
 const NAV_PER_AD = 10;
 const MIN_COOLDOWN = 30 * 1000;
@@ -26,51 +23,85 @@ async function getNumber(key: string, fallback = 0) {
 }
 
 async function setNumber(key: string, n: number) {
-  await AsyncStorage.setItem(key, String(n));
+  try {
+    await AsyncStorage.setItem(key, String(n));
+  } catch {}
 }
 
 export function useInterstitial() {
   const [loaded, setLoaded] = useState(false);
-  const adRef = useRef<InterstitialAd | null>(null);
+
+  // NOTE: type'lar runtime import yapmasın diye any kullandım (safe)
+  const adRef = useRef<any>(null);
   const loadingRef = useRef(false);
+  const disabledRef = useRef(false);
 
   useEffect(() => {
-    // 🔥 iOS ise TEST, Android ise GERÇEK reklam
-    const adUnitId = Platform.OS === 'ios'
-      ? TestIds.INTERSTITIAL
-      : (__DEV__ ? TestIds.INTERSTITIAL : PROD_INTERSTITIAL_ANDROID);
+    let unsubscribers: Array<() => void> = [];
+    let mounted = true;
 
-    const ad = InterstitialAd.createForAdRequest(adUnitId);
-    adRef.current = ad;
+    (async () => {
+      try {
+        const mod = await import('react-native-google-mobile-ads');
+        const { AdEventType, InterstitialAd, TestIds } = mod;
 
-    const l1 = ad.addAdEventListener(AdEventType.LOADED, () => {
-      loadingRef.current = false;
-      setLoaded(true);
-    });
+        const adUnitId =
+          Platform.OS === 'ios'
+            ? TestIds.INTERSTITIAL
+            : (__DEV__ ? TestIds.INTERSTITIAL : PROD_INTERSTITIAL_ANDROID);
 
-    const l2 = ad.addAdEventListener(AdEventType.CLOSED, () => {
-      setLoaded(false);
-      loadingRef.current = true;
-      ad.load();
-    });
+        const ad = InterstitialAd.createForAdRequest(adUnitId);
+        adRef.current = ad;
 
-    const l3 = ad.addAdEventListener(AdEventType.ERROR, () => {
-      setLoaded(false);
-      if (!loadingRef.current) {
+        const l1 = ad.addAdEventListener(AdEventType.LOADED, () => {
+          if (!mounted) return;
+          loadingRef.current = false;
+          setLoaded(true);
+        });
+
+        const l2 = ad.addAdEventListener(AdEventType.CLOSED, () => {
+          if (!mounted) return;
+          setLoaded(false);
+          loadingRef.current = true;
+          try {
+            ad.load();
+          } catch {}
+        });
+
+        const l3 = ad.addAdEventListener(AdEventType.ERROR, () => {
+          if (!mounted) return;
+          setLoaded(false);
+          if (!loadingRef.current) {
+            loadingRef.current = true;
+            setTimeout(() => {
+              try {
+                ad.load();
+              } catch {}
+            }, 1500);
+          }
+        });
+
+        unsubscribers = [l1, l2, l3];
+
         loadingRef.current = true;
-        setTimeout(() => ad.load(), 1500);
+        ad.load();
+      } catch (e) {
+        // ✅ modül yoksa crash değil, ads kapanır
+        disabledRef.current = true;
+        console.warn('[ADS] interstitial disabled', e);
       }
-    });
-
-    loadingRef.current = true;
-    ad.load();
+    })();
 
     return () => {
-      l1(); l2(); l3();
+      mounted = false;
+      try {
+        unsubscribers.forEach((u) => u());
+      } catch {}
     };
   }, []);
 
   const show = async () => {
+    if (disabledRef.current) return false;
     if (!adRef.current) return false;
     if (!loaded) return false;
 
@@ -109,6 +140,8 @@ export function useInterstitial() {
   };
 
   const showIfEligible = async (reason: 'home_enter' | 'nav') => {
+    if (disabledRef.current) return false;
+
     const ok = await isEligible(reason);
     if (!ok) return false;
 

@@ -1,24 +1,52 @@
 // src/components/AdBanner.tsx
-
+import { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
-import { BannerAd, BannerAdSize, TestIds } from 'react-native-google-mobile-ads';
 
 // PROD Banner ID → gerçek birimini yaz
 const PROD_BANNER = 'ca-app-pub-3837426346942059/XXXXXXXXXX';
 
-// DEV/test ortamı → Google test ID
-const TEST_BANNER = TestIds.BANNER;
+type AdsMod = typeof import('react-native-google-mobile-ads');
 
 export default function AdBanner({ unitId }: { unitId?: string }) {
-  // Artık PLUS kontrolü yok → herkes reklam görecek
+  const [ads, setAds] = useState<AdsMod | null>(null);
+  const [disabled, setDisabled] = useState(false);
 
-  // Hangi ID kullanılacak
-  const adUnitId = __DEV__ ? TEST_BANNER : unitId ?? PROD_BANNER;
+  const adUnitId = useMemo(() => {
+    // DEV/test ortamı → Google test ID (ads mod geldikten sonra kullanacağız)
+    return __DEV__ ? 'TEST' : unitId ?? PROD_BANNER;
+  }, [unitId]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    (async () => {
+      try {
+        const mod = await import('react-native-google-mobile-ads');
+        if (!mounted) return;
+        setAds(mod);
+      } catch (e) {
+        // ✅ modül yoksa crash değil, banner kapanır
+        if (!mounted) return;
+        console.warn('[ADS] banner disabled', e);
+        setDisabled(true);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // ✅ ads yoksa ya da disabled ise hiçbir şey çizme
+  if (disabled || !ads) return null;
+
+  const { BannerAd, BannerAdSize, TestIds } = ads;
+  const finalUnitId = __DEV__ ? TestIds.BANNER : adUnitId;
 
   return (
     <View style={styles.wrap}>
       <BannerAd
-        unitId={adUnitId}
+        unitId={finalUnitId}
         size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
       />
     </View>

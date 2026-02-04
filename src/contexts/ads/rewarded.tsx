@@ -1,66 +1,102 @@
 import { useEffect, useRef, useState } from 'react';
 import { Platform } from 'react-native';
-import {
-  AdEventType,
-  RewardedAd,
-  RewardedAdEventType,
-  TestIds,
-} from 'react-native-google-mobile-ads';
 
 // ANDROID ID (Gerçek)
-const PROD_REWARDED_ANDROID = 'ca-app-pub-3837426346942059/6751536443'; // Buraya kendi Android ID'ni yazmayı unutma
-// iOS ID (Gerçek - Ama şimdilik iOS'ta TestIds döneceğiz)
+const PROD_REWARDED_ANDROID = 'ca-app-pub-3837426346942059/6751536443';
+// iOS ID (Gerçek)
 const PROD_REWARDED_IOS = 'ca-app-pub-3837426346942059/1363478394';
 
 export function useRewardedAd(onReward?: () => void) {
-  // 🔥 iOS ise TEST, Android ise GERÇEK (Geliştirmede ikisi de TEST)
-  const adUnitId = Platform.OS === 'ios' 
-    ? TestIds.REWARDED 
-    : (__DEV__ ? TestIds.REWARDED : PROD_REWARDED_ANDROID);
-
-  const adRef = useRef<RewardedAd | null>(null);
+  const adRef = useRef<any>(null);
   const [loaded, setLoaded] = useState(false);
   const [showing, setShowing] = useState(false);
+  const disabledRef = useRef(false);
 
   useEffect(() => {
-    const ad = RewardedAd.createForAdRequest(adUnitId);
-    adRef.current = ad;
+    let unsubscribers: Array<() => void> = [];
+    let mounted = true;
 
-    const l1 = ad.addAdEventListener(AdEventType.LOADED, () => {
-      setLoaded(true);
-    });
+    (async () => {
+      try {
+        const mod = await import('react-native-google-mobile-ads');
+        const {
+          AdEventType,
+          RewardedAd,
+          RewardedAdEventType,
+          TestIds,
+        } = mod;
 
-    const l2 = ad.addAdEventListener(AdEventType.CLOSED, () => {
-      setShowing(false);
-      setLoaded(false);
-      ad.load();
-    });
+        const adUnitId =
+          Platform.OS === 'ios'
+            ? TestIds.REWARDED
+            : (__DEV__ ? TestIds.REWARDED : PROD_REWARDED_ANDROID);
 
-    const l3 = ad.addAdEventListener(RewardedAdEventType.EARNED_REWARD, () => {
-      onReward?.(); 
-    });
+        const ad = RewardedAd.createForAdRequest(adUnitId);
+        adRef.current = ad;
 
-    const l4 = ad.addAdEventListener(AdEventType.ERROR, () => {
-      setShowing(false);
-      setLoaded(false);
-      setTimeout(() => ad.load(), 1500);
-    });
+        const l1 = ad.addAdEventListener(AdEventType.LOADED, () => {
+          if (!mounted) return;
+          setLoaded(true);
+        });
 
-    ad.load();
+        const l2 = ad.addAdEventListener(AdEventType.CLOSED, () => {
+          if (!mounted) return;
+          setShowing(false);
+          setLoaded(false);
+          try {
+            ad.load();
+          } catch {}
+        });
+
+        const l3 = ad.addAdEventListener(RewardedAdEventType.EARNED_REWARD, () => {
+          try {
+            onReward?.();
+          } catch {}
+        });
+
+        const l4 = ad.addAdEventListener(AdEventType.ERROR, () => {
+          if (!mounted) return;
+          setShowing(false);
+          setLoaded(false);
+          setTimeout(() => {
+            try {
+              ad.load();
+            } catch {}
+          }, 1500);
+        });
+
+        unsubscribers = [l1, l2, l3, l4];
+
+        ad.load();
+      } catch (e) {
+        disabledRef.current = true;
+        console.warn('[ADS] rewarded disabled', e);
+      }
+    })();
 
     return () => {
-      l1(); l2(); l3(); l4();
+      mounted = false;
+      try {
+        unsubscribers.forEach((u) => u());
+      } catch {}
     };
-  }, [adUnitId, onReward]);
+  }, [onReward]);
 
   const show = () => {
+    if (disabledRef.current) return false;
     if (!loaded || !adRef.current) return false;
+
     setShowing(true);
-    adRef.current.show().catch(() => {
-      setShowing(false);
-      setLoaded(false);
-      adRef.current?.load();
-    });
+    adRef.current
+      .show()
+      .catch(() => {
+        setShowing(false);
+        setLoaded(false);
+        try {
+          adRef.current?.load();
+        } catch {}
+      });
+
     return true;
   };
 

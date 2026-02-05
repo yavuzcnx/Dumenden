@@ -11,6 +11,7 @@ type Row = {
   status: 'pending' | 'approved' | 'rejected' | 'withdrawn';
   closing_date: string;
   category: string;
+  approved_coupon_id?: string | null;
 };
 
 const BRAND = '#FF6B00';
@@ -38,7 +39,7 @@ export default function ManageMySubmissions() {
 
     let q = supabase
       .from('coupon_submissions')
-      .select('id,title,status,closing_date,category')
+      .select('id,title,status,closing_date,category,approved_coupon_id')
       .eq('user_id', uid)
       .order('created_at', { ascending: false });
 
@@ -83,43 +84,111 @@ export default function ManageMySubmissions() {
   // -------------------------
   // DELETE FUNCTION (FIXED: HEM SUBMISSION HEM EXPLORE SİLİNİR)
  
-  const deleteSubmission = async (id: string, status: string) => {
+  const deleteSubmission = async (item: Row) => {
+    const status = item.status;
+    let approvedCouponId = item.approved_coupon_id ?? null;
+
+    if (status === 'approved') {
+      try {
+        if (!approvedCouponId) {
+          const { data, error } = await supabase
+            .from('coupon_submissions')
+            .select('approved_coupon_id')
+            .eq('id', item.id)
+            .maybeSingle();
+          if (error) throw error;
+          approvedCouponId = data?.approved_coupon_id ?? null;
+        }
+
+        if (!approvedCouponId) {
+          Alert.alert('Uyari', 'Kupon baglantisi bulunamadi. Lutfen sayfayi yenileyip tekrar dene.');
+          return;
+        }
+
+        const { count, error: betErr } = await supabase
+          .from('coupon_bets')
+          .select('id', { count: 'exact', head: true })
+          .eq('coupon_id', approvedCouponId);
+
+        if (betErr) throw betErr;
+
+        const betCount = count ?? 0;
+        if (betCount > 0) {
+          const { data: cRow, error: cErr } = await supabase
+            .from('coupons')
+            .select('result, paid_out_at')
+            .eq('id', approvedCouponId)
+            .maybeSingle();
+          if (cErr) throw cErr;
+
+          const paid = !!cRow?.result && !!cRow?.paid_out_at;
+          if (!paid) {
+            Alert.alert(
+              'Once kanit ve odeme gerekli',
+              `${betCount} kisi bu kupona XP yatirmis. Silmeden once kanit ekleyip odemeyi dagitmalisin.`,
+              [
+                { text: 'Vazgec', style: 'cancel' },
+                { text: 'Kanit Ekle', onPress: () => router.push(`/plus/proofs?coupon=${approvedCouponId}`) },
+                { text: 'Sonuclandir', onPress: () => router.push('/plus/resolve') },
+              ]
+            );
+            return;
+          }
+        }
+      } catch (err: any) {
+        Alert.alert('Hata', err?.message ?? 'Kontrol basarisiz oldu.');
+        return;
+      }
+    }
+
+    const deleteCouponId = approvedCouponId;
+
     Alert.alert(
-      "Kuponu Sil", 
-      "Bu kuponu tamamen silmek istediğine emin misin?", 
+      'Kuponu Sil',
+      'Bu kuponu tamamen silmek istedigine emin misin?',
       [
-      { text: "Vazgeç", style: "cancel" },
+      { text: 'Vazgec', style: 'cancel' },
       {
-        text: "Kökten Sil",
-        style: "destructive",
+        text: 'Kokten Sil',
+        style: 'destructive',
         onPress: async () => {
           try {
-            // 1. Veritabanından sil (Senin RPC fonksiyonun)
-            const { error } = await supabase.rpc('delete_my_coupon', { target_id: id });
+            // 1. Veritabanindan sil (Senin RPC fonksiyonun)
+            const { error } = await supabase.rpc('delete_my_coupon', { target_id: item.id });
 
             if (error) {
-                console.error("RPC Hatası:", error);
+                console.error('RPC Hatasi:', error);
                 throw new Error(error.message);
             }
 
-            // 2. 🔥 ÖNEMLİ: Listeyi RAM'den manuel temizle (Anlık tepki için)
+            // 2. Onayli kupon varsa Explore'dan dusur
+            if (deleteCouponId) {
+              try {
+                await supabase
+                  .from('coupons')
+                  .update({ is_open: false, archived: true })
+                  .eq('id', deleteCouponId);
+              } catch (e) {
+                console.warn('Kupon kapatma hatasi:', e);
+              }
+            }
+
+            // 3. Listeyi RAM'den manuel temizle (Anlik tepki icin)
             setRows(prevRows => {
-                // Debug için konsola yazalım, ID eşleşiyor mu görelim
-                console.log("Silinmeye çalışılan ID:", id);
-                console.log("Listedeki satır sayısı (Önce):", prevRows.length);
-                const newRows = prevRows.filter(r => r.id !== id);
-                console.log("Listedeki satır sayısı (Sonra):", newRows.length);
+                console.log('Silinmeye calisilan ID:', item.id);
+                console.log('Listedeki satir sayisi (Once):', prevRows.length);
+                const newRows = prevRows.filter(r => r.id !== item.id);
+                console.log('Listedeki satir sayisi (Sonra):', newRows.length);
                 return newRows;
             });
 
-            // 3. 🔥 DAHA ÖNEMLİ: Veritabanından son halini çekip listeyi zorla yenile!
-            // (Eğer manuel silme çalışmazsa bu kesin çalışır çünkü veritabanı artık boş)
-            await load(); 
+            // 4. Veritabanindan son halini cekip listeyi zorla yenile
+            await load();
 
-            Alert.alert("Başarılı", "Kupon yok edildi.");
+            Alert.alert('Basarili', 'Kupon yok edildi.');
 
           } catch (err: any) {
-            Alert.alert("Hata", err.message || "Silme işlemi başarısız.");
+            Alert.alert('Hata', err?.message ?? 'Silme islemi basarisiz.');
           }
         }
       }
@@ -201,7 +270,7 @@ export default function ManageMySubmissions() {
           {/* ------------------- */}
           <TouchableOpacity
             // 🔥 Statüyü de gönderiyoruz ki ana tablodan da silebilsin
-            onPress={() => deleteSubmission(item.id, item.status)}
+            onPress={() => deleteSubmission(item)}
             style={{
               paddingHorizontal: 14,
               paddingVertical: 10,

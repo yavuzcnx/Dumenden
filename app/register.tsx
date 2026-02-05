@@ -247,7 +247,7 @@ export default function RegisterPage() {
                   selectionColor={COLORS.primary}
                 />
                 <TextInput
-                  placeholder="Telefon"
+                  placeholder="Telefon (opsiyonel)"
                   value={phone}
                   onChangeText={setPhone}
                   style={styles.input}
@@ -258,7 +258,7 @@ export default function RegisterPage() {
                   textContentType="telephoneNumber"
                 />
                 <TextInput
-                  placeholder="Doğum Tarihi (YYYY.MM.DD)"
+                  placeholder="Doğum Tarihi (YYYY.MM.DD) (opsiyonel)"
                   value={birthDate}
                   onChangeText={formatBirthDate}
                   style={styles.input}

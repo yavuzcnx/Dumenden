@@ -3,7 +3,7 @@
     "name": "Dümenden",
     "slug": "dumenden",
     "scheme": "dumenden",
-    "version": "1.8.5",
+    "version": "1.8.6",
     "orientation": "default",
     "userInterfaceStyle": "light",
     "icon": "./assets/images/logo.png",
@@ -28,7 +28,7 @@
     },
     "android": {
       "package": "com.dumenden.app",
-      "versionCode": 44,
+      "versionCode": 45,
       "permissions": [
         "com.android.vending.BILLING",
         "com.google.android.gms.permission.AD_ID"
@@ -55,39 +55,39 @@
         }
       ]
     },
-  "ios": {
-  "bundleIdentifier": "com.dumenden.app",
-  "buildNumber": "55",
-  "supportsTablet": true,
-  "config": {
-    "usesNonExemptEncryption": false,
-    "googleMobileAdsAppId": "ca-app-pub-3837426346942059~3638287941"
-  },
-  "infoPlist": {
-    "GADApplicationIdentifier": "ca-app-pub-3837426346942059~3638287941",
-    "NSCameraUsageDescription": "Kanıt fotoğrafı çekmek için kameraya erişim izni gerekiyor.",
-    "NSMicrophoneUsageDescription": "Video kanıtı yüklemek için mikrofona erişim gerekiyor.",
-    "NSPhotoLibraryUsageDescription": "Kanıt yüklemek için galeriye erişim izni gerekiyor.",
-    "NSFaceIDUsageDescription": "Uygulamaya güvenli giriş yapmak için Face ID izni gerekiyor.",
-    "NSUserTrackingUsageDescription": "Size daha uygun reklamlar gösterebilmek için izninize ihtiyacımız var.",
-    "NSAppTransportSecurity": {
-      "NSAllowsArbitraryLoads": true
-    },
-    "LSApplicationQueriesSchemes": [
-      "itms-apps",
-      "https",
-      "http"
-    ],
-    "SKAdNetworkItems": [
-      {
-        "SKAdNetworkIdentifier": "cstr6suwn9.skadnetwork"
+    "ios": {
+      "bundleIdentifier": "com.dumenden.app",
+      "buildNumber": "56",
+      "supportsTablet": true,
+      "config": {
+        "usesNonExemptEncryption": false,
+        "googleMobileAdsAppId": "ca-app-pub-3837426346942059~3638287941"
       },
-      {
-        "SKAdNetworkIdentifier": "4fzdc2evr5.skadnetwork"
+      "infoPlist": {
+        "GADApplicationIdentifier": "ca-app-pub-3837426346942059~3638287941",
+        "NSCameraUsageDescription": "Kanıt fotoğrafı çekmek için kameraya erişim izni gerekiyor.",
+        "NSMicrophoneUsageDescription": "Video kanıtı yüklemek için mikrofona erişim gerekiyor.",
+        "NSPhotoLibraryUsageDescription": "Kanıt yüklemek için galeriye erişim izni gerekiyor.",
+        "NSFaceIDUsageDescription": "Uygulamaya güvenli giriş yapmak için Face ID izni gerekiyor.",
+        "NSUserTrackingUsageDescription": "Size daha uygun reklamlar gösterebilmek için izninize ihtiyacımız var.",
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        },
+        "LSApplicationQueriesSchemes": [
+          "itms-apps",
+          "https",
+          "http"
+        ],
+        "SKAdNetworkItems": [
+          {
+            "SKAdNetworkIdentifier": "cstr6suwn9.skadnetwork"
+          },
+          {
+            "SKAdNetworkIdentifier": "4fzdc2evr5.skadnetwork"
+          }
+        ]
       }
-    ]
-  }
-},
+    },
     "plugins": [
       "expo-web-browser",
       [
@@ -99,10 +99,12 @@
         }
       ],
       "expo-router",
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-mail-composer",
+      "expo-tracking-transparency"
     ],
     "extra": {
-      "supabaseUrl": "https://hgvvrrkeljasjwdoajtw.supabase.co", 
+      "supabaseUrl": "https://hgvvrrkeljasjwdoajtw.supabase.co",
       "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhndnZycmtlbGphc2p3ZG9hanR3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIyMzQyNjMsImV4cCI6MjA2NzgxMDI2M30.F7o5jWKglt8eRyTf5xnpKVdNt4Rpb_R9CarArze_QcA",
       "eas": {
         "projectId": "b5bad7ff-9465-44fe-aaad-191ac9957eb7"

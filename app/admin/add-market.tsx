@@ -1,8 +1,7 @@
 'use client';
 
+import { publicUrl, uploadImage } from '@/lib/storage';
 import { supabase } from '@/lib/supabaseClient';
-import { decode as atob } from 'base-64';
-import * as FileSystem from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import { useEffect, useMemo, useState } from 'react';
 import {
@@ -26,18 +25,8 @@ const guessExt = (uri: string) => {
   const ext = raw.includes('.') ? raw.slice(raw.lastIndexOf('.') + 1).toLowerCase() : 'jpg';
   return ext === 'jpeg' ? 'jpg' : ext;
 };
-const contentType = (ext: string) => (ext === 'jpg' ? 'image/jpeg' : ext === 'heic' ? 'image/heic' : `image/${ext}`);
-
 async function uploadToMediaBucket(uri: string, path: string) {
-  const ext = guessExt(uri);
-  const ct = contentType(ext);
-  // 🔥 FIX BURADA: EncodingType yerine direkt 'base64' stringi kullanıldı
-  const base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
-  const bin = atob(base64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  const { error } = await supabase.storage.from(MEDIA_BUCKET).upload(path, bytes, { contentType: ct, upsert: false });
-  if (error) throw error;
+  await uploadImage(uri, path, { bucket: MEDIA_BUCKET });
   return path;
 }
 
@@ -87,6 +76,7 @@ export default function AddMarket() {
   const [price, setPrice] = useState('');
   const [stock, setStock] = useState('');
   const [localUri, setLocalUri] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   // yönetim listesi
   const [items, setItems] = useState<RewardRow[]>([]);
@@ -149,31 +139,39 @@ export default function AddMarket() {
 
   // ödül ekle
   const createItem = async () => {
+    if (saving) return;
     if (!activeCat)      return Alert.alert('Eksik', 'Kategori seçmelisin.');
     if (!name.trim())    return Alert.alert('Eksik', 'Ödül adı gerekli.');
     if (!price.trim() || Number.isNaN(Number(price))) return Alert.alert('Eksik', 'Geçerli bir XP fiyatı gir.');
     if (stock && Number.isNaN(Number(stock))) return Alert.alert('Eksik', 'Stok sayısı sayı olmalı.');
 
-    let image_url: string | null = null;
-    if (localUri) {
-      const path = await uploadToMediaBucket(localUri, `rewards/${activeCat}/${uid()}.${guessExt(localUri)}`);
-      const pub = supabase.storage.from(MEDIA_BUCKET).getPublicUrl(path).data?.publicUrl;
-      image_url = pub ?? path;
-    }
-    const { error } = await supabase.from('rewards').insert([{
-      category_id: activeCat,
-      name: name.trim(),
-      description: desc.trim() || null,
-      int_price: Number(price),
-      stock: Number(stock || '0'),
-      image_url,
-      is_active: true // Yeni eklenenler aktif olsun
-    }]);
-    if (error) return Alert.alert('Hata', error.message);
+    try {
+      setSaving(true);
+      let image_url: string | null = null;
+      if (localUri) {
+        const path = await uploadToMediaBucket(localUri, `rewards/${activeCat}/${uid()}.${guessExt(localUri)}`);
+        const pub = publicUrl(path, MEDIA_BUCKET);
+        image_url = pub || path;
+      }
+      const { error } = await supabase.from('rewards').insert([{
+        category_id: activeCat,
+        name: name.trim(),
+        description: desc.trim() || null,
+        int_price: Number(price),
+        stock: Number(stock || '0'),
+        image_url,
+        is_active: true // Yeni eklenenler aktif olsun
+      }]);
+      if (error) throw error;
 
-    setName(''); setDesc(''); setPrice(''); setStock(''); setLocalUri(null);
-    await loadItems();
-    Alert.alert('OK', 'Ödül eklendi');
+      setName(''); setDesc(''); setPrice(''); setStock(''); setLocalUri(null);
+      await loadItems();
+      Alert.alert('OK', 'Ödül eklendi');
+    } catch (e: any) {
+      Alert.alert('Hata', e?.message ?? 'Odul kaydedilemedi.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   // 🔥 SOFT DELETE (GİZLEME) FONKSİYONU
@@ -360,9 +358,9 @@ export default function AddMarket() {
         <Text style={styles.btnTxt}>Görsel Seç</Text>
       </TouchableOpacity>
 
-      <TouchableOpacity onPress={createItem} disabled={!activeCat}
-        style={[styles.btn, { opacity: activeCat ? 1 : 0.6, marginTop: 10 }]}>
-        <Text style={styles.btnTxt}>Ödülü Kaydet</Text>
+      <TouchableOpacity onPress={createItem} disabled={!activeCat || saving}
+        style={[styles.btn, { opacity: activeCat && !saving ? 1 : 0.6, marginTop: 10 }]}>
+        <Text style={styles.btnTxt}>{saving ? 'Kaydediliyor...' : 'Ödülü Kaydet'}</Text>
       </TouchableOpacity>
 
       {/* canlı market önizleme */}

@@ -1,5 +1,5 @@
 // src/contexts/lib/ads.ts
-
+import { Platform } from 'react-native';
 
 let _inited = false;
 let _initPromise: Promise<void> | null = null;
@@ -31,6 +31,21 @@ export async function initAds() {
 
     try {
       const mobileAds = mod.default;
+
+      if (Platform.OS === 'ios') {
+        try {
+          const tt = await import('expo-tracking-transparency');
+          const { status } = await tt.getTrackingPermissionsAsync();
+          if (status === tt.PermissionStatus.UNDETERMINED) {
+            const req = await tt.requestTrackingPermissionsAsync();
+            console.log('[ADS] ATT status:', req.status);
+          } else {
+            console.log('[ADS] ATT status:', status);
+          }
+        } catch (e) {
+          console.warn('[ADS] ATT request failed', e);
+        }
+      }
 
       await mobileAds().setRequestConfiguration({
         tagForChildDirectedTreatment: false,

@@ -28,6 +28,8 @@ type Row = {
   no_price: number | null;
   image_url: string | null;
   is_open?: boolean;
+  result?: string | null;
+  paid_out_at?: string | null;
   users?: { full_name: string | null; avatar_url: string | null } | null;
   coupon_proofs?: { count: number }[];
   coupon_submissions?: { image_path: string | null }[];
@@ -111,7 +113,7 @@ export default function Explore() {
     let q = supabase
       .from('coupons')
       .select(`
-        id, title, description, category, created_at, created_by, closing_date, yes_price, no_price, image_url, is_open,
+        id, title, description, category, created_at, created_by, closing_date, yes_price, no_price, image_url, is_open, result, paid_out_at,
         users:created_by(full_name,avatar_url),
         coupon_proofs:coupon_proofs!coupon_proofs_coupon_id_fkey(count),
         coupon_submissions:coupon_submissions!coupon_submissions_approved_coupon_id_fkey(image_path)
@@ -119,6 +121,8 @@ export default function Explore() {
       .eq('is_user_generated', true)
       .eq('is_open', true)
       .gt('closing_date', new Date().toISOString())
+      .is('result', null)
+      .is('paid_out_at', null)
       .order('created_at', { ascending: false })
       .limit(120);
 
@@ -157,7 +161,12 @@ export default function Explore() {
   useEffect(() => {
     const tick = () => {
       setRows(prev => {
-        const next = prev.filter(r => new Date(r.closing_date).getTime() > Date.now() && r.is_open !== false);
+        const next = prev.filter(r =>
+          new Date(r.closing_date).getTime() > Date.now() &&
+          r.is_open !== false &&
+          !r.result &&
+          !r.paid_out_at
+        );
         if (next.length !== prev.length) return next;
         return prev;
       });
@@ -204,6 +213,16 @@ export default function Explore() {
   const addOnceToBasket = (row: Row, side: 'YES' | 'NO') => {
     if (!row.yes_price && side === 'YES') return;
     if (!row.no_price && side === 'NO') return;
+
+    const isClosed =
+      row.is_open === false ||
+      !!row.result ||
+      !!row.paid_out_at ||
+      new Date(row.closing_date).getTime() <= Date.now();
+    if (isClosed) {
+      Alert.alert('Kupon kapandi', 'Bu kupon sonuclandigi icin oynanamaz.');
+      return;
+    }
     
     if (myId && row.created_by === myId) {
         Alert.alert("Hata", "Kendi oluşturduğun kupona bahis oynayamazsın.");
@@ -220,6 +239,30 @@ export default function Explore() {
   };
 
   const removeFromBasket = (couponId: string | number) => { setBasket((b) => b.filter((x) => x.coupon_id !== couponId)); };
+  const ensureBasketOpen = async () => {
+    const ids = Array.from(new Set(basket.map((b) => String(b.coupon_id))));
+    if (ids.length === 0) return true;
+    const { data, error } = await supabase
+      .from('coupons')
+      .select('id,is_open,result,paid_out_at,closing_date')
+      .in('id', ids);
+    if (error) throw error;
+    const closedIds = (data ?? [])
+      .filter((c: any) => {
+        const expired = c?.closing_date
+          ? new Date(c.closing_date).getTime() <= Date.now()
+          : false;
+        return c?.is_open === false || !!c?.result || !!c?.paid_out_at || expired;
+      })
+      .map((c: any) => String(c.id));
+    if (closedIds.length > 0) {
+      setBasket((prev) => prev.filter((b) => !closedIds.includes(String(b.coupon_id))));
+      Alert.alert('Kupon kapandi', 'Bazi kuponlar sonuclandigi icin sepetten kaldirildi.');
+      await refresh().catch(() => {});
+      return false;
+    }
+    return true;
+  };
 
   const confirmBasket = async () => {
     if (basket.length === 0 || busy) return;

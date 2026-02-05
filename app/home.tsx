@@ -168,6 +168,8 @@ type MarketRow = Market & {
   yes_liquidity?: number | null;
   no_liquidity?: number | null;
   liquidity?: number | null;
+  result?: string | null;
+  paid_out_at?: string | null;
 };
 
 /* profil satırını garanti altına al */
@@ -409,12 +411,15 @@ export default function HomeScreen() {
           market_type, lines,
           yes_price, no_price, image_url,
           is_open, is_user_generated, created_at,
+          result, paid_out_at,
           yes_liquidity, no_liquidity, liquidity
         `
           )
           .eq('is_open', true)
           .eq('is_user_generated', false)
           .gt('closing_date', new Date().toISOString())
+          .is('result', null)
+          .is('paid_out_at', null)
           .order('created_at', { ascending: false });
 
         if (category !== 'Tümü') q = q.eq('category', category);
@@ -469,6 +474,12 @@ export default function HomeScreen() {
     },
     [hasMore, category, page, markets]
   );
+  const didInitFetch = useRef(false);
+  useEffect(() => {
+    if (didInitFetch.current) return;
+    didInitFetch.current = true;
+    fetchMore(true);
+  }, [fetchMore]);
 
   /* -------- GLOBAL TICK -------- */
   const [, setTick] = useState(0);
@@ -536,6 +547,30 @@ export default function HomeScreen() {
 
   /* ===== GERÇEK OYNAMA ===== */
   const [submitting, setSubmitting] = useState(false);
+  const ensureBasketOpen = async () => {
+    const ids = Array.from(new Set(basket.map((b) => String(b.coupon_id))));
+    if (ids.length === 0) return true;
+    const { data, error } = await supabase
+      .from('coupons')
+      .select('id,is_open,result,paid_out_at,closing_date')
+      .in('id', ids);
+    if (error) throw error;
+    const closedIds = (data ?? [])
+      .filter((c: any) => {
+        const expired = c?.closing_date
+          ? new Date(c.closing_date).getTime() <= Date.now()
+          : false;
+        return c?.is_open === false || !!c?.result || !!c?.paid_out_at || expired;
+      })
+      .map((c: any) => String(c.id));
+    if (closedIds.length > 0) {
+      setBasket((prev) => prev.filter((b) => !closedIds.includes(String(b.coupon_id))));
+      Alert.alert('Kupon kapandi', 'Bazi kuponlar sonuclandigi icin sepetten kaldirildi.');
+      await fetchMore(true);
+      return false;
+    }
+    return true;
+  };
 
   const confirmPlaySingles = async () => {
     if (basket.length === 0 || submitting) return;
@@ -562,6 +597,8 @@ export default function HomeScreen() {
     });
 
     try {
+      const ok = await ensureBasketOpen();
+      if (!ok) return;
       setSubmitting(true);
       const newBal = await playBasket(basket);
 
@@ -601,6 +638,8 @@ export default function HomeScreen() {
     }
 
     try {
+      const ok = await ensureBasketOpen();
+      if (!ok) return;
       setSubmitting(true);
       const newBal = await playParlay(basket, s);
 
@@ -671,7 +710,7 @@ export default function HomeScreen() {
 
   const marketState = (m: MarketRow) => {
     const t = timeLeft(m.closing_date);
-    const disabled = t.expired || m.is_open === false;
+    const disabled = t.expired || m.is_open === false || !!m.result || !!m.paid_out_at;
     const urgent = !t.expired && t.seconds <= 600;
     return { ...t, disabled, urgent };
   };

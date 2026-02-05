@@ -30,6 +30,20 @@ export default function ManageMySubmissions() {
   const [tab, setTab] = useState<TabKey>('all');
   const [rows, setRows] = useState<Row[]>([]);
   const [uid, setUid] = useState<string | null>(null);
+  const showPayoutRequired = (couponId?: string | null) => {
+    const actions: { text: string; style?: 'cancel' | 'destructive'; onPress?: () => void }[] = [
+      { text: 'Vazgec', style: 'cancel' },
+    ];
+    if (couponId) {
+      actions.push({ text: 'Kanit Ekle', onPress: () => router.push(`/plus/proofs?coupon=${couponId}`) });
+    }
+    actions.push({ text: 'Sonuclandir', onPress: () => router.push('/plus/resolve') });
+    Alert.alert(
+      'Odeme gerekli',
+      'Bu kupona yatirim yapilmis. Silmeden once kanit ekleyip odemeleri dagitmalisin.',
+      actions
+    );
+  };
 
   // -------------------------
   // LOAD USER & SUBMISSIONS
@@ -184,7 +198,12 @@ export default function ManageMySubmissions() {
             Alert.alert('Basarili', 'Kupon yok edildi.');
 
           } catch (err: any) {
-            Alert.alert('Hata', err?.message ?? 'Silme islemi basarisiz.');
+            const msg = String(err?.message ?? '');
+            if (/PAYOUT_REQUIRED/i.test(msg)) {
+              showPayoutRequired(couponId);
+              return;
+            }
+            Alert.alert('Hata', msg || 'Silme islemi basarisiz.');
           }
         }
       }

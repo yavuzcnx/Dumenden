@@ -85,63 +85,64 @@ export default function ManageMySubmissions() {
   // DELETE FUNCTION (FIXED: HEM SUBMISSION HEM EXPLORE SİLİNİR)
  
   const deleteSubmission = async (item: Row) => {
-    const status = item.status;
-    let approvedCouponId = item.approved_coupon_id ?? null;
+    let couponId = item.approved_coupon_id ?? null;
+    let couponRow: { id?: string; result?: string | null; paid_out_at?: string | null } | null = null;
 
-    if (status === 'approved') {
-      try {
-        if (!approvedCouponId) {
-          const { data, error } = await supabase
-            .from('coupon_submissions')
-            .select('approved_coupon_id')
-            .eq('id', item.id)
-            .maybeSingle();
-          if (error) throw error;
-          approvedCouponId = data?.approved_coupon_id ?? null;
-        }
+    try {
+      if (!couponId && uid) {
+        const { data, error } = await supabase
+          .from('coupons')
+          .select('id,result,paid_out_at')
+          .eq('created_by', uid)
+          .eq('title', item.title)
+          .eq('closing_date', item.closing_date)
+          .eq('is_user_generated', true)
+          .maybeSingle();
+        if (error) throw error;
+        couponRow = data ?? null;
+        couponId = data?.id ?? null;
+      }
 
-        if (!approvedCouponId) {
-          Alert.alert('Uyari', 'Kupon baglantisi bulunamadi. Lutfen sayfayi yenileyip tekrar dene.');
-          return;
-        }
-
+      if (couponId) {
         const { count, error: betErr } = await supabase
           .from('coupon_bets')
           .select('id', { count: 'exact', head: true })
-          .eq('coupon_id', approvedCouponId);
-
+          .eq('coupon_id', couponId);
         if (betErr) throw betErr;
 
         const betCount = count ?? 0;
         if (betCount > 0) {
-          const { data: cRow, error: cErr } = await supabase
-            .from('coupons')
-            .select('result, paid_out_at')
-            .eq('id', approvedCouponId)
-            .maybeSingle();
-          if (cErr) throw cErr;
+          let paid = false;
+          if (couponRow) {
+            paid = !!couponRow.result && !!couponRow.paid_out_at;
+          } else {
+            const { data: cRow, error: cErr } = await supabase
+              .from('coupons')
+              .select('result, paid_out_at')
+              .eq('id', couponId)
+              .maybeSingle();
+            if (cErr) throw cErr;
+            paid = !!cRow?.result && !!cRow?.paid_out_at;
+          }
 
-          const paid = !!cRow?.result && !!cRow?.paid_out_at;
           if (!paid) {
             Alert.alert(
               'Once kanit ve odeme gerekli',
               `${betCount} kisi bu kupona XP yatirmis. Silmeden once kanit ekleyip odemeyi dagitmalisin.`,
               [
                 { text: 'Vazgec', style: 'cancel' },
-                { text: 'Kanit Ekle', onPress: () => router.push(`/plus/proofs?coupon=${approvedCouponId}`) },
+                { text: 'Kanit Ekle', onPress: () => router.push(`/plus/proofs?coupon=${couponId}`) },
                 { text: 'Sonuclandir', onPress: () => router.push('/plus/resolve') },
               ]
             );
             return;
           }
         }
-      } catch (err: any) {
-        Alert.alert('Hata', err?.message ?? 'Kontrol basarisiz oldu.');
-        return;
       }
+    } catch (err: any) {
+      Alert.alert('Hata', err?.message ?? 'Kontrol basarisiz oldu.');
+      return;
     }
-
-    const deleteCouponId = approvedCouponId;
 
     Alert.alert(
       'Kuponu Sil',
@@ -153,24 +154,19 @@ export default function ManageMySubmissions() {
         style: 'destructive',
         onPress: async () => {
           try {
-            // 1. Veritabanindan sil (Senin RPC fonksiyonun)
-            const { error } = await supabase.rpc('delete_my_coupon', { target_id: item.id });
-
-            if (error) {
-                console.error('RPC Hatasi:', error);
-                throw new Error(error.message);
+            if (couponId) {
+              const { error: closeErr } = await supabase
+                .from('coupons')
+                .update({ is_open: false, archived: true })
+                .eq('id', couponId);
+              if (closeErr) throw closeErr;
             }
 
-            // 2. Onayli kupon varsa Explore'dan dusur
-            if (deleteCouponId) {
-              try {
-                await supabase
-                  .from('coupons')
-                  .update({ is_open: false, archived: true })
-                  .eq('id', deleteCouponId);
-              } catch (e) {
-                console.warn('Kupon kapatma hatasi:', e);
-              }
+            // 1. Veritabanindan sil (Senin RPC fonksiyonun)
+            const { error } = await supabase.rpc('delete_my_coupon', { target_id: item.id });
+            if (error) {
+              console.error('RPC Hatasi:', error);
+              throw new Error(error.message);
             }
 
             // 3. Listeyi RAM'den manuel temizle (Anlik tepki icin)

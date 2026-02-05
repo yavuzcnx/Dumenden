@@ -168,14 +168,6 @@ export default function ManageMySubmissions() {
         style: 'destructive',
         onPress: async () => {
           try {
-            if (couponId) {
-              const { error: closeErr } = await supabase
-                .from('coupons')
-                .update({ is_open: false, archived: true })
-                .eq('id', couponId);
-              if (closeErr) throw closeErr;
-            }
-
             // 1. Veritabanindan sil (Senin RPC fonksiyonun)
             const { error } = await supabase.rpc('delete_my_coupon', { target_id: item.id });
             if (error) {
@@ -201,6 +193,13 @@ export default function ManageMySubmissions() {
             const msg = String(err?.message ?? '');
             if (/PAYOUT_REQUIRED/i.test(msg)) {
               showPayoutRequired(couponId);
+              return;
+            }
+            if (/permission denied/i.test(msg) && /users/i.test(msg)) {
+              Alert.alert(
+                'Islem tamamlanamadi',
+                'Sunucu izinleri nedeniyle silme islemi engellendi. Lutfen biraz sonra tekrar dene.'
+              );
               return;
             }
             Alert.alert('Hata', msg || 'Silme islemi basarisiz.');

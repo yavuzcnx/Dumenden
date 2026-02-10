@@ -14,6 +14,7 @@ import BottomBar from '@/components/BottomBar';
 import { ensureBootstrapAndProfile } from '@/lib/bootstrap';
 import { supabase } from '@/lib/supabaseClient';
 import { useInterstitial } from '@/src/contexts/ads/interstitial';
+import { requestATTOnce } from '@/src/contexts/lib/att';
 import { initAds } from '@/src/contexts/lib/ads';
 import { XpProvider } from '@/src/contexts/XpProvider';
 
@@ -32,6 +33,7 @@ export default function RootLayout() {
     async function prepare() {
       try {
         await Promise.allSettled([
+          requestATTOnce().catch((e) => console.warn('ATT request failed:', e)),
           initAds().catch((e) => console.warn('Ad Init Fail:', e)),
           (async () => {
             // ✅ BOZUK SESSION FIX: Invalid Refresh Token -> local temizle

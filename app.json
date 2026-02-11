@@ -3,7 +3,7 @@
     "name": "Dümenden",
     "slug": "dumenden",
     "scheme": "dumenden",
-    "version": "1.8.9",
+    "version": "1.9.1",
     "orientation": "default",
     "userInterfaceStyle": "light",
     "icon": "./assets/images/logo.png",
@@ -28,7 +28,7 @@
     },
     "android": {
       "package": "com.dumenden.app",
-      "versionCode": 45,
+      "versionCode": 60,
       "permissions": [
         "com.android.vending.BILLING",
         "com.google.android.gms.permission.AD_ID"
@@ -57,7 +57,7 @@
     },
     "ios": {
       "bundleIdentifier": "com.dumenden.app",
-      "buildNumber": "59",
+      "buildNumber": "61",
       "supportsTablet": true,
       "config": {
         "usesNonExemptEncryption": false,

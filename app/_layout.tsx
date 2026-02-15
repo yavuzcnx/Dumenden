@@ -17,7 +17,7 @@ import { BlockProvider } from '@/lib/blocks';
 import { supabase } from '@/lib/supabaseClient';
 import { useInterstitial } from '@/src/contexts/ads/interstitial';
 import { requestATTOnce } from '@/src/contexts/lib/att';
-import { initAds } from '@/src/contexts/lib/ads';
+import { initAds, setAdsAllowed } from '@/src/contexts/lib/ads';
 import { XpProvider } from '@/src/contexts/XpProvider';
 import { TERMS_VERSION } from '@/lib/terms';
 import { useI18n } from '@/lib/i18n';
@@ -90,6 +90,7 @@ export default function RootLayout() {
       if (!data?.session?.user) return; // kullanıcı yoksa ATT sorma
 
       await requestATTOnce().catch((e) => console.warn('ATT request failed:', e));
+      setAdsAllowed(true);
       if (cancelled) return;
       await initAds().catch((e) => console.warn('Ad Init Fail:', e));
     })();
@@ -136,6 +137,7 @@ export default function RootLayout() {
 
       // SIGNED_OUT: auth route'ta değilsek login’e bas
       if (event === 'SIGNED_OUT') {
+        setAdsAllowed(false);
         didNavRef.current = false;
         if (!isAuthRoute(current)) {
           router.replace('/login');

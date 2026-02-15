@@ -3,6 +3,7 @@
 let _inited = false;
 let _initPromise: Promise<void> | null = null;
 const _listeners: Array<() => void> = [];
+let _allowed = false;
 
 async function loadAdsModule() {
   // ✅ Modül yoksa burada patlamasın diye try/catch
@@ -56,6 +57,14 @@ export async function initAds() {
 
 export function adsReady() {
   return _inited;
+}
+
+export function setAdsAllowed(v: boolean) {
+  _allowed = v;
+}
+
+export function adsAllowed() {
+  return _allowed;
 }
 
 /** Ads hazır olduğunda bir kez çağrılır */

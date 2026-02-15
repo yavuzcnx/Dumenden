@@ -282,12 +282,16 @@ export default function HomeScreen() {
   const interShownOnce = useRef(false);
 
   useEffect(() => {
-    (async () => {
-      if (!isPlus && interLoaded && !interShownOnce.current) {
-        interShownOnce.current = true;
-        await showIfEligible('home_enter');
-      }
-    })();
+    if (!isPlus && interLoaded && !interShownOnce.current) {
+      const t = setTimeout(() => {
+        (async () => {
+          if (interShownOnce.current) return;
+          interShownOnce.current = true;
+          await showIfEligible('home_enter');
+        })();
+      }, 1200);
+      return () => clearTimeout(t);
+    }
   }, [isPlus, interLoaded, showIfEligible]);
 
   const measureTargets = useCallback(() => {

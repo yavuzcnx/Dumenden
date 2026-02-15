@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useRef, useState } from 'react';
 import { Platform } from 'react-native';
-import { onAdsReady } from '@/src/contexts/lib/ads';
+import { adsAllowed, onAdsReady } from '@/src/contexts/lib/ads';
 
 const PROD_INTERSTITIAL_ANDROID = 'ca-app-pub-3837426346942059/8002763076';
 const PROD_INTERSTITIAL_IOS = 'ca-app-pub-3837426346942059/7530153923';
@@ -108,6 +108,7 @@ export function useInterstitial() {
   }, []);
 
   const show = async () => {
+    if (!adsAllowed()) return false;
     if (disabledRef.current) return false;
     if (!adRef.current) return false;
     if (!loaded) return false;
@@ -147,6 +148,7 @@ export function useInterstitial() {
   };
 
   const showIfEligible = async (reason: 'home_enter' | 'nav') => {
+    if (!adsAllowed()) return false;
     if (disabledRef.current) return false;
 
     const ok = await isEligible(reason);

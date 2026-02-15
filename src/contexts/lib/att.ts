@@ -5,17 +5,12 @@ let _asked = false;
 export type AttStatus = 'unavailable' | 'undetermined' | 'denied' | 'authorized' | 'restricted';
 
 const toStatus = (status: any): AttStatus => {
-  switch (status) {
-    case 'authorized':
-      return 'authorized';
-    case 'denied':
-      return 'denied';
-    case 'restricted':
-      return 'restricted';
-    case 'undetermined':
-    default:
-      return 'undetermined';
-  }
+  const s = String(status);
+  if (s === 'authorized' || s === 'granted') return 'authorized';
+  if (s === 'denied') return 'denied';
+  if (s === 'restricted') return 'restricted';
+  if (s === 'unavailable') return 'unavailable';
+  return 'undetermined';
 };
 
 export async function getATTStatus(): Promise<AttStatus> {
@@ -35,7 +30,11 @@ export async function requestATT(): Promise<AttStatus> {
   try {
     const tt = await import('expo-tracking-transparency');
     const { status } = await tt.getTrackingPermissionsAsync();
-    if (status === tt.PermissionStatus.UNDETERMINED) {
+    if (
+      status === tt.PermissionStatus.UNDETERMINED ||
+      status === 'undetermined' ||
+      status === 'not-determined'
+    ) {
       const res = await tt.requestTrackingPermissionsAsync();
       return toStatus(res.status);
     }

@@ -151,6 +151,9 @@
     "showTutorialAction": "Start",
     "showTutorialReady": "Tutorial will show on Home. Taking you there.",
     "trackingPermission": "Tracking Permission",
+    "blockedUsersTitle": "Blocked Users",
+    "blockedUsersEmpty": "You have not blocked anyone.",
+    "unblock": "Unblock",
     "trackingStatus": {
       "authorized": "Allowed",
       "denied": "Not Allowed",
@@ -699,6 +702,10 @@
       "coupon": "Coupon",
       "user": "User"
     },
+    "reporter": "Reported by",
+    "targetUser": "Reported user",
+    "reportedAt": "Reported at",
+    "targetPreview": "Target preview",
     "resolve": "Resolve",
     "removeAndBan": "Remove & Ban",
     "reportId": "Target",
@@ -806,6 +813,10 @@
     "unnamedUser": "Unnamed",
     "unblockAction": "Unblock",
     "blockAction": "Block",
+    "reportReason": "Report reason",
+    "reportTarget": "Target",
+    "reportBy": "Reported by",
+    "reportAt": "Reported at",
     "empty": "No users found"
   },
   "adminSubmission": {

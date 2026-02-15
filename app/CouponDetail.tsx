@@ -6,7 +6,6 @@ import { useBlocks } from '@/lib/blocks';
 import { Ionicons } from '@expo/vector-icons';
 import { decode as atob } from 'base-64';
 import * as ImagePicker from 'expo-image-picker';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -617,9 +616,6 @@ export default function CouponDetail() {
               ) : (
                   <View style={[styles.heroImage, { backgroundColor: '#ddd' }]} />
               )}
-              {/* Karartma Gradyanı */}
-              <LinearGradient colors={['transparent', 'rgba(0,0,0,0.85)']} style={styles.heroGradient} />
-              
               <TouchableOpacity onPress={() => router.back()} style={[styles.backBtn, { top: insets.top + 10 }]}>
                   <Ionicons name="arrow-back" size={24} color="#fff" />
               </TouchableOpacity>
@@ -957,14 +953,13 @@ const styles = StyleSheet.create({
   headerContainer: { backgroundColor: '#fff', borderBottomLeftRadius: 24, borderBottomRightRadius: 24, overflow: 'hidden', marginBottom: 16, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 10, elevation: 5 },
   heroWrapper: { height: 280, position: 'relative' },
   heroImage: { width: '100%', height: '100%' },
-  heroGradient: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 140 },
   backBtn: { position: 'absolute', left: 16, width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.3)', alignItems: 'center', justifyContent: 'center' },
   
-  infoContainer: { padding: 20, marginTop: -60 },
+  infoContainer: { padding: 20 },
   catBadge: { backgroundColor: BRAND, alignSelf: 'flex-start', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12, marginBottom: 8 },
   catText: { color: '#fff', fontWeight: '800', fontSize: 12, textTransform: 'uppercase' },
-  couponTitle: { color: '#fff', fontSize: 24, fontWeight: '900', textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 4 },
-  couponDate: { color: '#eee', marginTop: 4, fontSize: 13, fontWeight: '600' },
+  couponTitle: { color: '#111', fontSize: 24, fontWeight: '900' },
+  couponDate: { color: '#666', marginTop: 4, fontSize: 13, fontWeight: '600' },
 
   // ODDS
   oddsContainer: { flexDirection: 'row', gap: 12, paddingHorizontal: 20, marginBottom: 20 },

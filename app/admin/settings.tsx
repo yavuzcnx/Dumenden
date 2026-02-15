@@ -21,6 +21,7 @@ export default function AdminSettingsPage() {
   const { t } = useI18n();
   const [users, setUsers] = useState<any[]>([]);
   const [search, setSearch] = useState('');
+  const [reportMap, setReportMap] = useState<Record<string, any>>({});
   const router = useRouter();
 
   useEffect(() => {
@@ -30,6 +31,18 @@ export default function AdminSettingsPage() {
   const fetchUsers = async () => {
     const { data, error } = await supabase.from('users').select('*');
     if (!error) setUsers(data || []);
+
+    const { data: reports } = await supabase
+      .from('ugc_reports')
+      .select('target_user_id, reason, target_type, target_id, reporter_id, created_at, status')
+      .order('created_at', { ascending: false });
+
+    const map: Record<string, any> = {};
+    (reports || []).forEach((r: any) => {
+      if (!r?.target_user_id) return;
+      if (!map[r.target_user_id]) map[r.target_user_id] = r;
+    });
+    setReportMap(map);
   };
 
   const handleBlock = async (id: string) => {
@@ -73,6 +86,23 @@ export default function AdminSettingsPage() {
             <View>
               <Text style={styles.userName}>{item.full_name || t('adminSettings.unnamedUser')}</Text>
               <Text style={styles.userEmail}>{item.email}</Text>
+              {reportMap[item.id] && (
+                <View style={styles.reportBox}>
+                  <Text style={styles.reportLine}>
+                    {t('adminSettings.reportReason')}: {reportMap[item.id]?.reason || t('common.na')}
+                  </Text>
+                  <Text style={styles.reportLine}>
+                    {t('adminSettings.reportTarget')}: {reportMap[item.id]?.target_type || t('common.na')}
+                    {reportMap[item.id]?.target_id ? ` #${reportMap[item.id]?.target_id}` : ''}
+                  </Text>
+                  <Text style={styles.reportLine}>
+                    {t('adminSettings.reportBy')}: {String(reportMap[item.id]?.reporter_id || '').slice(0, 8)}
+                  </Text>
+                  <Text style={styles.reportLine}>
+                    {t('adminSettings.reportAt')}: {reportMap[item.id]?.created_at ? new Date(reportMap[item.id].created_at).toLocaleString() : t('common.na')}
+                  </Text>
+                </View>
+              )}
             </View>
             <TouchableOpacity
               style={[styles.blockButton, { backgroundColor: item.is_blocked ? '#4CAF50' : '#E53935' }]}
@@ -120,6 +150,15 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#666',
   },
+  reportBox: {
+    marginTop: 6,
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: '#FFF7ED',
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+  },
+  reportLine: { fontSize: 12, color: '#7C2D12', fontWeight: '600' },
   blockButton: {
     padding: 10,
     borderRadius: 8,

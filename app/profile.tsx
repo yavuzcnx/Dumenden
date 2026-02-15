@@ -1,6 +1,7 @@
 'use client';
 
 import { supabase } from '@/lib/supabaseClient';
+import { useBlocks } from '@/lib/blocks';
 import LanguageSelector from '@/components/LanguageSelector';
 import { useI18n } from '@/lib/i18n';
 import { AttStatus, getATTStatus, openATTSettings, requestATT } from '@/src/contexts/lib/att';
@@ -110,6 +111,9 @@ const [logoutLoading, setLogoutLoading] = useState(false);
   // XP — tek kaynak: xp_wallets.balance
   const [walletBalance, setWalletBalance] = useState<number>(0);
   const [loadingData, setLoadingData] = useState(true);
+  const { blockedIds, unblockUser } = useBlocks();
+  const [blockedUsers, setBlockedUsers] = useState<Array<{ id: string; full_name: string | null; avatar_url: string | null }>>([]);
+  const [blockedLoading, setBlockedLoading] = useState(false);
 
   // Fotoğraf yüklenirken veri çekmeyi engelle
   const isUploadingRef = useRef(false);
@@ -286,6 +290,28 @@ const [logoutLoading, setLogoutLoading] = useState(false);
       } catch {}
     };
   }, [refreshAttStatus]);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      if (!blockedIds.length) {
+        setBlockedUsers([]);
+        setBlockedLoading(false);
+        return;
+      }
+      setBlockedLoading(true);
+      const { data } = await supabase
+        .from('users')
+        .select('id, full_name, avatar_url')
+        .in('id', blockedIds);
+      if (!alive) return;
+      setBlockedUsers((data ?? []) as any[]);
+      setBlockedLoading(false);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [blockedIds.join('|')]);
 
   // XP artık cüzdandan
   const xp = walletBalance ?? 0;
@@ -615,6 +641,40 @@ const handleLogout = async () => {
         </TouchableOpacity>
       </View>
 
+      {/* BLOCKED USERS */}
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>{t('profile.blockedUsersTitle')}</Text>
+        {blockedLoading ? (
+          <View style={{ paddingVertical: 8 }}>
+            <ActivityIndicator color={ORANGE} />
+          </View>
+        ) : blockedUsers.length === 0 ? (
+          <Text style={styles.cardHint}>{t('profile.blockedUsersEmpty')}</Text>
+        ) : (
+          blockedUsers.map((u) => (
+            <View key={u.id} style={styles.blockedRow}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
+                {u.avatar_url ? (
+                  <Image source={{ uri: u.avatar_url }} style={styles.blockedAvatar} />
+                ) : (
+                  <View style={styles.blockedAvatarFallback}>
+                    <Text style={{ color: '#999', fontWeight: '900' }}>
+                      {(u.full_name || t('profile.unnamedUser')).trim()[0]?.toUpperCase() || t('common.userInitial')}
+                    </Text>
+                  </View>
+                )}
+                <Text style={styles.blockedName} numberOfLines={1}>
+                  {u.full_name || t('profile.unnamedUser')}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => unblockUser(u.id)} style={styles.unblockBtn}>
+                <Text style={styles.unblockTxt}>{t('profile.unblock')}</Text>
+              </TouchableOpacity>
+            </View>
+          ))
+        )}
+      </View>
+
       {/* SECURITY */}
       <View style={styles.card}>
         <Text style={styles.cardTitle}>{t('profile.securityTitle')}</Text>
@@ -888,6 +948,33 @@ const styles = StyleSheet.create({
     borderColor: '#FFD6B8',
   },
   inlineChipText: { color: ORANGE, fontWeight: '900' },
+
+  blockedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    paddingVertical: 8,
+  },
+  blockedAvatar: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#eee' },
+  blockedAvatarFallback: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#f2f2f2',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: BORDER,
+  },
+  blockedName: { fontWeight: '800', color: TEXT, flexShrink: 1 },
+  unblockBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: '#F3F4F6',
+  },
+  unblockTxt: { color: '#111', fontWeight: '800' },
 
   avatarBorder: {
     padding: 3,

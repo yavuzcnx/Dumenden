@@ -27,12 +27,17 @@ type Report = {
   resolved_at?: string | null;
 };
 
+type UserMini = { id: string; full_name: string | null; email: string | null };
+
 export default function AdminReports() {
   const { t } = useI18n();
   const router = useRouter();
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<'pending' | 'resolved'>('pending');
+  const [usersMap, setUsersMap] = useState<Record<string, UserMini>>({});
+  const [commentMap, setCommentMap] = useState<Record<string, string>>({});
+  const [couponMap, setCouponMap] = useState<Record<string, string>>({});
 
   const fetchReports = async () => {
     setLoading(true);
@@ -40,7 +45,60 @@ export default function AdminReports() {
       .from('ugc_reports')
       .select('*')
       .order('created_at', { ascending: false });
-    if (!error) setReports((data ?? []) as Report[]);
+    if (!error) {
+      const rows = (data ?? []) as Report[];
+      setReports(rows);
+
+      // users map
+      const uids = Array.from(
+        new Set(rows.flatMap((r) => [r.reporter_id, r.target_user_id]).filter(Boolean) as string[])
+      );
+      if (uids.length) {
+        const { data: users } = await supabase
+          .from('users')
+          .select('id, full_name, email')
+          .in('id', uids);
+        const map: Record<string, UserMini> = {};
+        (users ?? []).forEach((u: any) => {
+          map[u.id] = { id: u.id, full_name: u.full_name ?? null, email: u.email ?? null };
+        });
+        setUsersMap(map);
+      } else {
+        setUsersMap({});
+      }
+
+      // comment/coupon previews
+      const commentIds = rows.filter((r) => r.target_type === 'comment' && r.target_id).map((r) => r.target_id!) as string[];
+      const couponIds = rows.filter((r) => r.target_type === 'coupon' && r.target_id).map((r) => r.target_id!) as string[];
+
+      if (commentIds.length) {
+        const { data: comments } = await supabase
+          .from('comments')
+          .select('id, content')
+          .in('id', commentIds);
+        const cmap: Record<string, string> = {};
+        (comments ?? []).forEach((c: any) => {
+          cmap[c.id] = String(c.content ?? '');
+        });
+        setCommentMap(cmap);
+      } else {
+        setCommentMap({});
+      }
+
+      if (couponIds.length) {
+        const { data: coupons } = await supabase
+          .from('coupons')
+          .select('id, title')
+          .in('id', couponIds);
+        const cmap: Record<string, string> = {};
+        (coupons ?? []).forEach((c: any) => {
+          cmap[c.id] = String(c.title ?? '');
+        });
+        setCouponMap(cmap);
+      } else {
+        setCouponMap({});
+      }
+    }
     setLoading(false);
   };
 
@@ -146,6 +204,25 @@ export default function AdminReports() {
               <Text style={styles.reason}>{item.reason || t('common.na')}</Text>
               <Text style={styles.meta}>
                 {t('adminReports.reportId')}: {item.target_id || '-'}
+              </Text>
+              {!!item.target_id && item.target_type === 'comment' && commentMap[item.target_id] && (
+                <Text style={styles.meta}>
+                  {t('adminReports.targetPreview')}: {commentMap[item.target_id].slice(0, 80)}
+                </Text>
+              )}
+              {!!item.target_id && item.target_type === 'coupon' && couponMap[item.target_id] && (
+                <Text style={styles.meta}>
+                  {t('adminReports.targetPreview')}: {couponMap[item.target_id]}
+                </Text>
+              )}
+              <Text style={styles.meta}>
+                {t('adminReports.reporter')}: {usersMap[item.reporter_id || '']?.full_name || usersMap[item.reporter_id || '']?.email || item.reporter_id || '-'}
+              </Text>
+              <Text style={styles.meta}>
+                {t('adminReports.targetUser')}: {usersMap[item.target_user_id || '']?.full_name || usersMap[item.target_user_id || '']?.email || item.target_user_id || '-'}
+              </Text>
+              <Text style={styles.meta}>
+                {t('adminReports.reportedAt')}: {item.created_at ? new Date(item.created_at).toLocaleString() : '-'}
               </Text>
 
               {item.status === 'pending' ? (

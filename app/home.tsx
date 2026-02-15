@@ -12,7 +12,7 @@ import { usePlus } from '@/src/contexts/hooks/usePlus';
 import { useXp } from '@/src/contexts/XpProvider';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -166,9 +166,9 @@ async function notifyNow(
 }
 
 /* -------- countdown helper -------- */
-const timeLeft = (iso?: string) => {
+const timeLeft = (iso?: string, nowMs?: number) => {
   if (!iso) return { expired: false, label: '--:--:--', seconds: 0 };
-  const ms = new Date(iso).getTime() - Date.now();
+  const ms = new Date(iso).getTime() - (typeof nowMs === 'number' ? nowMs : Date.now());
   const expired = ms <= 0;
   const s = Math.max(0, Math.floor(ms / 1000));
   const h = Math.floor(s / 3600);
@@ -303,12 +303,18 @@ export default function HomeScreen() {
     measure(firstCardRef, 'card');
   }, []);
 
-  useEffect(() => {
-    (async () => {
-      const seen = await AsyncStorage.getItem(ONBOARDING_KEY);
-      if (!seen) setTourOpen(true);
-    })();
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      let alive = true;
+      (async () => {
+        const seen = await AsyncStorage.getItem(ONBOARDING_KEY);
+        if (!seen && alive) setTourOpen(true);
+      })();
+      return () => {
+        alive = false;
+      };
+    }, [])
+  );
 
   useEffect(() => {
     if (tourOpen) setTourStep(0);
@@ -425,10 +431,7 @@ export default function HomeScreen() {
 
   useEffect(() => {
     if (!tourOpen) return;
-    if (tourSteps.length === 0) {
-      setTourOpen(false);
-      return;
-    }
+    if (tourSteps.length === 0) return;
     if (tourStep >= tourSteps.length) setTourStep(0);
   }, [tourOpen, tourSteps.length, tourStep]);
 
@@ -645,12 +648,14 @@ export default function HomeScreen() {
     fetchMore(true);
   }, [countryReady, selectedCountry, fetchMore]);
 
-  /* -------- GLOBAL TICK -------- */
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => setTick((x) => x + 1), 1000);
-    return () => clearInterval(t);
-  }, []);
+  /* -------- GLOBAL TICK (throttled) -------- */
+  const [nowTs, setNowTs] = useState(() => Date.now());
+  useFocusEffect(
+    useCallback(() => {
+      const t = setInterval(() => setNowTs(Date.now()), 10000);
+      return () => clearInterval(t);
+    }, [])
+  );
 
   /* -------- REALTIME coupons -------- */
   useEffect(() => {
@@ -871,7 +876,7 @@ export default function HomeScreen() {
   const sliderData = useMemo(() => markets.slice(0, 5), [markets]);
 
   const marketState = (m: MarketRow) => {
-    const t = timeLeft(m.closing_date);
+    const t = timeLeft(m.closing_date, nowTs);
     const disabled = t.expired || m.is_open === false || !!m.result || !!m.paid_out_at;
     const urgent = !t.expired && t.seconds <= 600;
     return { ...t, disabled, urgent };
@@ -1030,94 +1035,91 @@ export default function HomeScreen() {
         <View style={{ flex: 1, backgroundColor: '#fff' }}>
           {/* HEADER */}
           <View style={styles.appHeader}>
-            <Text style={styles.brand}>{t('app.name')}</Text>
+            <View style={styles.headerLeft}>
+              <Text style={styles.brand}>{t('app.name')}</Text>
+            </View>
+
+            <View style={styles.headerCenter} ref={xpRef} collapsable={false}>
+              <TouchableOpacity
+                onPress={handleXpToplaPress}
+                disabled={busyTopla}
+                activeOpacity={0.9}
+                style={{ borderRadius: 14 }}
+              >
+                <View style={{ padding: 2, borderRadius: 14, overflow: 'hidden' }}>
+                  <Animated.View
+                    pointerEvents="none"
+                    style={{
+                      transform: [
+                        {
+                          translateX: shimmer.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [-18, 18],
+                          }),
+                        },
+                      ],
+                      opacity: toplaReady ? 1 : 0.3,
+                    }}
+                  >
+                    <LinearGradient
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      colors={toplaReady ? ['#FFAA66', '#FF6B00', '#FFAA66'] : ['#ddd', '#ccc', '#ddd']}
+                      style={{ height: 30, width: 120, borderRadius: 14 }}
+                    />
+                  </Animated.View>
+
+                  <View
+                    style={{
+                      position: 'absolute',
+                      left: 2,
+                      right: 2,
+                      top: 2,
+                      bottom: 2,
+                      backgroundColor: '#FFF2E8',
+                      borderRadius: 12,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <Text style={{ color: '#FF6B00', fontWeight: '900' }}>
+                      {busyTopla ? t('common.loading') : toplaReady ? t('home.collectXp') : remainLabel}
+                    </Text>
+                  </View>
+                </View>
+              </TouchableOpacity>
+            </View>
 
             <View style={styles.headerRight}>
-              {/* XP Topla */}
-              <View ref={xpRef} collapsable={false}>
+              <View ref={countryRef} collapsable={false}>
                 <TouchableOpacity
-                  onPress={handleXpToplaPress}
-                  disabled={busyTopla}
-                  activeOpacity={0.9}
-                  style={{ borderRadius: 14, flexShrink: 1, marginHorizontal: 8 }}
+                  onPress={() => setCountryPickerOpen(true)}
+                  activeOpacity={0.85}
+                  accessibilityLabel={t('home.countryPickerLabel')}
+                  style={styles.countryBtn}
                 >
-                  <View style={{ padding: 2, borderRadius: 14, overflow: 'hidden' }}>
-                    <Animated.View
-                      pointerEvents="none"
-                      style={{
-                        transform: [
-                          {
-                            translateX: shimmer.interpolate({
-                              inputRange: [0, 1],
-                              outputRange: [-18, 18],
-                            }),
-                          },
-                        ],
-                        opacity: toplaReady ? 1 : 0.3,
-                      }}
-                    >
-                      <LinearGradient
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 0 }}
-                        colors={toplaReady ? ['#FFAA66', '#FF6B00', '#FFAA66'] : ['#ddd', '#ccc', '#ddd']}
-                        style={{ height: 30, width: 120, borderRadius: 14 }}
-                      />
-                    </Animated.View>
-
-                    <View
-                      style={{
-                        position: 'absolute',
-                        left: 2,
-                        right: 2,
-                        top: 2,
-                        bottom: 2,
-                        backgroundColor: '#FFF2E8',
-                        borderRadius: 12,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
-                    >
-                      <Text style={{ color: '#FF6B00', fontWeight: '900' }}>
-                        {busyTopla ? t('common.loading') : toplaReady ? t('home.collectXp') : remainLabel}
-                      </Text>
-                    </View>
-                  </View>
+                  <Ionicons name="globe-outline" size={18} color="#FF6B00" />
+                  <Text style={styles.countryFlag}>{flagEmoji(selectedCountry)}</Text>
                 </TouchableOpacity>
               </View>
 
-              <View style={styles.countryStack}>
-                {/* Country */}
-                <View ref={countryRef} collapsable={false}>
-                  <TouchableOpacity
-                    onPress={() => setCountryPickerOpen(true)}
-                    activeOpacity={0.85}
-                    accessibilityLabel={t('home.countryPickerLabel')}
-                    style={styles.countryBtn}
-                  >
-                    <Ionicons name="globe-outline" size={18} color="#FF6B00" />
-                    <Text style={styles.countryFlag}>{flagEmoji(selectedCountry)}</Text>
-                  </TouchableOpacity>
-                </View>
-
-                {/* Avatar */}
-                <View ref={avatarRef} collapsable={false} style={styles.avatarUnder}>
-                  <TouchableOpacity onPress={() => router.push('/profile')}>
-                    {user.avatar ? (
-                      <Image source={{ uri: user.avatar }} style={styles.avatarMini} />
-                    ) : (
-                      <View
-                        style={[
-                          styles.avatarMini,
-                          { backgroundColor: '#eee', alignItems: 'center', justifyContent: 'center' },
-                        ]}
-                      >
-                        <Text style={{ fontWeight: '900', color: '#999' }}>
-                          {user.name[0]?.toUpperCase() || t('common.userInitial')}
-                        </Text>
-                      </View>
-                    )}
-                  </TouchableOpacity>
-                </View>
+              <View ref={avatarRef} collapsable={false} style={styles.avatarUnder}>
+                <TouchableOpacity onPress={() => router.push('/profile')}>
+                  {user.avatar ? (
+                    <Image source={{ uri: user.avatar }} style={styles.avatarMini} />
+                  ) : (
+                    <View
+                      style={[
+                        styles.avatarMini,
+                        { backgroundColor: '#eee', alignItems: 'center', justifyContent: 'center' },
+                      ]}
+                    >
+                      <Text style={{ fontWeight: '900', color: '#999' }}>
+                        {user.name[0]?.toUpperCase() || t('common.userInitial')}
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
               </View>
             </View>
           </View>
@@ -1176,6 +1178,11 @@ export default function HomeScreen() {
             contentContainerStyle={{ padding: 16, paddingBottom: 140 }}
             onEndReachedThreshold={0.4}
             onEndReached={() => fetchMore()}
+            removeClippedSubviews
+            initialNumToRender={6}
+            maxToRenderPerBatch={6}
+            windowSize={5}
+            updateCellsBatchingPeriod={50}
             renderItem={({ item, index }) => {
               const st = marketState(item);
               const isFirst = index === 0;
@@ -1356,16 +1363,16 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#fff' },
 
   appHeader: {
-    paddingTop: 8,
-    paddingBottom: 8,
+    paddingTop: 10,
+    paddingBottom: 10,
     paddingHorizontal: 16,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
     backgroundColor: '#fff',
   },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  headerLeft: { minWidth: 120 },
+  headerCenter: { flex: 1, alignItems: 'center' },
+  headerRight: { width: 64, alignItems: 'center', justifyContent: 'center', gap: 4 },
   brand: { fontSize: 24, fontWeight: '900', color: '#FF6B00' },
 
   xpPill: {
@@ -1377,9 +1384,8 @@ const styles = StyleSheet.create({
   },
   xpPillTxt: { color: '#FF6B00', fontWeight: '800' },
 
-  avatarMini: { width: 36, height: 36, borderRadius: 18 },
-  countryStack: { alignItems: 'center' },
-  avatarUnder: { marginTop: 6 },
+  avatarMini: { width: 34, height: 34, borderRadius: 17 },
+  avatarUnder: { marginTop: 4 },
 
   countryBtn: {
     flexDirection: 'row',
@@ -1391,6 +1397,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFF2E8',
     borderWidth: 1,
     borderColor: '#FFD6B8',
+    minHeight: 30,
   },
   countryFlag: { fontSize: 16 },
 

@@ -17,6 +17,7 @@ type I18nContextValue = {
 };
 
 const STORAGE_KEY = 'app_language';
+const USER_SET_KEY = 'app_language_user_set';
 
 const DICTS: Record<LanguageCode, TranslationDict> = {
   en: en as TranslationDict,
@@ -32,8 +33,12 @@ const getDeviceLocale = () => {
   }
 };
 
-const normalizeLanguage = (raw?: string | null): LanguageCode =>
-  (raw || '').toLowerCase().startsWith('tr') ? 'tr' : 'en';
+const normalizeLanguage = (raw?: string | null): LanguageCode => {
+  const val = (raw || '').toLowerCase();
+  if (val.startsWith('tr')) return 'tr';
+  if (val.includes('-tr') || val.includes('_tr')) return 'tr';
+  return 'en';
+};
 
 const getNumberLocale = (lang: LanguageCode) => (lang === 'tr' ? 'tr-TR' : 'en-US');
 
@@ -67,8 +72,9 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       try {
         const stored = await AsyncStorage.getItem(STORAGE_KEY);
-        const next = stored ? normalizeLanguage(stored) : normalizeLanguage(getDeviceLocale());
-        if (!stored) await AsyncStorage.setItem(STORAGE_KEY, next);
+        const userSet = await AsyncStorage.getItem(USER_SET_KEY);
+        const next = userSet ? normalizeLanguage(stored) : normalizeLanguage(getDeviceLocale());
+        await AsyncStorage.setItem(STORAGE_KEY, next);
         if (alive) setLanguageState(next);
       } finally {
         if (alive) setReady(true);
@@ -82,6 +88,7 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
   const setLanguage = useCallback(async (lang: LanguageCode) => {
     setLanguageState(lang);
     await AsyncStorage.setItem(STORAGE_KEY, lang);
+    await AsyncStorage.setItem(USER_SET_KEY, '1');
   }, []);
 
   const dict = DICTS[language] ?? DICTS.en;
@@ -114,4 +121,3 @@ export function useI18n() {
   }
   return ctx;
 }
-

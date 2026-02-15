@@ -151,6 +151,9 @@
     "showTutorialAction": "Başlat",
     "showTutorialReady": "Eğitim Ana Sayfa’da açılacak. Oraya gidiyoruz.",
     "trackingPermission": "Takip İzni",
+    "blockedUsersTitle": "Engellenenler",
+    "blockedUsersEmpty": "Engellediğin kullanıcı yok.",
+    "unblock": "Engeli Kaldır",
     "trackingStatus": {
       "authorized": "İzin Verildi",
       "denied": "İzin Yok",
@@ -699,6 +702,10 @@
       "coupon": "Kupon",
       "user": "Kullanıcı"
     },
+    "reporter": "Bildiren",
+    "targetUser": "Şikayet edilen",
+    "reportedAt": "Bildirim zamanı",
+    "targetPreview": "Hedef özeti",
     "resolve": "Çöz",
     "removeAndBan": "Kaldır ve Banla",
     "reportId": "Hedef",
@@ -806,6 +813,10 @@
     "unnamedUser": "İsimsiz",
     "unblockAction": "Engeli kaldır",
     "blockAction": "Engelle",
+    "reportReason": "Şikayet nedeni",
+    "reportTarget": "Hedef",
+    "reportBy": "Bildiren",
+    "reportAt": "Bildirim zamanı",
     "empty": "Kullanıcı bulunamadı"
   },
   "adminSubmission": {

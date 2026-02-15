@@ -11,7 +11,7 @@ import React, {
 type XpContextType = {
   xp: number;
   loading: boolean;
-  refresh: () => Promise<void>;
+  refresh: (opts?: { silent?: boolean }) => Promise<void>;
   setXp: (v: number | ((p: number) => number)) => void;
   uid?: string;
 };
@@ -34,13 +34,15 @@ export function XpProvider({ children }: { children: React.ReactNode }) {
   };
 
   // XP çekme işlemi
-  const refresh = async () => {
+  const refresh = async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true);
     const { data: auth } = await supabase.auth.getUser();
     const user = auth?.user;
 
     if (!user) {
       setUid(undefined);
       _setXp(0);
+      if (!opts?.silent) setLoading(false);
       return;
     }
 
@@ -53,16 +55,38 @@ export function XpProvider({ children }: { children: React.ReactNode }) {
       .maybeSingle();
 
     _setXp(Number(data?.balance ?? 0));
+    if (!opts?.silent) setLoading(false);
   };
 
   // İlk açılış
   useEffect(() => {
     (async () => {
       await refresh();
-      setLoading(false);
     })();
 
-   
+  }, []);
+
+  // Auth değişince XP'yi hızlıca güncelle
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_OUT') {
+        setUid(undefined);
+        _setXp(0);
+        setLoading(false);
+        return;
+      }
+      if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+        // hızlı temizle -> yeni kullanıcı XP'si gelene kadar 0 göster
+        _setXp(0);
+        setUid(session?.user?.id);
+        await refresh();
+      }
+    });
+    return () => {
+      try {
+        subscription.unsubscribe();
+      } catch {}
+    };
   }, []);
 
   // UID varsa realtime aç

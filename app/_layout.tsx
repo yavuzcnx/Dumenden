@@ -67,13 +67,37 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (!appIsReady) return;
+    // ✅ splash kapat
+    SplashScreen.hideAsync().catch(() => {});
+  }, [appIsReady]);
+
+  // ✅ ATT + Ads: login ekranlarında değilken (home vb.) çalıştır
+  useEffect(() => {
+    if (!appIsReady) return;
+    const p = pathname || '';
+    if (!p) return;
+    const isAuthLike =
+      p.startsWith('/login') ||
+      p.startsWith('/register') ||
+      p.startsWith('/google-auth') ||
+      p.startsWith('/splash') ||
+      p.startsWith('/reset-password');
+    if (isAuthLike) return;
+
+    let cancelled = false;
     (async () => {
-      // ✅ splash kapandıktan sonra ATT iste, sonra ads'i başlat
-      await SplashScreen.hideAsync().catch(() => {});
+      const { data } = await supabase.auth.getSession();
+      if (!data?.session?.user) return; // kullanıcı yoksa ATT sorma
+
       await requestATTOnce().catch((e) => console.warn('ATT request failed:', e));
+      if (cancelled) return;
       await initAds().catch((e) => console.warn('Ad Init Fail:', e));
     })();
-  }, [appIsReady]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [appIsReady, pathname]);
 
   // ✅ AUTH LISTENER (reset-password akışı bozulmasın diye özel kurallar)
   useEffect(() => {
@@ -241,18 +265,19 @@ function TermsGate({ appReady }: { appReady: boolean }) {
   const { t } = useI18n();
   const [visible, setVisible] = useState(false);
   const [busy, setBusy] = useState(false);
+  const pathname = usePathname();
 
   const check = useCallback(async () => {
     if (!appReady) return;
-    const { data } = await supabase.auth.getUser();
-    const user = data?.user;
+    const { data } = await supabase.auth.getSession();
+    const user = data?.session?.user;
     if (!user?.id) {
       setVisible(false);
       return;
     }
     const { data: row } = await supabase
       .from('users')
-      .select('terms_accepted, terms_version')
+      .select('terms_accepted, terms_version, terms_accepted_at')
       .eq('id', user.id)
       .maybeSingle();
     const needs = !row?.terms_accepted || row?.terms_version !== TERMS_VERSION;
@@ -260,8 +285,16 @@ function TermsGate({ appReady }: { appReady: boolean }) {
   }, [appReady]);
 
   useEffect(() => {
+    let alive = true;
     check().catch(() => {});
-  }, [check]);
+    const t = setTimeout(() => {
+      if (alive) check().catch(() => {});
+    }, 600);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, [check, pathname]);
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(() => {

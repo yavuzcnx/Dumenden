@@ -1,6 +1,7 @@
 'use client';
 
 import { supabase } from '@/lib/supabaseClient';
+import { useI18n } from '@/lib/i18n';
 import { AntDesign } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
@@ -21,6 +22,7 @@ import {
   TouchableWithoutFeedback,
   View,
 } from 'react-native';
+import { TERMS_VERSION } from '@/lib/terms';
 
 const COLORS = {
   bg: '#FFFFFF',
@@ -38,47 +40,6 @@ const COLORS = {
 
 const CONSENT_VERSION = '2025-10-16';
 
-const TEXT_KVKK = `
-DÜMENDEN – KVKK AYDINLATMA METNİ
-Son Güncelleme: 16 Ekim 2025
-
-Veri Sorumlusu: Dümenden Uygulaması
-Adres: Fenerbahçe, Iğrıp Sk. No:13, 34726 Kadıköy / İstanbul
-E-posta: dumenden.app@gmail.com
-
-1. İşlenen Veriler:
-- Kimlik & İletişim: Ad, soyad, e-posta, telefon
-- Hesap: Kullanıcı ID, XP puanı, abonelik bilgileri
-- İçerik: Kupon başlıkları, tahminler, yorumlar, yüklenen görseller/kanıtlar
-- Teknik: IP, cihaz bilgisi, işlem logları
-- Analitik: Kullanım istatistikleri, moderasyon kayıtları
-
-2. Amaçlar:
-Üyelik ve hesap yönetimi; kupon oluşturma/tahmin/kanıt yükleme; XP/ödül süreçleri; topluluk kuralları moderasyonu; kullanıcı deneyimi/analitik; yasal yükümlülükler.
-
-3. Aktarım:
-Yalnızca hizmet sağlayıcılar ve kanunen yetkili mercilerle sınırlıdır; yurtdışına aktarım yapılmaz.
-
-4. Saklama:
-Amaç ve mevzuatla sınırlı süreler boyunca saklanır; süre bitiminde silinir/yok edilir/anonimleştirilir.
-
-5. Haklar:
-KVKK m.11 uyarınca bilgi talebi, düzeltme/silme, itiraz vb. haklarınızı dumenden.app@gmail.com adresine yazılı başvurarak kullanabilirsiniz.
-
-6. Sorumluluk Reddi:
-Kullanıcı içerikleri (kuponlar, tahminler, görseller) kullanıcı sorumluluğundadır. Admin onayı verilmiş olsa dahi içeriklerin doğruluğu/gerçekliği Dümenden’in taahhüdü değildir.
-`;
-
-const TEXT_CONSENT = `
-DÜMENDEN – AÇIK RIZA METNİ
-Son Güncelleme: 16 Ekim 2025
-
-KVKK uyarınca; kimlik/iletişim, hesap, içerik, teknik ve analitik verilerimin; üyelik ve uygulama fonksiyonlarının sağlanması, moderasyon ve yasal yükümlülüklerin yerine getirilmesi, ödül/XP süreçlerinin yürütülmesi ve kullanıcı deneyiminin geliştirilmesi amaçlarıyla işlenmesine, bu kapsamda sınırlı olarak hizmet sağlayıcılarla paylaşılmasına ve kanuni süreler boyunca saklanmasına AÇIK RIZA veriyorum.
-
-Veri Sorumlusu: Dümenden Uygulaması
-Adres: Fenerbahçe, Iğrıp Sk. No:13, 34726 Kadıköy / İstanbul
-E-posta: dumenden.app@gmail.com
-`;
 
 async function sha256(s: string) {
   return await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, s);
@@ -86,6 +47,7 @@ async function sha256(s: string) {
 
 export default function RegisterPage() {
   const router = useRouter();
+  const { t } = useI18n();
 
   // form
   const [email, setEmail] = useState('');
@@ -111,8 +73,10 @@ export default function RegisterPage() {
   // KVKK & Açık Rıza
   const [acceptKvkk, setAcceptKvkk] = useState(false);
   const [acceptConsent, setAcceptConsent] = useState(false);
+  const [acceptTerms, setAcceptTerms] = useState(false);
   const [showKvkk, setShowKvkk] = useState(false);
   const [showConsent, setShowConsent] = useState(false);
+  const [showTerms, setShowTerms] = useState(false);
 
   useEffect(() => {
     setRules({
@@ -134,23 +98,25 @@ export default function RegisterPage() {
 
   const canSubmit = useMemo(() => {
     const pwdOk = rules.length && rules.upper && rules.lower && rules.number && rules.special;
-    return pwdOk && acceptKvkk && acceptConsent;
-  }, [rules, acceptKvkk, acceptConsent]);
+    return pwdOk && acceptKvkk && acceptConsent && acceptTerms;
+  }, [rules, acceptKvkk, acceptConsent, acceptTerms]);
 
   const handleRegister = async () => {
     setError('');
     if (password !== confirmPassword) {
-      setError('Şifreler uyuşmuyor.');
+      setError(t('register.passwordMismatch'));
       return;
     }
-    if (!acceptKvkk || !acceptConsent) {
-      setError('Devam etmek için KVKK ve Açık Rıza onaylarını vermelisin.');
+    if (!acceptKvkk || !acceptConsent || !acceptTerms) {
+      setError(t('register.mustAcceptConsents'));
       return;
     }
 
     const consentAt = new Date().toISOString();
-    const kvkkHash = await sha256(TEXT_KVKK.trim());
-    const explicitHash = await sha256(TEXT_CONSENT.trim());
+    const kvkkText = t('register.kvkkText');
+    const consentText = t('register.consentText');
+    const kvkkHash = await sha256(kvkkText.trim());
+    const explicitHash = await sha256(consentText.trim());
     const userAgentLike = `${Constants?.appOwnership || 'expo'}/${Constants?.nativeAppVersion || '1.0.0'} (${Platform.OS} ${Platform.Version})`;
 
     // Auth kaydı (emailRedirectTo opsiyonel, Supabase panelinden de yönetilebilir)
@@ -171,6 +137,9 @@ export default function RegisterPage() {
           explicit_consent: true,
           explicit_consent_version: CONSENT_VERSION,
           explicit_consent_at: consentAt,
+          terms_accepted: true,
+          terms_version: TERMS_VERSION,
+          terms_accepted_at: consentAt,
         },
       },
     });
@@ -194,6 +163,9 @@ export default function RegisterPage() {
           explicit_consent: true,
           explicit_consent_version: CONSENT_VERSION,
           explicit_consent_at: consentAt,
+          terms_accepted: true,
+          terms_version: TERMS_VERSION,
+          terms_accepted_at: consentAt,
         })
       );
 
@@ -205,6 +177,7 @@ export default function RegisterPage() {
           consent_at: consentAt,
           kvkk: true,
           explicit: true,
+          terms: true,
           text_kvkk_hash: kvkkHash,
           text_explicit_hash: explicitHash,
           user_agent: userAgentLike,
@@ -218,28 +191,26 @@ export default function RegisterPage() {
 
   // GOOGLE REGISTER FONKSİYONU KALDIRILDI
 
-  return (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.wrapper}>
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <ScrollView
-          contentContainerStyle={styles.scrollInner}
-          keyboardShouldPersistTaps="handled"
-        >
-          <View style={styles.container}>
+  const content = (
+    <ScrollView
+      contentContainerStyle={styles.scrollInner}
+      keyboardShouldPersistTaps="handled"
+    >
+      <View style={styles.container}>
             <Image source={require('../assets/images/logo.png')} style={styles.logo} />
-            <Text style={styles.title}>Kayıt Ol</Text>
+            <Text style={styles.title}>{t('register.title')}</Text>
 
             {success === 'verify' ? (
               <View style={styles.notice}>
-                <Text style={styles.noticeTitle}>E-postanı onayla</Text>
+                <Text style={styles.noticeTitle}>{t('register.verifyTitle')}</Text>
                 <Text style={styles.noticeText}>
-                  Kayıt oluşturuldu. Mailini onayla; birazdan giriş ekranına gideceksin.
+                  {t('register.verifyBody')}
                 </Text>
               </View>
             ) : (
               <>
                 <TextInput
-                  placeholder="Ad Soyad"
+                  placeholder={t('register.fullName')}
                   value={fullName}
                   onChangeText={setFullName}
                   style={styles.input}
@@ -247,7 +218,7 @@ export default function RegisterPage() {
                   selectionColor={COLORS.primary}
                 />
                 <TextInput
-                  placeholder="Telefon (opsiyonel)"
+                  placeholder={t('register.phoneOptional')}
                   value={phone}
                   onChangeText={setPhone}
                   style={styles.input}
@@ -258,7 +229,7 @@ export default function RegisterPage() {
                   textContentType="telephoneNumber"
                 />
                 <TextInput
-                  placeholder="Doğum Tarihi (YYYY.MM.DD) (opsiyonel)"
+                  placeholder={t('register.birthDateOptional')}
                   value={birthDate}
                   onChangeText={formatBirthDate}
                   style={styles.input}
@@ -268,7 +239,7 @@ export default function RegisterPage() {
                   selectionColor={COLORS.primary}
                 />
                 <TextInput
-                  placeholder="E-posta"
+                  placeholder={t('register.email')}
                   value={email}
                   onChangeText={setEmail}
                   style={styles.input}
@@ -280,7 +251,7 @@ export default function RegisterPage() {
                   textContentType="emailAddress"
                 />
                 <TextInput
-                  placeholder="Şifre"
+                  placeholder={t('register.password')}
                   value={password}
                   onChangeText={setPassword}
                   style={styles.input}
@@ -291,7 +262,7 @@ export default function RegisterPage() {
                   textContentType="newPassword"
                 />
                 <TextInput
-                  placeholder="Şifre Tekrar"
+                  placeholder={t('register.passwordRepeat')}
                   value={confirmPassword}
                   onChangeText={setConfirmPassword}
                   style={styles.input}
@@ -303,11 +274,11 @@ export default function RegisterPage() {
                 />
 
                 <View style={{ marginBottom: 10 }}>
-                  <Text style={rules.length ? styles.valid : styles.invalid}>• En az 8 karakter</Text>
-                  <Text style={rules.upper ? styles.valid : styles.invalid}>• Büyük harf</Text>
-                  <Text style={rules.lower ? styles.valid : styles.invalid}>• Küçük harf</Text>
-                  <Text style={rules.number ? styles.valid : styles.invalid}>• Rakam</Text>
-                  <Text style={rules.special ? styles.valid : styles.invalid}>• Özel karakter (!@#)</Text>
+                  <Text style={rules.length ? styles.valid : styles.invalid}>{t('register.rule.length')}</Text>
+                  <Text style={rules.upper ? styles.valid : styles.invalid}>{t('register.rule.upper')}</Text>
+                  <Text style={rules.lower ? styles.valid : styles.invalid}>{t('register.rule.lower')}</Text>
+                  <Text style={rules.number ? styles.valid : styles.invalid}>{t('register.rule.number')}</Text>
+                  <Text style={rules.special ? styles.valid : styles.invalid}>{t('register.rule.special')}</Text>
                 </View>
 
                 <View style={styles.checkRow}>
@@ -319,9 +290,9 @@ export default function RegisterPage() {
                   </TouchableOpacity>
                   <Text style={styles.checkText}>
                     <Text onPress={() => setShowKvkk(true)} style={styles.linkInline}>
-                      KVKK Aydınlatma Metni
+                      {t('register.kvkkTitle')}
                     </Text>{' '}
-                    metnini okudum ve anladım.
+                    {t('register.kvkkAgreement')}
                   </Text>
                 </View>
 
@@ -333,11 +304,26 @@ export default function RegisterPage() {
                     {acceptConsent && <AntDesign name="check" size={16} color="#fff" />}
                   </TouchableOpacity>
                   <Text style={styles.checkText}>
-                    Kişisel verilerimin işlenmesine{' '}
+                    {t('register.consentPrefix')}{' '}
                     <Text onPress={() => setShowConsent(true)} style={styles.linkInline}>
-                      Açık Rıza Metni
+                      {t('register.consentTitle')}
                     </Text>{' '}
-                    kapsamında açık rıza veriyorum.
+                    {t('register.consentSuffix')}
+                  </Text>
+                </View>
+
+                <View style={styles.checkRow}>
+                  <TouchableOpacity
+                    onPress={() => setAcceptTerms((v) => !v)}
+                    style={[styles.checkBox, acceptTerms && styles.checkBoxOn]}
+                  >
+                    {acceptTerms && <AntDesign name="check" size={16} color="#fff" />}
+                  </TouchableOpacity>
+                  <Text style={styles.checkText}>
+                    <Text onPress={() => setShowTerms(true)} style={styles.linkInline}>
+                      {t('terms.title')}
+                    </Text>{' '}
+                    {t('terms.acceptInline')}
                   </Text>
                 </View>
 
@@ -348,29 +334,37 @@ export default function RegisterPage() {
                   onPress={handleRegister}
                   disabled={!canSubmit}
                 >
-                  <Text style={styles.buttonText}>Kayıt Ol</Text>
+                  <Text style={styles.buttonText}>{t('register.submit')}</Text>
                 </TouchableOpacity>
 
                 {/* GOOGLE BUTONU KALDIRILDI */}
 
                 <TouchableOpacity onPress={() => router.replace('/login')}>
-                  <Text style={styles.link}>Zaten hesabın var mı? Giriş Yap</Text>
+                  <Text style={styles.link}>{t('register.haveAccount')}</Text>
                 </TouchableOpacity>
               </>
             )}
-          </View>
-        </ScrollView>
-      </TouchableWithoutFeedback>
+      </View>
+    </ScrollView>
+  );
+
+  return (
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.wrapper}>
+      {Platform.OS === 'web' ? content : (
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          {content}
+        </TouchableWithoutFeedback>
+      )}
 
       <Modal visible={showKvkk} animationType="slide" onRequestClose={() => setShowKvkk(false)}>
         <View style={styles.modalWrap}>
-          <Text style={styles.modalTitle}>KVKK Aydınlatma Metni</Text>
+          <Text style={styles.modalTitle}>{t('register.kvkkTitle')}</Text>
           <ScrollView contentContainerStyle={styles.modalBody}>
-            <Text style={styles.modalText}>{TEXT_KVKK}</Text>
+            <Text style={styles.modalText}>{t('register.kvkkText')}</Text>
           </ScrollView>
           <View style={styles.modalFooter}>
             <TouchableOpacity onPress={() => setShowKvkk(false)} style={styles.modalBtn}>
-              <Text style={styles.modalBtnText}>Kapat</Text>
+              <Text style={styles.modalBtnText}>{t('common.close')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => {
@@ -379,7 +373,7 @@ export default function RegisterPage() {
               }}
               style={[styles.modalBtn, { backgroundColor: COLORS.primary }]}
             >
-              <Text style={[styles.modalBtnText, { color: '#fff' }]}>Okudum / Onaylıyorum</Text>
+              <Text style={[styles.modalBtnText, { color: '#fff' }]}>{t('register.kvkkAccept')}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -387,13 +381,13 @@ export default function RegisterPage() {
 
       <Modal visible={showConsent} animationType="slide" onRequestClose={() => setShowConsent(false)}>
         <View style={styles.modalWrap}>
-          <Text style={styles.modalTitle}>Açık Rıza Metni</Text>
+          <Text style={styles.modalTitle}>{t('register.consentTitle')}</Text>
           <ScrollView contentContainerStyle={styles.modalBody}>
-            <Text style={styles.modalText}>{TEXT_CONSENT}</Text>
+            <Text style={styles.modalText}>{t('register.consentText')}</Text>
           </ScrollView>
           <View style={styles.modalFooter}>
             <TouchableOpacity onPress={() => setShowConsent(false)} style={styles.modalBtn}>
-              <Text style={styles.modalBtnText}>Kapat</Text>
+              <Text style={styles.modalBtnText}>{t('common.close')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => {
@@ -402,7 +396,30 @@ export default function RegisterPage() {
               }}
               style={[styles.modalBtn, { backgroundColor: COLORS.primary }]}
             >
-              <Text style={[styles.modalBtnText, { color: '#fff' }]}>Rıza Veriyorum</Text>
+              <Text style={[styles.modalBtnText, { color: '#fff' }]}>{t('register.consentAccept')}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={showTerms} animationType="slide" onRequestClose={() => setShowTerms(false)}>
+        <View style={styles.modalWrap}>
+          <Text style={styles.modalTitle}>{t('terms.title')}</Text>
+          <ScrollView contentContainerStyle={styles.modalBody}>
+            <Text style={styles.modalText}>{t('terms.body')}</Text>
+          </ScrollView>
+          <View style={styles.modalFooter}>
+            <TouchableOpacity onPress={() => setShowTerms(false)} style={styles.modalBtn}>
+              <Text style={styles.modalBtnText}>{t('common.close')}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => {
+                setAcceptTerms(true);
+                setShowTerms(false);
+              }}
+              style={[styles.modalBtn, { backgroundColor: COLORS.primary }]}
+            >
+              <Text style={[styles.modalBtnText, { color: '#fff' }]}>{t('terms.accept')}</Text>
             </TouchableOpacity>
           </View>
         </View>

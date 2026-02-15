@@ -1,6 +1,7 @@
 'use client';
 
 import { resolveStorageUrlSmart } from '@/lib/resolveStorageUrlSmart';
+import { useI18n } from '@/lib/i18n';
 import { supabase } from '@/lib/supabaseClient';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -49,6 +50,7 @@ const emptyCounts = (): Counts => ({ like: 0, dislike: 0, wow: 0 });
 
 export default function Vitrin() {
   const ins = useSafeAreaInsets();
+  const { t, numberLocale } = useI18n();
   
   // 🔥 FİX BURADA: ins.top değerini iOS için kaldırdık. 
   // Çünkü SafeAreaView zaten bunu yapıyor. Sadece Android için StatusBar ekledik.
@@ -159,20 +161,20 @@ export default function Vitrin() {
       zIndex: 2 
     }}>
       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-        <Text style={{ fontSize: s(28), fontWeight: '900', color: ORANGE, includeFontPadding: false }}>Kanıt Vitrini</Text>
+        <Text style={{ fontSize: s(28), fontWeight: '900', color: ORANGE, includeFontPadding: false }}>{t('vitrin.title')}</Text>
         <View style={{ marginLeft: 'auto', backgroundColor: '#FFF2E8', borderWidth: 1, borderColor: ORANGE, paddingVertical: s(6), paddingHorizontal: s(10), borderRadius: s(20) }}>
-          <Text style={{ color: ORANGE, fontWeight: '800', includeFontPadding: false }}>{xp.toLocaleString('tr-TR')} XP</Text>
+          <Text style={{ color: ORANGE, fontWeight: '800', includeFontPadding: false }}>{xp.toLocaleString(numberLocale)} XP</Text>
         </View>
       </View>
-      <Text style={{ marginTop: s(6), color: '#6B7280', includeFontPadding: false }}>Onaylı kanıtlar</Text>
+      <Text style={{ marginTop: s(6), color: '#6B7280', includeFontPadding: false }}>{t('vitrin.subtitle')}</Text>
     </View>
-  ), [xp, topPad]);
+  ), [xp, topPad, t, numberLocale]);
 
   const Card = ({ item }: { item: Proof }) => (
     <Pressable onPress={() => { setSelected(item); scale.setValue(0.85); opacity.setValue(0); setTimeout(openAnim, 0); }} style={{ width: (width - s(16) * 2 - s(10)) / 2, backgroundColor: '#fff', borderRadius: s(16), borderWidth: 1, borderColor: '#FFCCAA', padding: s(10), marginBottom: s(12) }}>
       {!!item.coupons?.title && (
         <View style={{ alignSelf: 'flex-start', paddingHorizontal: s(8), paddingVertical: s(4), borderRadius: s(10), backgroundColor: '#FFF7F1', borderWidth: 1, borderColor: '#FFD5B8', marginBottom: s(6) }}>
-          <Text style={{ color: ORANGE, fontWeight: '800', includeFontPadding: false }} numberOfLines={1}>Kupon: {item.coupons.title}</Text>
+          <Text style={{ color: ORANGE, fontWeight: '800', includeFontPadding: false }} numberOfLines={1}>{t('vitrin.couponLabel', { title: item.coupons.title })}</Text>
         </View>
       )}
       {!!item.title && <Text style={{ fontWeight: '900', marginBottom: s(6), textAlign: 'center', includeFontPadding: false }} numberOfLines={2}>{item.title}</Text>}
@@ -205,21 +207,21 @@ export default function Vitrin() {
         ListHeaderComponent={Header}
         stickyHeaderIndices={[0]}
         showsVerticalScrollIndicator={false}
-        ListEmptyComponent={<View style={{ alignItems: 'center', marginTop: s(40) }}><Text style={{ color: '#6B7280' }}>Henüz kanıt yok.</Text></View>}
+        ListEmptyComponent={<View style={{ alignItems: 'center', marginTop: s(40) }}><Text style={{ color: '#6B7280' }}>{t('vitrin.empty')}</Text></View>}
       />
       <Modal visible={!!selected} transparent animationType="none" onRequestClose={() => closeAnim(() => setSelected(null))}>
         <Pressable onPress={() => closeAnim(() => setSelected(null))} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center' }}>
           {selected && (
             <Animated.View style={{ width: width - s(24), maxHeight: height - s(120), borderRadius: s(16), backgroundColor: '#fff', overflow: 'hidden', transform: [{ scale }], opacity, borderWidth: 2, borderColor: ORANGE }}>
               <View style={{ padding: s(12) }}>
-                {!!selected.coupons?.title && <View style={{ alignSelf: 'flex-start', paddingHorizontal: s(8), paddingVertical: s(4), borderRadius: s(10), backgroundColor: '#FFF7F1', borderWidth: 1, borderColor: '#FFD5B8', marginBottom: s(6) }}><Text style={{ color: ORANGE, fontWeight: '800' }}>Kupon: {selected.coupons.title}</Text></View>}
+                {!!selected.coupons?.title && <View style={{ alignSelf: 'flex-start', paddingHorizontal: s(8), paddingVertical: s(4), borderRadius: s(10), backgroundColor: '#FFF7F1', borderWidth: 1, borderColor: '#FFD5B8', marginBottom: s(6) }}><Text style={{ color: ORANGE, fontWeight: '800' }}>{t('vitrin.couponLabel', { title: selected.coupons.title })}</Text></View>}
                 {!!selected.title && <Text style={{ fontSize: s(18), fontWeight: '900', textAlign: 'center', marginBottom: s(8) }}>{selected.title}</Text>}
               </View>
               <View style={{ height: s(280), backgroundColor: '#F2F3F5' }}>
                 {selected.media_url ? <Image source={{ uri: selected.media_url }} style={{ width: '100%', height: '100%' }} /> : null}
               </View>
               <View style={{ padding: s(14) }}>
-                <Text style={{ color: '#6B7280' }}>{new Date(selected.created_at).toLocaleString('tr-TR')}</Text>
+                <Text style={{ color: '#6B7280' }}>{new Date(selected.created_at).toLocaleString(numberLocale)}</Text>
                 <View style={{ flexDirection: 'row', gap: s(8), marginTop: s(12) }}>
                   {EMOJIS.map(e => (
                     <TouchableOpacity key={e.key} onPress={() => react(selected, e.key)} disabled={pending.has(selected.id)} style={{ flex: 1, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingVertical: s(8), borderRadius: s(12), backgroundColor: selected.my === e.key ? '#FFEEE2' : '#FFF8F3', borderWidth: 1, borderColor: selected.my === e.key ? '#FF9F66' : '#FFE0CC', opacity: pending.has(selected.id) ? 0.6 : 1 }}>

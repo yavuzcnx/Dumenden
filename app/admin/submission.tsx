@@ -1,6 +1,7 @@
 'use client';
 import { publicUrl } from '@/lib/storage';
 import { supabase } from '@/lib/supabaseClient';
+import { useI18n } from '@/lib/i18n';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
@@ -47,6 +48,7 @@ const resolveStorageUrl = (raw?: string | null) => {
 /* --------------- Component --------------- */
 export default function AdminSubmissions() {
   const router = useRouter();
+  const { t, numberLocale } = useI18n();
   const [tab, setTab] = useState<'coupons' | 'proofs'>('coupons');
 
   const [couponRows, setCouponRows] = useState<CouponSubmission[]>([]);
@@ -125,7 +127,7 @@ const loadCoupons = useCallback(async () => {
     try {
       await Promise.all([loadCoupons(), loadProofs()]);
     } catch (e: any) {
-      Alert.alert('Hata', e?.message ?? 'Kayıtlar yüklenemedi');
+      Alert.alert(t('common.error'), e?.message ?? t('adminSubmission.loadFailed'));
     } finally {
       setLoading(false);
     }
@@ -135,7 +137,7 @@ const loadCoupons = useCallback(async () => {
     (async () => {
       const ok = await checkAdmin();
       if (!ok) {
-        Alert.alert('Yetki yok', 'Bu sayfa sadece adminler içindir.');
+        Alert.alert(t('adminSubmission.noAccessTitle'), t('adminSubmission.noAccessBody'));
         router.replace('/login');
         return;
       }
@@ -198,9 +200,9 @@ const loadCoupons = useCallback(async () => {
         .eq('id', it.id);
 
       setCouponRows(prev => prev.filter(r => r.id !== it.id));
-      Alert.alert('Onaylandı', 'Kupon Explore’a gönderildi.');
+      Alert.alert(t('adminSubmission.approveCouponTitle'), t('adminSubmission.approveCouponBody'));
     } catch (err: any) {
-      Alert.alert('Hata', err?.message ?? 'Onay başarısız');
+      Alert.alert(t('common.error'), err?.message ?? t('adminSubmission.approveFailed'));
     }
   };
 
@@ -212,7 +214,7 @@ const loadCoupons = useCallback(async () => {
   const approveProof = async (p: ProofRow) => {
     await supabase.from('coupon_proofs').update({ status: 'approved' }).eq('id', p.id);
     setProofRows(prev => prev.filter(r => r.id !== p.id));
-    Alert.alert('Onaylandı', 'Kanıt onaylandı.');
+    Alert.alert(t('adminSubmission.approveProofTitle'), t('adminSubmission.approveProofBody'));
   };
 
   const rejectProof = async (id: string) => {
@@ -233,12 +235,12 @@ const loadCoupons = useCallback(async () => {
     return (
       <View style={{ borderWidth: 1, borderColor: '#eee', borderRadius: 16, padding: 14, gap: 10, marginHorizontal: 12 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Text style={{ fontWeight: '900' }}>{item.users?.full_name ?? 'Kullanıcı'}</Text>
-          {item.users?.is_plus && (
-            <View style={{ backgroundColor: '#FFE8D6', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12 }}>
-              <Text style={{ color: '#FF6B00', fontWeight: '900' }}>PLUS</Text>
-            </View>
-          )}
+        <Text style={{ fontWeight: '900' }}>{item.users?.full_name ?? t('common.user')}</Text>
+        {item.users?.is_plus && (
+          <View style={{ backgroundColor: '#FFE8D6', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12 }}>
+            <Text style={{ color: '#FF6B00', fontWeight: '900' }}>{t('adminSubmission.plusBadge')}</Text>
+          </View>
+        )}
         </View>
 
         <View style={{ height: 180, backgroundColor: '#f2f3f5', borderRadius: 12, overflow: 'hidden' }}>
@@ -246,8 +248,10 @@ const loadCoupons = useCallback(async () => {
         </View>
 
         <Text style={{ fontWeight: '900', fontSize: 18 }}>{item.title}</Text>
-        <Text style={{ color: '#666' }}>{item.category} • Kapanış: {new Date(item.closing_date).toLocaleString()}</Text>
-        <Text>Yes: {item.yes_price ?? '-'} • No: {item.no_price ?? '-'}</Text>
+        <Text style={{ color: '#666' }}>
+          {item.category} • {t('adminSubmission.closingLabel')} {new Date(item.closing_date).toLocaleString(numberLocale)}
+        </Text>
+        <Text>{t('adminSubmission.oddsLine', { yes: item.yes_price ?? '-', no: item.no_price ?? '-' })}</Text>
         {!!item.description && <Text style={{ color: '#444' }}>{item.description}</Text>}
 
         <View style={{ flexDirection: 'row', gap: 10, marginTop: 8 }}>
@@ -255,13 +259,13 @@ const loadCoupons = useCallback(async () => {
             style={{ flex: 1, backgroundColor: '#16a34a', padding: 12, borderRadius: 10, flexDirection: 'row',
                      alignItems: 'center', justifyContent: 'center', gap: 6 }}>
             <Ionicons name="checkmark-circle" size={20} color="#fff" />
-            <Text style={{ color: '#fff', fontWeight: '800' }}>Onayla</Text>
+            <Text style={{ color: '#fff', fontWeight: '800' }}>{t('adminSubmission.actions.approve')}</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={() => rejectCoupon(item.id)}
             style={{ flex: 1, backgroundColor: '#ef4444', padding: 12, borderRadius: 10, flexDirection: 'row',
                      alignItems: 'center', justifyContent: 'center', gap: 6 }}>
             <Ionicons name="close-circle" size={20} color="#fff" />
-            <Text style={{ color: '#fff', fontWeight: '800' }}>Reddet</Text>
+            <Text style={{ color: '#fff', fontWeight: '800' }}>{t('adminSubmission.actions.reject')}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -272,26 +276,26 @@ const loadCoupons = useCallback(async () => {
     const thumb = resolveStorageUrl(item.media_url);
     return (
       <View style={{ borderWidth: 1, borderColor: '#eee', borderRadius: 16, padding: 14, gap: 10, marginHorizontal: 12 }}>
-        <Text style={{ fontWeight: '900' }}>{item.coupons?.title ?? 'Kupon'}</Text>
+        <Text style={{ fontWeight: '900' }}>{item.coupons?.title ?? t('adminSubmission.couponFallback')}</Text>
         <View style={{ height: 200, backgroundColor: '#f2f3f5', borderRadius: 12, overflow: 'hidden' }}>
           {thumb ? <Image source={{ uri: thumb }} style={{ width: '100%', height: '100%' }} /> : null}
         </View>
         {!!item.title && <Text style={{ fontWeight: '700' }}>{item.title}</Text>}
         <Text style={{ color: '#666' }}>
-          Gönderen: {item.users?.full_name || 'Kullanıcı'} • {new Date(item.created_at).toLocaleString()}
+          {t('adminSubmission.sentBy', { name: item.users?.full_name || t('common.user'), date: new Date(item.created_at).toLocaleString(numberLocale) })}
         </Text>
         <View style={{ flexDirection: 'row', gap: 10, marginTop: 8 }}>
           <TouchableOpacity onPress={() => approveProof(item)}
             style={{ flex: 1, backgroundColor: '#16a34a', padding: 12, borderRadius: 10, flexDirection: 'row',
                      alignItems: 'center', justifyContent: 'center', gap: 6 }}>
             <Ionicons name="checkmark-circle" size={20} color="#fff" />
-            <Text style={{ color: '#fff', fontWeight: '800' }}>Onayla</Text>
+            <Text style={{ color: '#fff', fontWeight: '800' }}>{t('adminSubmission.actions.approve')}</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={() => rejectProof(item.id)}
             style={{ flex: 1, backgroundColor: '#ef4444', padding: 12, borderRadius: 10, flexDirection: 'row',
                      alignItems: 'center', justifyContent: 'center', gap: 6 }}>
             <Ionicons name="close-circle" size={20} color="#fff" />
-            <Text style={{ color: '#fff', fontWeight: '800' }}>Reddet</Text>
+            <Text style={{ color: '#fff', fontWeight: '800' }}>{t('adminSubmission.actions.reject')}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -306,13 +310,13 @@ const loadCoupons = useCallback(async () => {
         <TouchableOpacity onPress={() => router.back()} style={{ padding: 8, marginRight: 8 }}>
           <Ionicons name="arrow-back" size={24} color="#FF6B00" />
         </TouchableOpacity>
-        <Text style={{ fontSize: 20, fontWeight: '900', color: '#FF6B00' }}>Önerileri Onayla</Text>
+        <Text style={{ fontSize: 20, fontWeight: '900', color: '#FF6B00' }}>{t('adminSubmission.title')}</Text>
       </View>
 
       {/* Tabs */}
       <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 16, marginBottom: 8 }}>
-        <Tab label="Kuponlar" active={tab === 'coupons'} onPress={() => setTab('coupons')} />
-        <Tab label="Kanıtlar" active={tab === 'proofs'} onPress={() => setTab('proofs')} />
+        <Tab label={t('adminSubmission.tabs.coupons')} active={tab === 'coupons'} onPress={() => setTab('coupons')} />
+        <Tab label={t('adminSubmission.tabs.proofs')} active={tab === 'proofs'} onPress={() => setTab('proofs')} />
       </View>
 
       {/* Listeler */}
@@ -323,7 +327,7 @@ const loadCoupons = useCallback(async () => {
           contentContainerStyle={{ paddingBottom: 24, gap: 16 }}
           renderItem={({ item }) => <CouponItem item={item} />}
           ListEmptyComponent={!loading ? (
-            <Text style={{ textAlign: 'center', color: '#888', marginTop: 24 }}>Bekleyen kupon önerisi yok.</Text>
+            <Text style={{ textAlign: 'center', color: '#888', marginTop: 24 }}>{t('adminSubmission.emptyCoupons')}</Text>
           ) : null}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         />
@@ -334,7 +338,7 @@ const loadCoupons = useCallback(async () => {
           contentContainerStyle={{ paddingBottom: 24, gap: 16 }}
           renderItem={({ item }) => <ProofItem item={item} />}
           ListEmptyComponent={!loading ? (
-            <Text style={{ textAlign: 'center', color: '#888', marginTop: 24 }}>Bekleyen kanıt yok.</Text>
+            <Text style={{ textAlign: 'center', color: '#888', marginTop: 24 }}>{t('adminSubmission.emptyProofs')}</Text>
           ) : null}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         />

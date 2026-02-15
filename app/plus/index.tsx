@@ -1,3 +1,4 @@
+import { useI18n } from '@/lib/i18n';
 import { supabase } from '@/lib/supabaseClient';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -29,6 +30,7 @@ type Quota = { used_last7: number; remaining_last7: number };
 export default function PlusHome() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { t, numberLocale } = useI18n();
   
   // Animasyon değerleri
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -36,7 +38,7 @@ export default function PlusHome() {
 
   const [busy, setBusy] = useState(true);
   const [user, setUser] = useState<{ name: string; xp: number; avatar?: string | null }>({
-    name: 'Kullanıcı',
+    name: t('common.user'),
     xp: 0
   });
   const [quota, setQuota] = useState<Quota | null>(null);
@@ -64,7 +66,7 @@ export default function PlusHome() {
         .single();
 
       setUser({
-        name: (data?.full_name || 'Kullanıcı').trim(),
+        name: (data?.full_name || t('common.user')).trim(),
         xp: data?.xp ?? 0,
         avatar: data?.avatar_url ?? null,
       });
@@ -126,12 +128,12 @@ export default function PlusHome() {
             </View>
             
             <View style={{ flex:1, justifyContent:'center' }}>
-              <Text style={styles.roleTitle}>DÜMENCİ PANELİ</Text>
+              <Text style={styles.roleTitle}>{t('plus.panelTitle')}</Text>
               <Text style={styles.userName} numberOfLines={1}>{user.name}</Text>
               
               <View style={styles.xpRow}>
                 <Ionicons name="flash" size={14} color={BRAND} />
-                <Text style={styles.xpText}>{user.xp.toLocaleString('tr-TR')} XP</Text>
+                <Text style={styles.xpText}>{user.xp.toLocaleString(numberLocale)} XP</Text>
               </View>
             </View>
           </LinearGradient>
@@ -139,7 +141,7 @@ export default function PlusHome() {
           {/* KOTA DURUMU */}
           <View style={styles.quotaSection}>
             <View style={styles.quotaHeader}>
-              <Text style={styles.sectionTitle}>Haftalık Gönderim Hakkın</Text>
+              <Text style={styles.sectionTitle}>{t('plus.weeklyQuotaTitle')}</Text>
               <Ionicons name="information-circle-outline" size={20} color="#999" />
             </View>
             
@@ -154,10 +156,10 @@ export default function PlusHome() {
             
             <View style={styles.quotaInfo}>
               <Text style={styles.quotaText}>
-                <Text style={{color:BRAND, fontWeight:'900'}}>{quota?.remaining_last7 ?? 0}</Text> hakkın kaldı
+                <Text style={{color:BRAND, fontWeight:'900'}}>{quota?.remaining_last7 ?? 0}</Text> {t('plus.quotaRemaining')}
               </Text>
               <Text style={styles.quotaUsed}>
-                {quota?.used_last7 ?? 0}/5 kullanıldı
+                {t('plus.quotaUsed', { used: quota?.used_last7 ?? 0, total: 5 })}
               </Text>
             </View>
           </View>
@@ -165,30 +167,30 @@ export default function PlusHome() {
           {/* BUTONLAR (Grid) */}
           <View style={styles.actionGrid}>
             <ActionButton 
-              title="Kupon Ekle" 
-              desc="Yeni tahmin oluştur" 
+              title={t('plus.addCoupon')} 
+              desc={t('plus.addCouponDesc')} 
               icon="add-circle" 
               color={BRAND} 
               onPress={goCreate} 
               isPrimary
             />
             <ActionButton 
-              title="Yönet" 
-              desc="Kuponlarını düzenle" 
+              title={t('common.manage')} 
+              desc={t('plus.manageDesc')} 
               icon="settings-sharp" 
               color="#333" 
               onPress={goManage} 
             />
             <ActionButton 
-              title="Kanıt Ekle" 
-              desc="Sonuç kanıtı yükle" 
+              title={t('plus.addProof')} 
+              desc={t('plus.addProofDesc')} 
               icon="image" 
               color="#333" 
               onPress={goProof} 
             />
             <ActionButton 
-              title="Sonuçlandır" 
-              desc="Kazananı belirle" 
+              title={t('plus.resolve')} 
+              desc={t('plus.resolveDesc')} 
               icon="checkmark-done-circle" 
               color="#333" 
               onPress={goResolve} 
@@ -196,7 +198,7 @@ export default function PlusHome() {
           </View>
 
           {/* Geçmiş Butonu */}
-          <Text style={[styles.sectionTitle, { marginTop: 24, marginBottom: 12 }]}>Geçmiş</Text>
+          <Text style={[styles.sectionTitle, { marginTop: 24, marginBottom: 12 }]}>{t('plus.history')}</Text>
           <TouchableOpacity 
             style={styles.historyBtn}
             onPress={() => router.push('/my-bets')}
@@ -206,8 +208,8 @@ export default function PlusHome() {
               <Ionicons name="time" size={24} color="#555" />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.historyTitle}>Oynadıklarım</Text>
-              <Text style={styles.historyDesc}>Geçmiş tahminlerini incele</Text>
+              <Text style={styles.historyTitle}>{t('myBets.title')}</Text>
+              <Text style={styles.historyDesc}>{t('plus.historyDesc')}</Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color="#ccc" />
           </TouchableOpacity>

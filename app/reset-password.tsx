@@ -1,5 +1,6 @@
 'use client';
 
+import { useI18n } from '@/lib/i18n';
 import { supabase } from '@/lib/supabaseClient';
 import * as Linking from 'expo-linking';
 import { useRouter } from 'expo-router';
@@ -41,6 +42,7 @@ function parseParamsFromUrl(url: string) {
 
 export default function ResetPasswordPage() {
   const router = useRouter();
+  const { t } = useI18n();
 
   const [stage, setStage] = useState<'verifying' | 'ready' | 'error'>('verifying');
   const [err, setErr] = useState<string>('');
@@ -105,11 +107,11 @@ export default function ResetPasswordPage() {
         return;
       }
 
-      setErr('Link içinden doğrulama bilgisi alınamadı.');
+      setErr(t('reset.linkInfoMissing'));
       setStage('error');
     } catch (e: any) {
       console.log('❌ Verify error:', e?.message || e);
-      setErr(e?.message || 'Link doğrulanamadı.');
+      setErr(e?.message || t('reset.linkVerifyFail'));
       setStage('error');
     }
   };
@@ -149,7 +151,7 @@ export default function ResetPasswordPage() {
     const t = setTimeout(() => {
       if (!alive) return;
       if (!handledRef.current && stage === 'verifying') {
-        setErr('Reset linki uygulamaya ulaşmadı. Mail içindeki linki Safari/Apple Mail ile açmayı dene.');
+        setErr(t('reset.linkNotReached'));
         setStage('error');
       }
     }, 7000);
@@ -170,11 +172,11 @@ export default function ResetPasswordPage() {
 
   const submitNewPassword = async () => {
     if (pw1.length < 8) {
-      Alert.alert('Uyarı', 'Şifre en az 8 karakter olmalı.');
+      Alert.alert(t('common.warning'), t('profile.passwordTooShort'));
       return;
     }
     if (pw1 !== pw2) {
-      Alert.alert('Uyarı', 'Şifreler uyuşmuyor.');
+      Alert.alert(t('common.warning'), t('profile.passwordMismatch'));
       return;
     }
 
@@ -183,11 +185,11 @@ export default function ResetPasswordPage() {
       const { error } = await supabase.auth.updateUser({ password: pw1 });
       if (error) throw error;
 
-      Alert.alert('Başarılı', 'Yeni şifren kaydedildi. Giriş ekranına yönlendiriliyorsun.');
+      Alert.alert(t('common.success'), t('reset.passwordSaved'));
       await supabase.auth.signOut().catch(() => {});
       router.replace('/login');
     } catch (e: any) {
-      Alert.alert('Hata', e?.message || 'Şifre değiştirilemedi.');
+      Alert.alert(t('common.error'), e?.message || t('profile.passwordChangeFail'));
     } finally {
       setSaving(false);
     }
@@ -197,8 +199,8 @@ export default function ResetPasswordPage() {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color={ORANGE} />
-        <Text style={styles.title}>Link doğrulanıyor…</Text>
-        <Text style={styles.sub}>Lütfen bekle</Text>
+        <Text style={styles.title}>{t('reset.verifyingTitle')}</Text>
+        <Text style={styles.sub}>{t('common.pleaseWait')}</Text>
       </View>
     );
   }
@@ -206,11 +208,11 @@ export default function ResetPasswordPage() {
   if (stage === 'error') {
     return (
       <View style={styles.center}>
-        <Text style={[styles.title, { color: '#D32F2F' }]}>Doğrulama Hatası</Text>
-        <Text style={styles.sub}>{err || 'Bir hata oluştu.'}</Text>
+        <Text style={[styles.title, { color: '#D32F2F' }]}>{t('reset.verifyErrorTitle')}</Text>
+        <Text style={styles.sub}>{err || t('common.unknownError')}</Text>
 
         <TouchableOpacity style={[styles.btn, { marginTop: 16 }]} onPress={() => router.replace('/login')}>
-          <Text style={styles.btnTxt}>Girişe Dön</Text>
+          <Text style={styles.btnTxt}>{t('reset.backToLogin')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -219,12 +221,12 @@ export default function ResetPasswordPage() {
   // ready
   return (
     <View style={styles.wrap}>
-      <Text style={styles.h1}>Yeni Şifre Belirle</Text>
+      <Text style={styles.h1}>{t('reset.setNewPassword')}</Text>
 
       <TextInput
         value={pw1}
         onChangeText={setPw1}
-        placeholder="Yeni şifre (min 8)"
+        placeholder={t('profile.newPassword')}
         placeholderTextColor={MUTED}
         secureTextEntry
         style={styles.input}
@@ -232,7 +234,7 @@ export default function ResetPasswordPage() {
       <TextInput
         value={pw2}
         onChangeText={setPw2}
-        placeholder="Yeni şifre (tekrar)"
+        placeholder={t('profile.newPasswordRepeat')}
         placeholderTextColor={MUTED}
         secureTextEntry
         style={styles.input}
@@ -243,12 +245,10 @@ export default function ResetPasswordPage() {
         disabled={!canSubmit || saving}
         onPress={submitNewPassword}
       >
-        {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnTxt}>Kaydet</Text>}
+        {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnTxt}>{t('common.save')}</Text>}
       </TouchableOpacity>
 
-      <Text style={styles.tip}>
-        Not: Maili Gmail içinden açınca bazen app’e düşmüyor. Safari/Apple Mail ile açmayı dene.
-      </Text>
+      <Text style={styles.tip}>{t('reset.tip')}</Text>
     </View>
   );
 }

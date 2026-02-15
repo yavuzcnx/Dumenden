@@ -2,6 +2,7 @@
 'use client';
 
 import { supabase } from '@/lib/supabaseClient';
+import { useI18n } from '@/lib/i18n';
 import { adsReady, onAdsReady } from '@/src/contexts/lib/ads';
 import { useXp } from '@/src/contexts/XpProvider';
 import { BlurView } from 'expo-blur';
@@ -19,7 +20,7 @@ import {
   RewardedAd,
   RewardedAdEventType,
   TestIds,
-} from 'react-native-google-mobile-ads';
+} from '@/src/contexts/ads/googleMobileAds';
 
 const BRAND = '#FF6B00';
 const SOFT = '#FFF2E8';
@@ -101,6 +102,7 @@ async function showRewarded(): Promise<boolean> {
 
 export default function DailyEntryScreen() {
   const { xp, loading: xpLoading, refresh } = useXp();
+  const { t, numberLocale } = useI18n();
   const [granting, setGranting] = useState(false);
   const [cooldownMinutes, setCooldownMinutes] = useState<number | null>(0);
 
@@ -119,7 +121,7 @@ export default function DailyEntryScreen() {
     if ((cooldownMinutes ?? 0) > 0) {
       const h = Math.floor((cooldownMinutes ?? 0) / 60);
       const m = (cooldownMinutes ?? 0) % 60;
-      Alert.alert('Üzgünüz 😔', `Yeni XP alımı için ${h} saat ${m} dakika daha bekle.`);
+      Alert.alert(t('home.xpWaitTitle'), t('home.xpWaitBody', { hours: h, minutes: m }));
       return;
     }
 
@@ -128,7 +130,7 @@ export default function DailyEntryScreen() {
       // 1) Reklamı izlet
       const ok = await showRewarded();
       if (!ok) {
-        Alert.alert('Hata', 'Reklam ödülü alınamadı. Biraz sonra tekrar dene.');
+        Alert.alert(t('common.error'), t('dailyentry.adRewardFail'));
         return;
       }
 
@@ -136,7 +138,7 @@ export default function DailyEntryScreen() {
       const { data: auth } = await supabase.auth.getUser();
       const uid = auth?.user?.id;
       if (!uid) {
-        Alert.alert('Hata', 'Oturum bulunamadı.');
+        Alert.alert(t('common.error'), t('home.noSession'));
         return;
       }
 
@@ -151,7 +153,7 @@ export default function DailyEntryScreen() {
       if (granted) {
         // XP verildi
         await refresh();
-        Alert.alert('Tebrikler 🎉', '100 XP kazandın!');
+        Alert.alert(t('home.xpCongratsTitle'), t('home.xpCongratsBody'));
         // 3 saatlik local sayaç (server zaten saklıyor, biz sadece UI için tutuyoruz)
         setCooldownMinutes(Math.ceil(remaining / 60) || 180);
       } else {
@@ -160,18 +162,18 @@ export default function DailyEntryScreen() {
         setCooldownMinutes(mins);
         const h = Math.floor(mins / 60);
         const m = mins % 60;
-        Alert.alert('Üzgünüz 😔', `Yeni XP alımı için ${h} saat ${m} dakika kaldı.`);
+        Alert.alert(t('home.xpWaitTitle'), t('home.xpCooldownBody', { hours: h, minutes: m }));
       }
     } catch (e: any) {
-      Alert.alert('Hata', e?.message ?? 'Bilinmeyen hata.');
+      Alert.alert(t('common.error'), e?.message ?? t('common.unknownError'));
     } finally {
       setGranting(false);
     }
   };
 
   const title = useMemo(
-    () => (xpLoading ? '...' : `${xp.toLocaleString('tr-TR')} XP`),
-    [xp, xpLoading],
+    () => (xpLoading ? t('common.loadingShort') : `${xp.toLocaleString(numberLocale)} XP`),
+    [xp, xpLoading, numberLocale, t],
   );
   const h = Math.floor((cooldownMinutes ?? 0) / 60);
   const m = (cooldownMinutes ?? 0) % 60;
@@ -179,7 +181,7 @@ export default function DailyEntryScreen() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#fff', padding: 16 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 14 }}>
-        <Text style={{ fontSize: 24, fontWeight: '900', color: BRAND }}>Günlük Giriş</Text>
+        <Text style={{ fontSize: 24, fontWeight: '900', color: BRAND }}>{t('dailyentry.title')}</Text>
         <View
           style={{
             marginLeft: 'auto',
@@ -196,7 +198,7 @@ export default function DailyEntryScreen() {
       </View>
 
       <Text style={{ color: '#6B7280', marginBottom: 16 }}>
-        Reklamı izleyerek 100 XP kazan. 3 saatte bir yenilenir.
+        {t('dailyentry.subtitle')}
       </Text>
 
       <TouchableOpacity
@@ -214,10 +216,10 @@ export default function DailyEntryScreen() {
           <ActivityIndicator color="#fff" />
         ) : (cooldownMinutes ?? 0) > 0 ? (
           <Text style={{ color: '#fff', fontWeight: '900' }}>
-            Üzgünüz, {h}s {m}dk sonra tekrar dene
+            {t('dailyentry.tryAgainIn', { hours: h, minutes: m })}
           </Text>
         ) : (
-          <Text style={{ color: '#fff', fontWeight: '900' }}>XP Al (Reklam İzle)</Text>
+          <Text style={{ color: '#fff', fontWeight: '900' }}>{t('dailyentry.cta')}</Text>
         )}
       </TouchableOpacity>
 
@@ -229,7 +231,7 @@ export default function DailyEntryScreen() {
             style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}
           >
             <ActivityIndicator size="large" color={BRAND} />
-            <Text style={{ marginTop: 10, fontWeight: '700' }}>XP yükleniyor…</Text>
+            <Text style={{ marginTop: 10, fontWeight: '700' }}>{t('dailyentry.loading')}</Text>
           </BlurView>
         </View>
       )}

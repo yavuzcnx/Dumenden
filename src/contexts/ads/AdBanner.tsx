@@ -1,11 +1,12 @@
 // src/components/AdBanner.tsx
 import { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
+import { onAdsReady } from '@/src/contexts/lib/ads';
 
 // PROD Banner ID → gerçek birimini yaz
 const PROD_BANNER = 'ca-app-pub-3837426346942059/XXXXXXXXXX';
 
-type AdsMod = typeof import('react-native-google-mobile-ads');
+type AdsMod = typeof import('./googleMobileAds');
 
 export default function AdBanner({ unitId }: { unitId?: string }) {
   const [ads, setAds] = useState<AdsMod | null>(null);
@@ -18,22 +19,28 @@ export default function AdBanner({ unitId }: { unitId?: string }) {
 
   useEffect(() => {
     let mounted = true;
+    let offReady: (() => void) | null = null;
 
-    (async () => {
-      try {
-        const mod = await import('react-native-google-mobile-ads');
-        if (!mounted) return;
-        setAds(mod);
-      } catch (e) {
-        // ✅ modül yoksa crash değil, banner kapanır
-        if (!mounted) return;
-        console.warn('[ADS] banner disabled', e);
-        setDisabled(true);
-      }
-    })();
+    offReady = onAdsReady(() => {
+      (async () => {
+        try {
+          const mod = await import('./googleMobileAds');
+          if (!mounted) return;
+          setAds(mod);
+        } catch (e) {
+          // ✅ modül yoksa crash değil, banner kapanır
+          if (!mounted) return;
+          console.warn('[ADS] banner disabled', e);
+          setDisabled(true);
+        }
+      })();
+    });
 
     return () => {
       mounted = false;
+      try {
+        offReady?.();
+      } catch {}
     };
   }, []);
 

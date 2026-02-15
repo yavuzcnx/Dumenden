@@ -1,5 +1,4 @@
 // src/contexts/lib/ads.ts
-import { Platform } from 'react-native';
 
 let _inited = false;
 let _initPromise: Promise<void> | null = null;
@@ -8,7 +7,7 @@ const _listeners: Array<() => void> = [];
 async function loadAdsModule() {
   // ✅ Modül yoksa burada patlamasın diye try/catch
   try {
-    const mod = await import('react-native-google-mobile-ads');
+    const mod = await import('../ads/googleMobileAds');
     return mod;
   } catch (e) {
     console.warn('[ADS] module load failed (ads disabled)', e);
@@ -61,6 +60,13 @@ export function adsReady() {
 
 /** Ads hazır olduğunda bir kez çağrılır */
 export function onAdsReady(cb: () => void) {
-  if (_inited) cb();
-  else _listeners.push(cb);
+  if (_inited) {
+    cb();
+    return () => {};
+  }
+  _listeners.push(cb);
+  return () => {
+    const idx = _listeners.indexOf(cb);
+    if (idx >= 0) _listeners.splice(idx, 1);
+  };
 }

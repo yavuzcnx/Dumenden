@@ -1,5 +1,6 @@
 'use client';
 import { supabase } from '@/lib/supabaseClient';
+import { useI18n } from '@/lib/i18n';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 // 🔥 DÜZELTME: Pressable buraya eklendi
@@ -16,31 +17,32 @@ type Row = {
 
 const BRAND = '#FF6B00';
 const TABS = [
-  { key: 'all', label: 'Tümü' },
-  { key: 'pending', label: 'Beklemede' },
-  { key: 'approved', label: 'Onaylandı' },
-  { key: 'rejected', label: 'Reddedildi' },
-  { key: 'withdrawn', label: 'Kaldırılan' }
+  { key: 'all', labelKey: 'plusManage.tabs.all' },
+  { key: 'pending', labelKey: 'plusManage.tabs.pending' },
+  { key: 'approved', labelKey: 'plusManage.tabs.approved' },
+  { key: 'rejected', labelKey: 'plusManage.tabs.rejected' },
+  { key: 'withdrawn', labelKey: 'plusManage.tabs.withdrawn' },
 ] as const;
 
 type TabKey = typeof TABS[number]['key'];
 
 export default function ManageMySubmissions() {
   const router = useRouter();
+  const { t, numberLocale } = useI18n();
   const [tab, setTab] = useState<TabKey>('all');
   const [rows, setRows] = useState<Row[]>([]);
   const [uid, setUid] = useState<string | null>(null);
   const showPayoutRequired = (couponId?: string | null) => {
     const actions: { text: string; style?: 'cancel' | 'destructive'; onPress?: () => void }[] = [
-      { text: 'Vazgec', style: 'cancel' },
+      { text: t('common.cancel'), style: 'cancel' },
     ];
     if (couponId) {
-      actions.push({ text: 'Kanit Ekle', onPress: () => router.push(`/plus/proofs?coupon=${couponId}`) });
+      actions.push({ text: t('plusManage.actions.addProof'), onPress: () => router.push(`/plus/proofs?coupon=${couponId}`) });
     }
-    actions.push({ text: 'Sonuclandir', onPress: () => router.push('/plus/resolve') });
+    actions.push({ text: t('plusManage.actions.resolve'), onPress: () => router.push('/plus/resolve') });
     Alert.alert(
-      'Odeme gerekli',
-      'Bu kupona yatirim yapilmis. Silmeden once kanit ekleyip odemeleri dagitmalisin.',
+      t('plusManage.alerts.payoutRequiredTitle'),
+      t('plusManage.alerts.payoutRequiredBody'),
       actions
     );
   };
@@ -61,7 +63,7 @@ export default function ManageMySubmissions() {
 
     const { data, error } = await q;
     if (error) {
-      Alert.alert('Hata', error.message);
+      Alert.alert(t('common.error'), error.message);
       return;
     }
 
@@ -85,13 +87,13 @@ export default function ManageMySubmissions() {
   const tag = (s: Row['status']) => {
     switch (s) {
       case 'approved':
-        return { label: 'Onaylandı', bg: '#E8F5E9', fg: '#1B5E20' };
+        return { label: t('plusManage.status.approved'), bg: '#E8F5E9', fg: '#1B5E20' };
       case 'rejected':
-        return { label: 'Reddedildi', bg: '#FFEBEE', fg: '#B71C1C' };
+        return { label: t('plusManage.status.rejected'), bg: '#FFEBEE', fg: '#B71C1C' };
       case 'withdrawn':
-        return { label: 'Kaldırıldı', bg: '#ECEFF1', fg: '#455A64' };
+        return { label: t('plusManage.status.withdrawn'), bg: '#ECEFF1', fg: '#455A64' };
       default:
-        return { label: 'Beklemede', bg: '#FFF8E1', fg: '#8D6E63' };
+        return { label: t('plusManage.status.pending'), bg: '#FFF8E1', fg: '#8D6E63' };
     }
   };
 
@@ -141,12 +143,12 @@ export default function ManageMySubmissions() {
 
           if (!paid) {
             Alert.alert(
-              'Once kanit ve odeme gerekli',
-              `${betCount} kisi bu kupona XP yatirmis. Silmeden once kanit ekleyip odemeyi dagitmalisin.`,
+              t('plusManage.alerts.payoutBeforeDeleteTitle'),
+              t('plusManage.alerts.payoutBeforeDeleteBody', { count: betCount }),
               [
-                { text: 'Vazgec', style: 'cancel' },
-                { text: 'Kanit Ekle', onPress: () => router.push(`/plus/proofs?coupon=${couponId}`) },
-                { text: 'Sonuclandir', onPress: () => router.push('/plus/resolve') },
+                { text: t('common.cancel'), style: 'cancel' },
+                { text: t('plusManage.actions.addProof'), onPress: () => router.push(`/plus/proofs?coupon=${couponId}`) },
+                { text: t('plusManage.actions.resolve'), onPress: () => router.push('/plus/resolve') },
               ]
             );
             return;
@@ -154,17 +156,17 @@ export default function ManageMySubmissions() {
         }
       }
     } catch (err: any) {
-      Alert.alert('Hata', err?.message ?? 'Kontrol basarisiz oldu.');
+      Alert.alert(t('common.error'), err?.message ?? t('plusManage.alerts.checkFailed'));
       return;
     }
 
     Alert.alert(
-      'Kuponu Sil',
-      'Bu kuponu tamamen silmek istedigine emin misin?',
+      t('plusManage.alerts.deleteTitle'),
+      t('plusManage.alerts.deleteBody'),
       [
-      { text: 'Vazgec', style: 'cancel' },
+      { text: t('common.cancel'), style: 'cancel' },
       {
-        text: 'Kokten Sil',
+        text: t('plusManage.actions.deleteHard'),
         style: 'destructive',
         onPress: async () => {
           try {
@@ -187,7 +189,7 @@ export default function ManageMySubmissions() {
             // 4. Veritabanindan son halini cekip listeyi zorla yenile
             await load();
 
-            Alert.alert('Basarili', 'Kupon yok edildi.');
+            Alert.alert(t('common.success'), t('plusManage.alerts.deleteSuccess'));
 
           } catch (err: any) {
             const msg = String(err?.message ?? '');
@@ -197,12 +199,12 @@ export default function ManageMySubmissions() {
             }
             if (/permission denied/i.test(msg) && /users/i.test(msg)) {
               Alert.alert(
-                'Islem tamamlanamadi',
-                'Sunucu izinleri nedeniyle silme islemi engellendi. Lutfen biraz sonra tekrar dene.'
+                t('plusManage.alerts.permissionDeniedTitle'),
+                t('plusManage.alerts.permissionDeniedBody')
               );
               return;
             }
-            Alert.alert('Hata', msg || 'Silme islemi basarisiz.');
+            Alert.alert(t('common.error'), msg || t('plusManage.alerts.deleteFailed'));
           }
         }
       }
@@ -236,7 +238,7 @@ export default function ManageMySubmissions() {
         </View>
 
         <Text style={{ color: '#666', marginTop: 4 }}>
-          {item.category} • Kapanış: {new Date(item.closing_date).toLocaleString()}
+          {item.category} • {t('plusManage.closingLabel', { date: new Date(item.closing_date).toLocaleString(numberLocale) })}
         </Text>
 
         <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
@@ -259,7 +261,7 @@ export default function ManageMySubmissions() {
               borderRadius: 10,
             }}>
             <Text style={{ textAlign:'center', fontWeight:'800', color: canEdit ? '#000' : '#aaa' }}>
-              Düzenle
+              {t('common.edit')}
             </Text>
           </TouchableOpacity>
 
@@ -275,7 +277,7 @@ export default function ManageMySubmissions() {
               borderRadius: 10
             }}>
             <Text style={{ textAlign: 'center', color: '#fff', fontWeight: '900' }}>
-              Kanıt Ekle
+              {t('plusManage.actions.addProof')}
             </Text>
           </TouchableOpacity>
 
@@ -291,7 +293,7 @@ export default function ManageMySubmissions() {
               borderRadius: 10,
               backgroundColor: '#ef4444'
             }}>
-            <Text style={{ color: '#fff', fontWeight: '900' }}>Sil</Text>
+            <Text style={{ color: '#fff', fontWeight: '900' }}>{t('common.delete')}</Text>
           </TouchableOpacity>
 
         </View>
@@ -308,7 +310,7 @@ export default function ManageMySubmissions() {
           color: BRAND,
           marginBottom: 10
         }}>
-          Kuponlarım
+          {t('plusManage.title')}
         </Text>
 
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
@@ -327,7 +329,7 @@ export default function ManageMySubmissions() {
                 color: tab === t.key ? '#fff' : '#333',
                 fontWeight: '700'
               }}>
-                {t.label}
+                {t(t.labelKey)}
               </Text>
             </Pressable>
           ))}
@@ -345,7 +347,7 @@ export default function ManageMySubmissions() {
             color: '#888',
             marginTop: 24
           }}>
-            Bu kategoride önerin yok.
+            {t('plusManage.empty')}
           </Text>
         }
       />

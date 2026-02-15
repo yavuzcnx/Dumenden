@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'expo-router';
 import { memo, useMemo } from 'react';
 import { Image, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useI18n } from '@/lib/i18n';
 
 const BRAND = '#FF6B00';
 const INACTIVE = '#666';
@@ -28,6 +29,7 @@ function BottomBar() {
   const pathname = usePathname() ?? '';
   const { isPlus } = usePlus();
   const router = useRouter();
+  const { t } = useI18n();
 
   // replace -> push (geri jesti için önemli)
   const go = (path: Href) => {
@@ -52,8 +54,8 @@ function BottomBar() {
   return (
     <View pointerEvents="box-none" style={styles.root}>
       <View style={containerStyle}>
-        <Item label="Ana Sayfa" active={pathname === '/home'} onPress={() => go('/home' as Href)} />
-        <Item label="Keşfet" active={pathname === '/explore'} onPress={() => go('/explore' as Href)} />
+        <Item label={t('tabs.home')} active={pathname === '/home'} onPress={() => go('/home' as Href)} />
+        <Item label={t('tabs.explore')} active={pathname === '/explore'} onPress={() => go('/explore' as Href)} />
 
         {/* Orta FAB */}
         <Pressable
@@ -64,15 +66,15 @@ function BottomBar() {
           style={styles.fab}
           hitSlop={8}
           accessibilityRole="button"
-          accessibilityLabel={isPlus ? 'Dümenci Merkezi' : 'Dümenciye Katıl'}
+          accessibilityLabel={isPlus ? t('tabs.plusCenter') : t('tabs.joinPlus')}
         >
           <View style={styles.fabClip}>
             <Image source={require('@/assets/images/dumendenci.png')} style={styles.fabImg} />
           </View>
         </Pressable>
 
-        <Item label="Market" active={pathname === '/market'} onPress={() => go('/market' as Href)} />
-        <Item label="Vitrin" active={pathname === '/vitrin'} onPress={() => go('/vitrin' as Href)} />
+        <Item label={t('tabs.market')} active={pathname === '/market'} onPress={() => go('/market' as Href)} />
+        <Item label={t('tabs.vitrin')} active={pathname === '/vitrin'} onPress={() => go('/vitrin' as Href)} />
       </View>
     </View>
   );

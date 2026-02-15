@@ -1,12 +1,17 @@
 'use client';
 
 import { supabase } from '@/lib/supabaseClient';
+import LanguageSelector from '@/components/LanguageSelector';
+import { useI18n } from '@/lib/i18n';
+import { AttStatus, getATTStatus, openATTSettings, requestATT } from '@/src/contexts/lib/att';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   Image,
   LayoutAnimation,
   Platform,
@@ -27,6 +32,7 @@ const CARD = '#FFFFFF';
 const BORDER = '#E9E9E9';
 const TEXT = '#111111';
 const MUTED = '#6B7280';
+const ONBOARDING_HOME_KEY = 'onboarding_home_v1';
 
 type DBUser = {
   id: string;
@@ -51,6 +57,7 @@ function levelFromXp(xp: number) {
 export default function ProfilePage() {
   const router = useRouter();
   const ins = useSafeAreaInsets();
+  const { t, language, setLanguage, numberLocale } = useI18n();
 
   const [authUserId, setAuthUserId] = useState<string | null>(null);
   const [email, setEmail] = useState('');
@@ -84,6 +91,8 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [notifOn, setNotifOn] = useState(true);
+  const [languageOpen, setLanguageOpen] = useState(false);
+  const [attStatus, setAttStatus] = useState<AttStatus>('unavailable');
   // logout ayrı state (saving ile karışmasın)
 const [logoutLoading, setLogoutLoading] = useState(false);
 
@@ -96,7 +105,7 @@ const [logoutLoading, setLogoutLoading] = useState(false);
 
   // stats
   const [playsCount, setPlaysCount] = useState<number>(0);
-  const [topCategory, setTopCategory] = useState<string>('-');
+  const [topCategory, setTopCategory] = useState<string>(t('common.na'));
 
   // XP — tek kaynak: xp_wallets.balance
   const [walletBalance, setWalletBalance] = useState<number>(0);
@@ -106,6 +115,12 @@ const [logoutLoading, setLogoutLoading] = useState(false);
   const isUploadingRef = useRef(false);
 
   /** ---------- helpers ---------- **/
+  const handleShowTutorial = useCallback(async () => {
+    await AsyncStorage.removeItem(ONBOARDING_HOME_KEY);
+    Alert.alert(t('common.success'), t('profile.showTutorialReady'), [
+      { text: t('common.ok'), onPress: () => router.push('/home') },
+    ]);
+  }, [router, t]);
   const computePublicUrl = (path?: string | null) => {
     if (!path) return null;
     const { data } = supabase.storage.from('avatars').getPublicUrl(path);
@@ -166,10 +181,10 @@ const [logoutLoading, setLogoutLoading] = useState(false);
         if (catRows?.length) {
           const map: Record<string, number> = {};
           for (const r of catRows as any[]) {
-            const k = (r.category ?? 'Diğer') as string;
+            const k = (r.category ?? t('common.other')) as string;
             map[k] = (map[k] ?? 0) + 1;
           }
-          let best = 'Diğer',
+          let best = t('common.other'),
             bestN = 0;
           Object.entries(map).forEach(([k, v]) => {
             if (v > bestN) {
@@ -178,9 +193,9 @@ const [logoutLoading, setLogoutLoading] = useState(false);
             }
           });
           setTopCategory(best);
-        } else setTopCategory('-');
+        } else setTopCategory(t('common.na'));
       } catch {
-        setTopCategory('-');
+        setTopCategory(t('common.na'));
       }
     } finally {
       setLoadingData(false);
@@ -252,6 +267,26 @@ const [logoutLoading, setLogoutLoading] = useState(false);
     };
   }, []);
 
+  const refreshAttStatus = useCallback(async () => {
+    const status = await getATTStatus();
+    setAttStatus(status);
+  }, []);
+
+  useEffect(() => {
+    refreshAttStatus().catch(() => {});
+  }, [refreshAttStatus]);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') refreshAttStatus().catch(() => {});
+    });
+    return () => {
+      try {
+        sub.remove();
+      } catch {}
+    };
+  }, [refreshAttStatus]);
+
   // XP artık cüzdandan
   const xp = walletBalance ?? 0;
   const isPlus = !!dbu?.is_plus;
@@ -311,10 +346,10 @@ const [logoutLoading, setLogoutLoading] = useState(false);
           : prev
       );
 
-      Alert.alert('Başarılı', 'Profil fotoğrafın güncellendi! ✅');
+      Alert.alert(t('common.success'), t('profile.avatarUpdated'));
     } catch (e: any) {
       console.error('Yükleme hatası:', e);
-      Alert.alert('Hata', 'Fotoğraf yüklenirken bir sorun oluştu.');
+      Alert.alert(t('common.error'), t('profile.avatarUpdateFail'));
     } finally {
       setUploading(false);
       setTimeout(() => {
@@ -348,9 +383,9 @@ const [logoutLoading, setLogoutLoading] = useState(false);
       setShowEdit(false);
       setDbu(updated as DBUser);
 
-      Alert.alert('Başarılı', 'Bilgilerin kaydedildi.');
+      Alert.alert(t('common.success'), t('profile.saveSuccess'));
     } catch (e: any) {
-      Alert.alert('Hata', e?.message ?? 'Profil güncellenemedi.');
+      Alert.alert(t('common.error'), e?.message ?? t('profile.saveFail'));
     } finally {
       setSaving(false);
     }
@@ -359,11 +394,11 @@ const [logoutLoading, setLogoutLoading] = useState(false);
   /** ---------- change password ---------- **/
   const changePassword = async () => {
     if (!newPw || newPw.length < 8) {
-      Alert.alert('Uyarı', 'Şifre en az 8 karakter olmalı.');
+      Alert.alert(t('common.warning'), t('profile.passwordTooShort'));
       return;
     }
     if (newPw !== newPw2) {
-      Alert.alert('Uyarı', 'Şifreler uyuşmuyor.');
+      Alert.alert(t('common.warning'), t('profile.passwordMismatch'));
       return;
     }
 
@@ -376,10 +411,10 @@ const [logoutLoading, setLogoutLoading] = useState(false);
       setPwOpen(false);
       setNewPw('');
       setNewPw2('');
-      Alert.alert('Tamam', 'Şifren başarıyla değiştirildi.');
+      Alert.alert(t('common.ok'), t('profile.passwordChanged'));
     } catch (e: any) {
       setPwSaving(false);
-      Alert.alert('Hata', e?.message ?? 'Şifre değiştirilemedi.');
+      Alert.alert(t('common.error'), e?.message ?? t('profile.passwordChangeFail'));
     }
   };
 
@@ -395,7 +430,7 @@ const handleLogout = async () => {
     // yönlendirmeyi _layout.tsx yapıyor
   } catch (e: any) {
     console.error('Logout hatası:', e?.message || e);
-    Alert.alert('Hata', 'Çıkış yapılamadı. Tekrar dene.');
+    Alert.alert(t('common.error'), t('profile.logoutFail'));
   } finally {
     setLogoutLoading(false);
   }
@@ -404,12 +439,12 @@ const handleLogout = async () => {
 
   const handleDeleteAccount = async () => {
     Alert.alert(
-      'Hesabı Sil',
-      'Bu işlem geri alınamaz. Hesabın ve ilişkili verilerin silinecek. Devam edelim mi?',
+      t('profile.deleteTitle'),
+      t('profile.deleteBody'),
       [
-        { text: 'Vazgeç', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Evet, sil',
+          text: t('profile.deleteConfirm'),
           style: 'destructive',
           onPress: async () => {
             try {
@@ -423,7 +458,7 @@ const handleLogout = async () => {
               await supabase.auth.signOut().catch(() => {});
             } catch (e: any) {
               console.error('Hesap silme hatası:', e?.message || e);
-              Alert.alert('Hata', 'Hesap silinemedi. Lütfen tekrar dene veya destekle iletişime geç.');
+              Alert.alert(t('common.error'), t('profile.deleteFail'));
             } finally {
               setSaving(false);
             }
@@ -452,12 +487,12 @@ const handleLogout = async () => {
     >
       {/* TOP BAR */}
       <View style={styles.topbar}>
-        <Text style={styles.brand}>DÜMENDEN</Text>
+        <Text style={styles.brand}>{t('app.name')}</Text>
       </View>
 
       {/* HEADER */}
       <View style={styles.header}>
-        <Text style={styles.title}>Profil</Text>
+        <Text style={styles.title}>{t('profile.title')}</Text>
       </View>
 
       {/* AVATAR */}
@@ -476,51 +511,51 @@ const handleLogout = async () => {
               </TouchableOpacity>
             )}
             <TouchableOpacity onPress={pickImage} style={styles.changeBtn}>
-              <Text style={styles.changeBtnTxt}>Değiştir</Text>
+              <Text style={styles.changeBtnTxt}>{t('common.change')}</Text>
             </TouchableOpacity>
           </View>
         </View>
 
-        <Text style={styles.nameTxt}>{fullName || 'İsimsiz Dumenci'}</Text>
-        <Text style={styles.emailTxt}>{email || '-'}</Text>
+        <Text style={styles.nameTxt}>{fullName || t('profile.unnamedUser')}</Text>
+        <Text style={styles.emailTxt}>{email || t('common.na')}</Text>
       </View>
 
       {/* LEVEL / XP */}
       <View style={styles.card}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
-          <Text style={styles.cardTitle}>Seviye {lvl}</Text>
-          <Text style={styles.cardSub}>{xp.toLocaleString('tr-TR')} XP</Text>
+          <Text style={styles.cardTitle}>{t('profile.level', { level: lvl })}</Text>
+          <Text style={styles.cardSub}>{xp.toLocaleString(numberLocale)} XP</Text>
         </View>
         <View style={styles.progressTrack}>
           <View style={[styles.progressFill, { width: `${pct}%` }]} />
         </View>
-        <Text style={styles.cardHint}>{`Sonraki seviye için ${need} XP`}</Text>
+        <Text style={styles.cardHint}>{t('profile.nextLevel', { xp: need })}</Text>
       </View>
 
       {/* STATS */}
       <View style={styles.rowCards}>
         <View style={styles.miniCard}>
           <Text style={styles.miniVal}>{playsCount}</Text>
-          <Text style={styles.miniLbl}>Oynanan Kupon</Text>
+          <Text style={styles.miniLbl}>{t('profile.playedCoupons')}</Text>
         </View>
         <View style={styles.miniCard}>
           <Text style={styles.miniVal}>{topCategory}</Text>
-          <Text style={styles.miniLbl}>En Çok Kategori</Text>
+          <Text style={styles.miniLbl}>{t('profile.topCategory')}</Text>
         </View>
         <View style={styles.miniCard}>
-          <Text style={styles.miniVal}>{isPlus ? 'Evet' : 'Hayır'}</Text>
-          <Text style={styles.miniLbl}>Plus Üye</Text>
+          <Text style={styles.miniVal}>{isPlus ? t('common.yes') : t('common.no')}</Text>
+          <Text style={styles.miniLbl}>{t('profile.plusMember')}</Text>
         </View>
       </View>
 
       {/* INFO */}
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>Bilgiler</Text>
+        <Text style={styles.cardTitle}>{t('profile.infoTitle')}</Text>
 
-        <Field label="İsim Soyisim" value={fullName} editable={showEdit} onChange={setFullName} />
-        <Field label="Telefon" value={phone} editable={showEdit} onChange={setPhone} keyboardType="phone-pad" />
-        <Field label="Doğum Tarihi (YYYY-AA-GG)" value={birth} editable={showEdit} onChange={setBirth} />
-        <Field label="Bio" value={bio} editable={showEdit} onChange={setBio} multiline />
+        <Field label={t('profile.fullName')} value={fullName} editable={showEdit} onChange={setFullName} />
+        <Field label={t('profile.phone')} value={phone} editable={showEdit} onChange={setPhone} keyboardType="phone-pad" />
+        <Field label={t('profile.birthDate')} value={birth} editable={showEdit} onChange={setBirth} />
+        <Field label={t('profile.bio')} value={bio} editable={showEdit} onChange={setBio} multiline />
 
         <View style={{ height: 8 }} />
         <TouchableOpacity
@@ -528,7 +563,7 @@ const handleLogout = async () => {
           style={[styles.actionBtn, { backgroundColor: showEdit ? '#F3F4F6' : ORANGE }]}
         >
           <Text style={[styles.actionTxt, { color: showEdit ? TEXT : '#fff' }]}>
-            {showEdit ? 'Düzenlemeyi Kapat' : 'Profili Düzenle'}
+            {showEdit ? t('profile.closeEdit') : t('profile.editProfile')}
           </Text>
         </TouchableOpacity>
 
@@ -538,16 +573,53 @@ const handleLogout = async () => {
             disabled={saving}
             style={[styles.actionBtn, { backgroundColor: '#16a34a' }]}
           >
-            {saving ? <ActivityIndicator color="#fff" /> : <Text style={[styles.actionTxt, { color: '#fff' }]}>Kaydet</Text>}
+            {saving ? <ActivityIndicator color="#fff" /> : <Text style={[styles.actionTxt, { color: '#fff' }]}>{t('common.save')}</Text>}
           </TouchableOpacity>
         )}
       </View>
 
+      {/* PREFERENCES */}
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>{t('profile.preferences')}</Text>
+        <TouchableOpacity onPress={() => setLanguageOpen(true)} style={styles.inline}>
+          <Text style={styles.inlineLbl}>{t('profile.language')}</Text>
+          <Text style={{ color: TEXT, fontWeight: '800' }}>
+            {language === 'tr' ? t('languages.tr') : t('languages.en')}
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity onPress={handleShowTutorial} style={styles.inline}>
+          <Text style={styles.inlineLbl}>{t('profile.showTutorial')}</Text>
+          <View style={styles.inlineChip}>
+            <Text style={styles.inlineChipText}>{t('profile.showTutorialAction')}</Text>
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          onPress={async () => {
+            const status = await getATTStatus();
+            if (status === 'denied' || status === 'restricted' || status === 'authorized') {
+              await openATTSettings();
+              return;
+            }
+            const next = await requestATT();
+            setAttStatus(next);
+          }}
+          style={styles.inline}
+          disabled={attStatus === 'unavailable'}
+        >
+          <Text style={styles.inlineLbl}>{t('profile.trackingPermission')}</Text>
+          <Text style={{ color: TEXT, fontWeight: '800' }}>
+            {t(`profile.trackingStatus.${attStatus}`)}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
       {/* SECURITY */}
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>Güvenlik</Text>
+        <Text style={styles.cardTitle}>{t('profile.securityTitle')}</Text>
         <View style={styles.inline}>
-          <Text style={styles.inlineLbl}>Bildirimler</Text>
+          <Text style={styles.inlineLbl}>{t('profile.notifications')}</Text>
           <Switch
             value={notifOn}
             onValueChange={setNotifOn}
@@ -558,14 +630,14 @@ const handleLogout = async () => {
 
         {!pwOpen ? (
           <TouchableOpacity onPress={() => setPwOpen(true)} style={[styles.actionBtn, { backgroundColor: '#334155' }]}>
-            <Text style={[styles.actionTxt, { color: '#fff' }]}>Şifre Değiştir</Text>
+            <Text style={[styles.actionTxt, { color: '#fff' }]}>{t('profile.changePassword')}</Text>
           </TouchableOpacity>
         ) : (
           <>
             <TextInput
               value={newPw}
               onChangeText={setNewPw}
-              placeholder="Yeni şifre (min 8)"
+              placeholder={t('profile.newPassword')}
               placeholderTextColor={MUTED}
               secureTextEntry
               style={styles.input}
@@ -573,16 +645,16 @@ const handleLogout = async () => {
             <TextInput
               value={newPw2}
               onChangeText={setNewPw2}
-              placeholder="Yeni şifre (tekrar)"
+              placeholder={t('profile.newPasswordRepeat')}
               placeholderTextColor={MUTED}
               secureTextEntry
               style={styles.input}
             />
             <TouchableOpacity onPress={changePassword} disabled={pwSaving} style={[styles.actionBtn, { backgroundColor: '#16a34a' }]}>
-              {pwSaving ? <ActivityIndicator color="#fff" /> : <Text style={[styles.actionTxt, { color: '#fff' }]}>Onayla</Text>}
+              {pwSaving ? <ActivityIndicator color="#fff" /> : <Text style={[styles.actionTxt, { color: '#fff' }]}>{t('common.confirm')}</Text>}
             </TouchableOpacity>
             <TouchableOpacity onPress={() => setPwOpen(false)} disabled={pwSaving} style={[styles.actionBtn, { backgroundColor: '#F3F4F6' }]}>
-              <Text style={[styles.actionTxt, { color: TEXT }]}>Vazgeç</Text>
+              <Text style={[styles.actionTxt, { color: TEXT }]}>{t('common.cancel')}</Text>
             </TouchableOpacity>
           </>
         )}
@@ -599,95 +671,107 @@ const handleLogout = async () => {
   {logoutLoading ? (
     <ActivityIndicator color="#fff" />
   ) : (
-    <Text style={[styles.actionTxt, { color: '#fff' }]}>Çıkış Yap</Text>
+    <Text style={[styles.actionTxt, { color: '#fff' }]}>{t('profile.logout')}</Text>
   )}
 </TouchableOpacity>
       </View>
 
       {/* BADGES */}
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>Rozetler</Text>
+        <Text style={styles.cardTitle}>{t('profile.badgesTitle')}</Text>
         <View style={styles.badges}>
-          <Badge text="İlk Kupon" active={playsCount >= 1} />
-          <Badge text="100 XP" active={xp >= 100} />
-          <Badge text="Kaptan Dumenci" active={xp >= 1000} />
-          <Badge text="Plus Elit" active={isPlus} />
+          <Badge text={t('profile.badgeFirstCoupon')} active={playsCount >= 1} />
+          <Badge text={t('profile.badge100xp')} active={xp >= 100} />
+          <Badge text={t('profile.badgeCaptain')} active={xp >= 1000} />
+          <Badge text={t('profile.badgePlusElite')} active={isPlus} />
         </View>
       </View>
 
       {/* AWARDS */}
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>Ödüllerim</Text>
+        <Text style={styles.cardTitle}>{t('profile.awardsTitle')}</Text>
         <Text style={styles.cardSub}>
-          Toplanan: {Number(playsCount >= 1) + Number(xp >= 100) + Number(xp >= 1000) + Number(isPlus)} / 4
+          {t('profile.collected', {
+            count: Number(playsCount >= 1) + Number(xp >= 100) + Number(xp >= 1000) + Number(isPlus),
+            total: 4,
+          })}
         </Text>
         <View style={{ height: 10 }} />
         <View style={styles.badges}>
-          <Badge text="İlk Kupon" active={playsCount >= 1} />
-          <Badge text="100 XP" active={xp >= 100} />
-          <Badge text="Kaptan Dumenci" active={xp >= 1000} />
-          <Badge text="Plus Elit" active={isPlus} />
+          <Badge text={t('profile.badgeFirstCoupon')} active={playsCount >= 1} />
+          <Badge text={t('profile.badge100xp')} active={xp >= 100} />
+          <Badge text={t('profile.badgeCaptain')} active={xp >= 1000} />
+          <Badge text={t('profile.badgePlusElite')} active={isPlus} />
         </View>
-        <Text style={styles.cardHint}>Yakında: “Kanıt Ustası”, “Gündem Avcısı”, “Seri Yorumcu”…</Text>
+        <Text style={styles.cardHint}>{t('profile.comingSoon')}</Text>
       </View>
 
       {/* SHORTCUTS */}
       <View style={styles.rowCards}>
-        <Shortcut title="Kuponlarım" onPress={() => router.push('/my-bets')} />
-        <Shortcut title="Market" onPress={() => router.push('/market')} />
-        <Shortcut title="Keşfet" onPress={() => router.push('/explore')} />
+        <Shortcut title={t('profile.myCoupons')} onPress={() => router.push('/my-bets')} />
+        <Shortcut title={t('tabs.market')} onPress={() => router.push('/market')} />
+        <Shortcut title={t('tabs.explore')} onPress={() => router.push('/explore')} />
       </View>
 
       {/* FAQ */}
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>Sıkça Sorulan Sorular</Text>
+        <Text style={styles.cardTitle}>{t('profile.faqTitle')}</Text>
         <Accordion
-          q="Dümenden'deki kuponlar gerçek para mı?"
-          a="Hayır. Dümenden tamamen eğlence ve sosyalleşme amaçlıdır. Kuponlar XP ile oynanır, gerçek para ile bahis oynanmaz ve gerçek para kazanılmaz."
+          q={t('profile.faq.q1')}
+          a={t('profile.faq.a1')}
         />
         <Accordion
-          q="XP ne işe yarıyor, sıfırlanıyor mu?"
-          a="XP; profil seviyeni, rozetlerini ve ilerlemeni temsil eder. Ödüller, rozetler, ileride gelecek özel özellikler XP’ye bağlıdır. Hesabını silmediğin sürece XP’in sıfırlanmaz."
+          q={t('profile.faq.q2')}
+          a={t('profile.faq.a2')}
         />
         <Accordion
-          q="Kanıt eklemek zorunlu mu?"
-          a="Hayır, zorunlu değil ama çok tavsiye ediyoruz. Kanıt eklenen kuponlar toplulukta daha güvenilir görünür, ileride 'Kanıt Ustası' gibi rozetler de bu sayede açılacak."
+          q={t('profile.faq.q3')}
+          a={t('profile.faq.a3')}
         />
         <Accordion
-          q="Bir kupon tutmazsa hesabımdan ne eksiliyor?"
-          a="Kupon tutmazsa sadece o kupona oynadığın XP düşer. Eksi bakiyeye düşmezsin, gerçek para kaybetmezsin. Dümenden'de amaç eğlence, sohbet ve mizah."
+          q={t('profile.faq.q4')}
+          a={t('profile.faq.a4')}
         />
         <Accordion
-          q="Plus üyelik bana ne kazandırıyor?"
-          a="Reklamsız deneyim, özel seçilmiş kuponlar, profilinde Plus rozeti, ileride gelecek kapalı beta özelliklere erken erişim ve daha fazlası."
+          q={t('profile.faq.q5')}
+          a={t('profile.faq.a5')}
         />
         <Accordion
-          q="Şüpheli ya da rahatsız edici bir içerik görürsem ne yapmalıyım?"
-          a="Kupon detayında veya yorumlarda 'Bildir' alanını kullanarak içeriği moderasyon ekibine iletebilirsin."
+          q={t('profile.faq.q6')}
+          a={t('profile.faq.a6')}
         />
       </View>
 
       {/* PROCEDURES */}
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>Prosedürler</Text>
+        <Text style={styles.cardTitle}>{t('profile.proceduresTitle')}</Text>
         <Text style={styles.cardBody}>
-          <Text style={{ fontWeight: '800' }}>1. Kupon Yayınlama Süreci:</Text> Adminler veya yetkili içerik üreticileri
-          tarafından eklenen kuponlar kontrol edilir.
+          <Text style={{ fontWeight: '800' }}>{t('profile.procedure1Title')}</Text> {t('profile.procedure1Body')}
         </Text>
         <Text style={styles.cardBody}>
-          <Text style={{ fontWeight: '800' }}>2. Kanıt Kontrolü:</Text> Kanıtlar otomatik ve manuel kontrole tabidir.
+          <Text style={{ fontWeight: '800' }}>{t('profile.procedure2Title')}</Text> {t('profile.procedure2Body')}
         </Text>
         <Text style={styles.cardBody}>
-          <Text style={{ fontWeight: '800' }}>3. Şikayet & İtiraz:</Text> “Bildir” veya destek kanallarını kullanabilirsin.
+          <Text style={{ fontWeight: '800' }}>{t('profile.procedure3Title')}</Text> {t('profile.procedure3Body')}
         </Text>
         <Text style={styles.cardBody}>
-          <Text style={{ fontWeight: '800' }}>4. Topluluk Kuralları:</Text> Taciz, nefret söylemi vb. davranışlara tolerans yoktur.
+          <Text style={{ fontWeight: '800' }}>{t('profile.procedure4Title')}</Text> {t('profile.procedure4Body')}
         </Text>
       </View>
 
       <TouchableOpacity onPress={handleDeleteAccount} style={styles.deleteLinkWrap}>
-        <Text style={styles.deleteLinkText}>Hesabımı Sil</Text>
+        <Text style={styles.deleteLinkText}>{t('profile.deleteLink')}</Text>
       </TouchableOpacity>
+
+      <LanguageSelector
+        visible={languageOpen}
+        value={language}
+        onClose={() => setLanguageOpen(false)}
+        onSelect={(lang) => {
+          setLanguageOpen(false);
+          void setLanguage(lang);
+        }}
+      />
     </ScrollView>
   );
 }
@@ -708,11 +792,12 @@ function Field({
   keyboardType?: any;
   multiline?: boolean;
 }) {
+  const { t } = useI18n();
   if (!editable) {
     return (
       <View style={styles.fieldRow}>
         <Text style={styles.fieldLabel}>{label}</Text>
-        <Text style={styles.fieldValue}>{value?.length ? value : '-'}</Text>
+        <Text style={styles.fieldValue}>{value?.length ? value : t('common.na')}</Text>
       </View>
     );
   }
@@ -794,6 +879,15 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   inlineLbl: { color: TEXT, fontWeight: '800' },
+  inlineChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    backgroundColor: '#FFF2E8',
+    borderWidth: 1,
+    borderColor: '#FFD6B8',
+  },
+  inlineChipText: { color: ORANGE, fontWeight: '900' },
 
   avatarBorder: {
     padding: 3,

@@ -1,6 +1,7 @@
 'use client';
 
 import { supabase } from '@/lib/supabaseClient';
+import { useI18n } from '@/lib/i18n';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -12,6 +13,7 @@ const ORANGE = '#FF6B00';
 export default function AdminLanding() {
   const router = useRouter();
   const insets = useSafeAreaInsets(); // 🔥 Güvenli alan hesaplayıcısı
+  const { t } = useI18n();
   const [isAdmin, setIsAdmin] = useState(false);
   const [checking, setChecking] = useState(true);
 
@@ -33,7 +35,7 @@ export default function AdminLanding() {
   if (checking) {
     return (
       <View style={styles.center}>
-        <Text style={{ textAlign: 'center', color: '#666' }}>Yükleniyor…</Text>
+        <Text style={{ textAlign: 'center', color: '#666' }}>{t('common.loading')}</Text>
       </View>
     );
   }
@@ -41,12 +43,12 @@ export default function AdminLanding() {
   if (!isAdmin) {
     return (
       <View style={styles.center}>
-        <Text style={styles.header}>Admin Paneli</Text>
+        <Text style={styles.header}>{t('adminLanding.title')}</Text>
         <Text style={{ textAlign: 'center', fontWeight: '700', color: '#333' }}>
-          Bu sayfa sadece adminler içindir.
+          {t('adminLanding.notAdmin')}
         </Text>
         <TouchableOpacity style={[styles.btn, { marginTop: 24 }]} onPress={() => router.replace('/home')}>
-          <Text style={styles.btnText}>Ana Sayfaya Dön</Text>
+          <Text style={styles.btnText}>{t('adminLanding.backHome')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -81,28 +83,29 @@ export default function AdminLanding() {
         }}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.header}>Admin Paneli 👑</Text>
+        <Text style={styles.header}>{t('adminLanding.titleWithEmoji')}</Text>
 
-        <Btn label="Kupon Ekle"           icon="add-circle"            onPress={() => router.push('/admin/add-coupon')} />
-        <Btn label="Kuponları Düzenle"    icon="create"                onPress={() => router.push('/admin/edit-coupons')} />
-        <Btn label="Önerileri Onayla"     icon="checkmark-done-circle" onPress={() => router.push('/admin/submission')} />
+        <Btn label={t('adminLanding.buttons.addCoupon')}           icon="add-circle"            onPress={() => router.push('/admin/add-coupon')} />
+        <Btn label={t('adminLanding.buttons.editCoupons')}    icon="create"                onPress={() => router.push('/admin/edit-coupons')} />
+        <Btn label={t('adminLanding.buttons.approveSuggestions')}     icon="checkmark-done-circle" onPress={() => router.push('/admin/submission')} />
         
         <View style={styles.divider} />
 
-        <Btn label="Kanıt Ekle"           icon="document-attach"       onPress={() => router.push('/admin/add-proof')} />
+        <Btn label={t('adminLanding.buttons.addProof')}           icon="document-attach"       onPress={() => router.push('/admin/add-proof')} />
        
-        <Btn label="Kanıt Vitrini Yönet"  icon="images"                onPress={() => router.push('/admin/vitrin-settings')} color="#4A90E2" />
+        <Btn label={t('adminLanding.buttons.manageVitrin')}  icon="images"                onPress={() => router.push('/admin/vitrin-settings')} color="#4A90E2" />
 
         <View style={styles.divider} />
 
-        <Btn label="Ödül Ekle"            icon="gift"                  onPress={() => router.push('/admin/add-market')} />
-        <Btn label="Market Yönetimi"      icon="cart"                  onPress={() => router.push('/admin/purchases')} />
-        <Btn label="Market Durum Kontrol" icon="power"                 onPress={() => router.push('/admin/market-control')} color="#E53935" />
+        <Btn label={t('adminLanding.buttons.addReward')}            icon="gift"                  onPress={() => router.push('/admin/add-market')} />
+        <Btn label={t('adminLanding.buttons.marketOrders')}      icon="cart"                  onPress={() => router.push('/admin/purchases')} />
+        <Btn label={t('adminLanding.buttons.marketControl')} icon="power"                 onPress={() => router.push('/admin/market-control')} color="#E53935" />
+        <Btn label={t('adminLanding.buttons.reports')}         icon="alert-circle"          onPress={() => router.push('/admin/reports')} color="#B91C1C" />
         
         <View style={styles.divider} />
 
-        <Btn label="Xp Shop"              icon="storefront"            onPress={() => router.push('/admin/add-shop')} />
-        <Btn label="Ayarlar"              icon="settings"              onPress={() => router.push('/admin/settings')} color="#555" />
+        <Btn label={t('adminLanding.buttons.xpShop')}              icon="storefront"            onPress={() => router.push('/admin/add-shop')} />
+        <Btn label={t('adminLanding.buttons.settings')}              icon="settings"              onPress={() => router.push('/admin/settings')} color="#555" />
 
       </ScrollView>
 

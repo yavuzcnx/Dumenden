@@ -1,8 +1,9 @@
 'use client';
 
+import { useI18n } from '@/lib/i18n';
 import { supabase } from '@/lib/supabaseClient';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 type Pack = {
   id: string;
@@ -18,6 +19,7 @@ type Pack = {
 const ORANGE = '#FF6B00';
 
 export default function XPShop() {
+  const { t, numberLocale } = useI18n();
   const [packs, setPacks] = useState<Pack[]>([]);
   const [balance, setBalance] = useState<number>(0);
   const [loading, setLoading] = useState(true);
@@ -59,14 +61,14 @@ export default function XPShop() {
         setBalance(row.new_balance ?? balance);
         // stok güncellemek için yeniden çek
         load();
-        alert('Satın alma başarılı. XP yüklendi.');
+        Alert.alert(t('common.success'), t('xpshop.purchaseSuccess'));
       } else if (row?.status === 'out_of_stock') {
-        alert('Stok bitti.');
+        Alert.alert(t('common.error'), t('xpshop.outOfStock'));
       } else {
-        alert('İşlem yapılamadı.');
+        Alert.alert(t('common.error'), t('xpshop.purchaseFailed'));
       }
     } catch (e: any) {
-      alert(e?.message ?? 'Satın alma başarısız.');
+      Alert.alert(t('common.error'), e?.message ?? t('xpshop.purchaseFailed'));
     } finally {
       setBusyId(null);
     }
@@ -80,14 +82,18 @@ export default function XPShop() {
           : <View style={[styles.cardImg, { backgroundColor: '#eee' }]} />}
         <Text style={styles.cardTitle}>{item.name}</Text>
         <View style={styles.row}>
-          <View style={styles.tag}><Text style={styles.tagTxt}>{(item.xp_amount ?? 0).toLocaleString('tr-TR')} XP</Text></View>
-          <View style={[styles.tag, { backgroundColor: '#E8F5E9' }]}><Text style={[styles.tagTxt, { color: '#2E7D32' }]}>Stok: {item.stock ?? 0}</Text></View>
+          <View style={styles.tag}>
+            <Text style={styles.tagTxt}>{(item.xp_amount ?? 0).toLocaleString(numberLocale)} XP</Text>
+          </View>
+          <View style={[styles.tag, { backgroundColor: '#E8F5E9' }]}>
+            <Text style={[styles.tagTxt, { color: '#2E7D32' }]}>{t('xpshop.stock', { count: item.stock ?? 0 })}</Text>
+          </View>
         </View>
         <TouchableOpacity
           disabled={(item.stock ?? 0) <= 0 || busyId === item.id}
           onPress={() => buy(item.id)}
           style={[styles.buyBtn, ((item.stock ?? 0) <= 0 || busyId === item.id) && { opacity: 0.6 }]}>
-          <Text style={styles.buyTxt}>{busyId === item.id ? 'İşleniyor…' : 'Satın Al'}</Text>
+          <Text style={styles.buyTxt}>{busyId === item.id ? t('common.processing') : t('xpshop.buy')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -96,8 +102,8 @@ export default function XPShop() {
   return (
     <View style={{ flex: 1, backgroundColor: '#fff' }}>
       <View style={styles.header}>
-        <Text style={styles.h1}>XP Shop</Text>
-        <View style={styles.balance}><Text style={styles.balanceTxt}>{balance.toLocaleString('tr-TR')} XP</Text></View>
+        <Text style={styles.h1}>{t('xpshop.title')}</Text>
+        <View style={styles.balance}><Text style={styles.balanceTxt}>{balance.toLocaleString(numberLocale)} XP</Text></View>
       </View>
 
       {loading ? (

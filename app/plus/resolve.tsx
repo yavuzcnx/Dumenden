@@ -2,6 +2,7 @@
 
 import { publicUrl, uploadImage } from '@/lib/storage';
 import { supabase } from '@/lib/supabaseClient';
+import { useI18n } from '@/lib/i18n';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
@@ -51,6 +52,7 @@ const resolveUrl = (raw?: string | null) => {
 
 export default function PlusResolve() {
   const router = useRouter();
+  const { t, numberLocale } = useI18n();
   const insets = useSafeAreaInsets();
 
   const [me, setMe] = useState<string | null>(null);
@@ -93,7 +95,7 @@ export default function PlusResolve() {
 
     const { data, error } = await base;
     if (error) {
-      Alert.alert('Hata', error.message);
+      Alert.alert(t('common.error'), error.message);
       setItems([]);
       return;
     }
@@ -127,16 +129,16 @@ export default function PlusResolve() {
 
   // 🔥 KANITLI ÖDEME FONKSİYONU (Aynen korundu)
   const resolveNow = async () => {
-    if (!selected) return Alert.alert('Eksik', 'Bir kupon seç.');
-    if (!winner) return Alert.alert('Eksik', 'Kazananı seç (YES/NO).');
+    if (!selected) return Alert.alert(t('plusResolve.missingTitle'), t('plusResolve.missingCoupon'));
+    if (!winner) return Alert.alert(t('plusResolve.missingTitle'), t('plusResolve.missingWinner'));
 
     const hasApprovedProof = selected.coupon_proofs?.some(p => p.status === 'approved');
     const userIsUploading = !!localUri;
 
     if (!hasApprovedProof && !userIsUploading) {
         Alert.alert(
-            "Kanıt Gerekli 🛑", 
-            "Ödeme dağıtmak için ONAYLI bir kanıtın olmalı. Lütfen 'Kanıt Ekle' butonuna basıp bir görsel yükle."
+            t('plusResolve.proofRequiredTitle'), 
+            t('plusResolve.proofRequiredBody')
         );
         return;
     }
@@ -159,7 +161,7 @@ export default function PlusResolve() {
       
       if (error) throw error;
 
-      Alert.alert('Başarılı', 'İşlem tamamlandı.');
+      Alert.alert(t('common.success'), t('plusResolve.successBody'));
       
       setSelected(null);
       setWinner(null);
@@ -169,12 +171,12 @@ export default function PlusResolve() {
     } catch (e: any) {
       let msg = e.message;
       if (msg.includes('Kanıt yüklendi')) {
-          msg = "Kanıtın yüklendi ve onaya gönderildi. Admin onaylayınca tekrar gelip 'Sonuçla' diyebilirsin.";
+          msg = t('plusResolve.proofUploadedBody');
           setLocalUri(null); 
       } else if (msg.includes('Kanıt olmadan')) {
-          msg = "Onaylı kanıt bulunamadı! Lütfen kanıt yükle.";
+          msg = t('plusResolve.proofMissingBody');
       }
-      Alert.alert('Bilgi', msg);
+      Alert.alert(t('plusResolve.infoTitle'), msg);
     } finally {
       setBusy(false);
     }
@@ -187,8 +189,8 @@ export default function PlusResolve() {
       {/* HEADER */}
       <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
         <View>
-          <Text style={styles.headerTitle}>Kazananı Belirle</Text>
-          <Text style={styles.headerSub}>Açık kuponlarını sonuçlandır ve dağıt</Text>
+          <Text style={styles.headerTitle}>{t('plusResolve.title')}</Text>
+          <Text style={styles.headerSub}>{t('plusResolve.subtitle')}</Text>
         </View>
         <View style={styles.badge}>
           <Text style={styles.badgeText}>{openCount}</Text>
@@ -201,7 +203,7 @@ export default function PlusResolve() {
         <TextInput
           value={q}
           onChangeText={setQ}
-          placeholder="Kupon ara..."
+          placeholder={t('plusResolve.searchPlaceholder')}
           placeholderTextColor="#999"
           style={styles.searchInput}
         />
@@ -215,14 +217,14 @@ export default function PlusResolve() {
       >
         {(!me || items.length === 0) && (
           <View style={styles.emptyState}>
-            {!me ? <ActivityIndicator color={ORANGE} /> : <Text style={styles.emptyText}>Sonuçlanacak kupon yok.</Text>}
+            {!me ? <ActivityIndicator color={ORANGE} /> : <Text style={styles.emptyText}>{t('plusResolve.empty')}</Text>}
           </View>
         )}
 
         {/* CAROUSEL LIST */}
         {!!items.length && (
           <View>
-            <Text style={styles.sectionTitle}>Kuponların</Text>
+            <Text style={styles.sectionTitle}>{t('plusResolve.sectionTitle')}</Text>
             <FlatList
               data={items}
               keyExtractor={(i) => String(i.id)}
@@ -253,10 +255,10 @@ export default function PlusResolve() {
 
                     <View style={styles.cardContent}>
                       <View style={[styles.statusBadge, { backgroundColor: item.is_open ? '#22c55e' : '#64748B' }]}>
-                        <Text style={styles.statusText}>{item.is_open ? 'AÇIK' : 'KAPALI'}</Text>
+                        <Text style={styles.statusText}>{item.is_open ? t('common.open').toUpperCase() : t('common.closed').toUpperCase()}</Text>
                       </View>
                       <Text style={styles.cardTitle} numberOfLines={2}>{item.title}</Text>
-                      <Text style={styles.cardDate}>{item.closing_date?.split('T')[0]}</Text>
+                      <Text style={styles.cardDate}>{item.closing_date ? new Date(item.closing_date).toLocaleDateString(numberLocale) : ''}</Text>
                     </View>
 
                     {active && (
@@ -272,12 +274,12 @@ export default function PlusResolve() {
         {/* SELECTED DETAIL & ACTIONS */}
         {selected ? (
           <View style={styles.detailSection}>
-            <Text style={styles.detailTitle}>Sonuçlandır: <Text style={{fontWeight:'400'}}>{selected.title}</Text></Text>
+            <Text style={styles.detailTitle}>{t('plusResolve.resolveTitle')} <Text style={{fontWeight:'400'}}>{selected.title}</Text></Text>
             
             {/* ONAYLI KANITLAR */}
             {!!selected.coupon_proofs?.some(p => p.status === 'approved') && (
               <View style={styles.proofBox}>
-                  <Text style={styles.proofTitle}>✅ Onaylı Kanıt Mevcut</Text>
+                  <Text style={styles.proofTitle}>{t('plusResolve.approvedProof')}</Text>
                   <FlatList
                     data={selected.coupon_proofs?.filter((p) => p.status === 'approved')}
                     keyExtractor={(p) => p.id}
@@ -291,7 +293,7 @@ export default function PlusResolve() {
 
             {!selected.result && (
               <View style={styles.actionBox}>
-                <Text style={styles.actionLabel}>Kazanan Taraf</Text>
+                <Text style={styles.actionLabel}>{t('plusResolve.winnerLabel')}</Text>
                 <View style={styles.winnerRow}>
                   {(['YES', 'NO'] as const).map((opt) => (
                     <TouchableOpacity
@@ -305,7 +307,7 @@ export default function PlusResolve() {
                       <Text style={[
                         styles.winnerText,
                         winner === opt && { color: '#fff' }
-                      ]}>{opt}</Text>
+                      ]}>{opt === 'YES' ? t('common.yes').toUpperCase() : t('common.no').toUpperCase()}</Text>
                       {winner === opt && <Ionicons name="checkmark-circle" size={20} color="#fff" style={{marginLeft: 6}} />}
                     </TouchableOpacity>
                   ))}
@@ -317,7 +319,7 @@ export default function PlusResolve() {
                   style={styles.addProofBtn}
                 >
                   <Ionicons name="camera" size={20} color="#fff" style={{marginRight: 8}} />
-                  <Text style={styles.btnText}>Kanıt Ekle / Yönet</Text>
+                  <Text style={styles.btnText}>{t('plusResolve.addProof')}</Text>
                 </TouchableOpacity>
 
                 {/* SONUÇLA */}
@@ -332,7 +334,7 @@ export default function PlusResolve() {
                   {busy ? <ActivityIndicator color="#fff" /> : (
                     <>
                       <Ionicons name="flash" size={20} color="#fff" style={{marginRight: 8}} />
-                      <Text style={styles.btnText}>Sonuçla & Öde</Text>
+                      <Text style={styles.btnText}>{t('plusResolve.resolveAndPay')}</Text>
                     </>
                   )}
                 </TouchableOpacity>
@@ -342,7 +344,7 @@ export default function PlusResolve() {
         ) : (
           <View style={styles.selectHint}>
             <Ionicons name="arrow-up-circle-outline" size={48} color="#ddd" />
-            <Text style={{color:'#999', marginTop: 8}}>Yukarıdan bir kupon seç</Text>
+            <Text style={{color:'#999', marginTop: 8}}>{t('plusResolve.selectHint')}</Text>
           </View>
         )}
       </ScrollView>

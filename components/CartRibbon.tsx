@@ -2,6 +2,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, Easing, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useI18n } from '@/lib/i18n';
 
 const ORANGE = '#FF6B00';
 const BORDER = '#F2D9C8';
@@ -29,6 +30,7 @@ export default function CartRibbon({
 }: Props) {
   const ins = useSafeAreaInsets();
   const visible = count > 0;
+  const { t, numberLocale } = useI18n();
 
   const y = useRef(new Animated.Value(60)).current;
   const op = useRef(new Animated.Value(0)).current;
@@ -68,14 +70,14 @@ export default function CartRibbon({
         {/* Sol */}
         <Pressable onPress={onPress} style={styles.side} android_ripple={{ color: '#0000000f' }}>
           <View style={styles.badge}><Text style={styles.badgeTxt}>🧺</Text></View>
-          <Text style={styles.bold}>{count} kupon</Text>
+          <Text style={styles.bold}>{t('cart.couponCount', { count })}</Text>
         </Pressable>
 
         {/* Sağ */}
         <Pressable onPress={onPress} style={[styles.side, { justifyContent: 'flex-end' }]} android_ripple={{ color: '#0000000f' }}>
-          <Text style={styles.muted}>Toplam</Text>
+          <Text style={styles.muted}>{t('cart.total')}</Text>
           <Text style={styles.total}>
-            {totalXp.toLocaleString('tr-TR')} <Text style={{ fontWeight: '900' }}>XP</Text>
+            {totalXp.toLocaleString(numberLocale)} <Text style={{ fontWeight: '900' }}>XP</Text>
           </Text>
         </Pressable>
 

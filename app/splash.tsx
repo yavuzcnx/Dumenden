@@ -1,9 +1,11 @@
+import { useI18n } from '@/lib/i18n'
 import { useRouter } from 'expo-router'
 import { useEffect } from 'react'
 import { Image, StyleSheet, Text, View } from 'react-native'
 
 export default function SplashScreen() {
   const router = useRouter()
+  const { t } = useI18n()
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -16,7 +18,7 @@ export default function SplashScreen() {
   return (
     <View style={styles.container}>
       <Image source={require('../assets/images/logo.png')} style={styles.logo} />
-      <Text style={styles.text}>Yükleniyor...</Text>
+      <Text style={styles.text}>{t('common.loading')}</Text>
     </View>
   )
 }

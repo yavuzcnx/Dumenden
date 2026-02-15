@@ -2,6 +2,7 @@
 import { resolveStorageUrlSmart } from '@/lib/resolveStorageUrlSmart'; // 🔥 Bu fonksiyonu kullanacağız
 import { uploadImage } from '@/lib/storage';
 import { supabase } from '@/lib/supabaseClient';
+import { useI18n } from '@/lib/i18n';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -37,6 +38,7 @@ type CardCoupon = {
 
 export default function ProofsForPlus() {
   const router = useRouter();
+  const { t, numberLocale } = useI18n();
   const insets = useSafeAreaInsets();
 
   const [uid, setUid] = useState<string | null>(null);
@@ -54,7 +56,7 @@ export default function ProofsForPlus() {
     (async () => {
       const { data: au } = await supabase.auth.getUser();
       const u = au?.user;
-      if (!u) { setBusy(false); Alert.alert('Oturum yok', 'Lütfen giriş yap.'); return; }
+      if (!u) { setBusy(false); Alert.alert(t('plusProofs.sessionMissingTitle'), t('plusProofs.sessionMissingBody')); return; }
       setUid(u.id);
 
       // 1) Kullanıcının user-generated kuponları (hepsi)
@@ -117,7 +119,7 @@ export default function ProofsForPlus() {
 
   const pickFromGallery = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') { Alert.alert('İzin gerekli', 'Galeriye erişim izni ver.'); return; }
+    if (status !== 'granted') { Alert.alert(t('plusProofs.permissionTitle'), t('plusProofs.galleryPermissionBody')); return; }
     const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 1, allowsEditing: true });
     if (res.canceled) return;
     const a = res.assets?.[0]; if (!a) return;
@@ -126,7 +128,7 @@ export default function ProofsForPlus() {
 
   const pickFromCamera = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') { Alert.alert('İzin gerekli', 'Kameraya erişim izni ver.'); return; }
+    if (status !== 'granted') { Alert.alert(t('plusProofs.permissionTitle'), t('plusProofs.cameraPermissionBody')); return; }
     const res = await ImagePicker.launchCameraAsync({ quality: 1, allowsEditing: true });
     if (res.canceled) return;
     const a = res.assets?.[0]; if (!a) return;
@@ -139,11 +141,11 @@ export default function ProofsForPlus() {
 
     const selectedCoupon = coupons.find(c => c.id === selected);
     if (selectedCoupon?.hasProof) {
-      Alert.alert('Zaten Kanıt Var', 'Bu kupon için kanıt daha önce gönderilmiş.');
+      Alert.alert(t('plusProofs.proofExistsTitle'), t('plusProofs.proofExistsBody'));
       return;
     }
 
-    if (!img) { Alert.alert('Görsel eksik', 'Bir görsel seç.'); return; }
+    if (!img) { Alert.alert(t('plusProofs.imageRequiredTitle'), t('plusProofs.imageRequiredBody')); return; }
 
     try {
       setSending(true);
@@ -162,7 +164,7 @@ export default function ProofsForPlus() {
       });
       if (error) throw error;
 
-      Alert.alert('Gönderildi', 'Kanıtın admin onayına gönderildi.');
+      Alert.alert(t('plusProofs.submitSuccessTitle'), t('plusProofs.submitSuccessBody'));
 
       // Yerelde de kilitle
       setCoupons(prev => prev.map(c => c.id === selected ? { ...c, hasProof: true } : c));
@@ -172,7 +174,7 @@ export default function ProofsForPlus() {
 
       router.back();
     } catch (e: any) {
-      Alert.alert('Gönderilemedi', e?.message ?? 'Hata');
+      Alert.alert(t('plusProofs.submitFailedTitle'), e?.message ?? t('common.unknownError'));
     } finally {
       setSending(false);
     }
@@ -205,38 +207,38 @@ export default function ProofsForPlus() {
           style={styles.hero}
         >
           <View style={{ flexDirection:'row', alignItems:'center' }}>
-            <Text style={styles.heroTag}>PLUS</Text>
+            <Text style={styles.heroTag}>{t('plusProofs.heroTag')}</Text>
             <Text style={styles.heroDot}>•</Text>
-            <Text style={styles.heroTop}>Kanıt Yükle</Text>
+            <Text style={styles.heroTop}>{t('plusProofs.heroTop')}</Text>
           </View>
 
           <View style={{ flexDirection:'row', alignItems:'center', marginTop: 2 }}>
-            <Text style={styles.heroTitle}>Kuponunu parlat</Text>
+            <Text style={styles.heroTitle}>{t('plusProofs.heroTitle')}</Text>
             <Text style={{ marginLeft: 6, fontSize: 18 }}>✨</Text>
           </View>
 
-          <Text style={styles.heroSub}>Sadece açık ve süresi geçmemiş kuponlar listelenir.</Text>
+          <Text style={styles.heroSub}>{t('plusProofs.heroSubtitle')}</Text>
 
           <View style={styles.heroStats}>
             <View style={styles.statPill}>
               <Text style={styles.statNum}>{openCount}</Text>
-              <Text style={styles.statLabel}>Açık</Text>
+              <Text style={styles.statLabel}>{t('plusProofs.statOpen')}</Text>
             </View>
             <View style={[styles.statPill, { backgroundColor:'#F3F4F6', borderColor:'#E5E7EB' }]}>
               <Text style={[styles.statNum, { color:'#111827' }]}>{oldCount}</Text>
-              <Text style={[styles.statLabel, { color:'#6B7280' }]}>Eski/Kapalı</Text>
+              <Text style={[styles.statLabel, { color:'#6B7280' }]}>{t('plusProofs.statClosed')}</Text>
             </View>
           </View>
         </LinearGradient>
 
         {/* Kupon seçimi */}
-        <Text style={styles.blockTitle}>Kuponunu Seç</Text>
+        <Text style={styles.blockTitle}>{t('plusProofs.selectTitle')}</Text>
 
         {coupons.length === 0 ? (
           <View style={styles.empty}>
-            <Text style={{ color:'#8d6e63', fontWeight:'700' }}>Listelenecek kupon yok</Text>
+            <Text style={{ color:'#8d6e63', fontWeight:'700' }}>{t('plusProofs.emptyTitle')}</Text>
             <Text style={{ color:'#8d6e63', marginTop: 4 }}>
-              Eski / kapanmış kuponlar gizlendi. Yeni kupon gönder, sonra buradan kanıt ekle.
+              {t('plusProofs.emptyBody')}
             </Text>
           </View>
         ) : (
@@ -245,9 +247,9 @@ export default function ProofsForPlus() {
               const active = selected === c.id;
               const badge =
                 c.disabled
-                  ? (c.hasProof ? { text: 'Kanıtlı', bg:'#FFF7ED', border:'#FED7AA', color:'#9A3412' }
-                                : { text: 'Kapalı / Süresi geçmiş', bg:'#F3F4F6', border:'#E5E7EB', color:'#9CA3AF' })
-                  : (c.hasProof ? { text: 'Kanıt gönderildi', bg:'#E6FFFA', border:'#99F6E4', color:'#0F766E' } : null);
+                  ? (c.hasProof ? { text: t('plusProofs.badge.proofed'), bg:'#FFF7ED', border:'#FED7AA', color:'#9A3412' }
+                                : { text: t('plusProofs.badge.closed'), bg:'#F3F4F6', border:'#E5E7EB', color:'#9CA3AF' })
+                  : (c.hasProof ? { text: t('plusProofs.badge.sent'), bg:'#E6FFFA', border:'#99F6E4', color:'#0F766E' } : null);
 
               return (
                 <Pressable
@@ -287,13 +289,13 @@ export default function ProofsForPlus() {
         )}
 
         {/* Başlık (opsiyonel) */}
-        <Text style={styles.label}>Başlık (opsiyonel)</Text>
-        <Text style={styles.hint}>Kısa bir açıklama — örn: “Resmi kaynak”</Text>
-        <TextInput value={title} onChangeText={setTitle} placeholder="Örn: Resmi kaynak" style={styles.input} />
+        <Text style={styles.label}>{t('plusProofs.titleLabel')}</Text>
+        <Text style={styles.hint}>{t('plusProofs.titleHint')}</Text>
+        <TextInput value={title} onChangeText={setTitle} placeholder={t('plusProofs.titlePlaceholder')} style={styles.input} />
 
         {/* Görsel */}
-        <Text style={styles.label}>Görsel</Text>
-        <Text style={styles.hint}>Net ve kırpılmış görseller onayı hızlandırır.</Text>
+        <Text style={styles.label}>{t('plusProofs.imageLabel')}</Text>
+        <Text style={styles.hint}>{t('plusProofs.imageHint')}</Text>
 
         {!img ? (
           <View style={{ flexDirection:'row', gap: 12 }}>
@@ -305,7 +307,7 @@ export default function ProofsForPlus() {
                 { flex:1, opacity: (!selected || selectedCoupon?.hasProof) ? 0.5 : 1 }
               ]}
             >
-              <Text style={{ color: BRAND, fontWeight:'900' }}>Galeriden Seç</Text>
+              <Text style={{ color: BRAND, fontWeight:'900' }}>{t('plusProofs.pickGallery')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={pickFromCamera}
@@ -315,14 +317,14 @@ export default function ProofsForPlus() {
                 { flex:1, opacity: (!selected || selectedCoupon?.hasProof) ? 0.5 : 1 }
               ]}
             >
-              <Text style={{ color: '#0F172A', fontWeight:'900' }}>Kamera</Text>
+              <Text style={{ color: '#0F172A', fontWeight:'900' }}>{t('plusProofs.pickCamera')}</Text>
             </TouchableOpacity>
           </View>
         ) : (
           <View style={{ position:'relative', marginTop:6 }}>
             <Image source={{ uri: img.uri }} style={{ width:'100%', height:220, borderRadius:12 }} />
             <TouchableOpacity onPress={() => setImg(null)} style={styles.remove}>
-              <Text style={{ color:'#fff', fontWeight:'900' }}>Sil</Text>
+              <Text style={{ color:'#fff', fontWeight:'900' }}>{t('common.delete')}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -330,7 +332,7 @@ export default function ProofsForPlus() {
         {/* Gönder */}
         {!!selectedCoupon?.hasProof && (
           <Text style={{ marginTop: 10, color: '#0F766E', fontWeight: '800' }}>
-            Bu kupon için kanıt zaten gönderilmiş. Yeni kanıt eklenemez.
+            {t('plusProofs.proofAlreadySent')}
           </Text>
         )}
 
@@ -342,7 +344,7 @@ export default function ProofsForPlus() {
             { opacity: (!img || !selected || sending || selectedCoupon?.hasProof) ? 0.6 : 1 }
           ]}
         >
-          {sending ? <ActivityIndicator color="#fff" /> : <Text style={{ color:'#fff', fontWeight:'900' }}>Kanıtı Gönder</Text>}
+          {sending ? <ActivityIndicator color="#fff" /> : <Text style={{ color:'#fff', fontWeight:'900' }}>{t('plusProofs.submit')}</Text>}
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>

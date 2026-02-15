@@ -2,6 +2,7 @@
 
 import { publicUrl, uploadImage } from '@/lib/storage';
 import { supabase } from '@/lib/supabaseClient';
+import { useI18n } from '@/lib/i18n';
 import * as ImagePicker from 'expo-image-picker';
 import { useState } from 'react';
 import { Alert, Image, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
@@ -9,6 +10,7 @@ import { Alert, Image, StyleSheet, Text, TextInput, TouchableOpacity, View } fro
 const ORANGE = '#FF6B00';
 
 export default function AddXPPack() {
+  const { t } = useI18n();
   const [name, setName]       = useState('');
   const [xp, setXp]           = useState('1000');  // xp_amount
   const [price, setPrice]     = useState('0');     // price_cents
@@ -22,7 +24,7 @@ export default function AddXPPack() {
 
   const pickImage = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (perm.status !== 'granted') return Alert.alert('İzin gerekli', 'Galeriden izin ver.');
+    if (perm.status !== 'granted') return Alert.alert(t('adminAddShop.permissionTitle'), t('adminAddShop.permissionBody'));
     const res = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       quality: 0.9,
@@ -48,13 +50,13 @@ export default function AddXPPack() {
     const srt         = parseInt(sort || '0', 10);
 
     if (!name.trim() || !Number.isFinite(xp_amount) || xp_amount <= 0) {
-      return Alert.alert('Hata', 'Paket adı ve XP miktarı zorunlu (XP > 0).');
+      return Alert.alert(t('common.error'), t('adminAddShop.validationNameXp'));
     }
     if (!Number.isFinite(price_cents) || price_cents < 0) {
-      return Alert.alert('Hata', 'Fiyat (kuruş) 0 veya üzeri olmalı.');
+      return Alert.alert(t('common.error'), t('adminAddShop.validationPrice'));
     }
     if (!Number.isFinite(srt)) {
-      return Alert.alert('Hata', 'Sıra sayısal olmalı.');
+      return Alert.alert(t('common.error'), t('adminAddShop.validationSort'));
     }
 
     try {
@@ -86,18 +88,18 @@ export default function AddXPPack() {
         };
         const retry = await supabase.from('xp_packs').insert(payloadNoImage);
         if (retry.error) throw retry.error;
-        Alert.alert('Uyarı', 'Görsel alanı tabloya kayıt edilemedi (image_url kolonu yok). Paket görselsiz eklendi.');
+        Alert.alert(t('common.warning'), t('adminAddShop.imageColumnMissing'));
       } else if (error) {
         throw error;
       } else {
-        Alert.alert('Başarılı', 'XP paketi eklendi ✅');
+        Alert.alert(t('common.success'), t('adminAddShop.success'));
       }
 
       // form reset
       setName(''); setXp('1000'); setPrice('0'); setSort('10'); setActive(true);
       setLocalUri(null); setImgUrl(null);
     } catch (e:any) {
-      Alert.alert('Hata', e?.message ?? 'Kaydedilemedi');
+      Alert.alert(t('common.error'), e?.message ?? t('adminAddShop.saveFailed'));
     } finally {
       setBusy(false);
     }
@@ -105,21 +107,21 @@ export default function AddXPPack() {
 
   return (
     <View style={{ padding:16 }}>
-      <Text style={styles.h1}>XP Paketi Ekle</Text>
+      <Text style={styles.h1}>{t('adminAddShop.title')}</Text>
 
-      <TextInput value={name} onChangeText={setName} placeholder="Paket adı" style={styles.input}/>
-      <TextInput value={xp} onChangeText={setXp} placeholder="XP miktarı" keyboardType="numeric" style={styles.input}/>
-      <TextInput value={price} onChangeText={setPrice} placeholder="Fiyat (kuruş)" keyboardType="numeric" style={styles.input}/>
-      <TextInput value={sort} onChangeText={setSort} placeholder="Sıra" keyboardType="numeric" style={styles.input}/>
+      <TextInput value={name} onChangeText={setName} placeholder={t('adminAddShop.namePlaceholder')} style={styles.input}/>
+      <TextInput value={xp} onChangeText={setXp} placeholder={t('adminAddShop.xpPlaceholder')} keyboardType="numeric" style={styles.input}/>
+      <TextInput value={price} onChangeText={setPrice} placeholder={t('adminAddShop.pricePlaceholder')} keyboardType="numeric" style={styles.input}/>
+      <TextInput value={sort} onChangeText={setSort} placeholder={t('adminAddShop.sortPlaceholder')} keyboardType="numeric" style={styles.input}/>
 
       <TouchableOpacity onPress={() => setActive(!active)} style={[styles.toggle,{backgroundColor:active?'#43A047':'#9E9E9E'}]}>
-        <Text style={{color:'#fff',fontWeight:'800'}}>{active?'Aktif':'Pasif'}</Text>
+        <Text style={{color:'#fff',fontWeight:'800'}}>{active ? t('adminAddShop.active') : t('adminAddShop.inactive')}</Text>
       </TouchableOpacity>
 
       {/* Görsel seç */}
       <TouchableOpacity onPress={pickImage} style={styles.imgBtn}>
         <Text style={{ color:'#fff', fontWeight:'900' }}>
-          {(localUri || imgUrl) ? 'Görseli Değiştir' : 'Görsel Yükle'}
+          {(localUri || imgUrl) ? t('adminAddShop.changeImage') : t('adminAddShop.uploadImage')}
         </Text>
       </TouchableOpacity>
 
@@ -128,7 +130,7 @@ export default function AddXPPack() {
       ) : null}
 
       <TouchableOpacity onPress={save} disabled={busy} style={[styles.save,{opacity:busy?0.6:1}]}>
-        <Text style={{color:'#fff',fontWeight:'900'}}>{busy?'Kaydediliyor…':'Kaydet'}</Text>
+        <Text style={{color:'#fff',fontWeight:'900'}}>{busy ? t('adminAddShop.saving') : t('common.save')}</Text>
       </TouchableOpacity>
     </View>
   );

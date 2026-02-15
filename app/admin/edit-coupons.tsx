@@ -1,6 +1,9 @@
 // app/admin/edit-coupons.tsx
 'use client';
 
+import CountryPickerModal from '@/components/CountryPickerModal';
+import { COUNTRIES, CountryCode } from '@/lib/countries';
+import { useI18n } from '@/lib/i18n';
 import { supabase } from '@/lib/supabaseClient';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
@@ -54,6 +57,7 @@ type Market = {
   title: string;
   description?: string | null;
   category?: string | null;
+  country_code?: string | null;
   closing_date?: string | null;
   image_url?: string | null;
   proof_url?: string | null;
@@ -66,6 +70,7 @@ type Market = {
 };
 
 export default function EditCoupons() {
+  const { t, numberLocale } = useI18n();
   const [items, setItems] = useState<Market[]>([]);
   const [editing, setEditing] = useState<string | number | null>(null);
 
@@ -80,6 +85,9 @@ export default function EditCoupons() {
   const [isOpen, setIsOpen] = useState(true);
   const [yesOdds, setYesOdds] = useState('1.50');
   const [noOdds, setNoOdds] = useState('1.50');
+  const [countryCode, setCountryCode] = useState<CountryCode>('TR');
+  const [countryModal, setCountryModal] = useState(false);
+  const selectedCountry = COUNTRIES.find((c) => c.code === countryCode) ?? COUNTRIES[0];
 
   const [winner, setWinner] = useState<'YES' | 'NO' | null>(null);
   const [busy, setBusy] = useState(false);
@@ -89,7 +97,7 @@ export default function EditCoupons() {
       .from('coupons')
       .select('*')
       .order('created_at', { ascending: false });
-    if (error) return Alert.alert('Hata', error.message);
+    if (error) return Alert.alert(t('common.error'), error.message);
     setItems((data ?? []) as unknown as Market[]);
   };
   useEffect(() => { fetchAll(); }, []);
@@ -119,6 +127,7 @@ export default function EditCoupons() {
     setClosingDate(it.closing_date ? new Date(it.closing_date) : null);
     setImageUrl(it.image_url ?? '');
     setProofUrl(it.proof_url ?? '');
+    setCountryCode((it.country_code as CountryCode) ?? 'TR');
     setLiquidity(String(it.liquidity ?? 0));
     setIsOpen(!!it.is_open);
     setYesOdds(toOdds(it.yes_price));
@@ -130,10 +139,13 @@ export default function EditCoupons() {
     if (!editing) return;
 
     const y = toNum(yesOdds); const n = toNum(noOdds);
-    if (!y || !n || y <= 1.01 || n <= 1.01) return Alert.alert('Hata', 'YES/NO oranları 1.01 ve üzeri olmalı.');
+    if (!y || !n || y <= 1.01 || n <= 1.01) {
+      return Alert.alert(t('common.error'), t('adminAdd.oddsError'));
+    }
 
     const payload: any = {
       title, category, description,
+      country_code: countryCode,
       image_url: imageUrl, proof_url: proofUrl,
       liquidity: Number.isFinite(Number(liquidity)) ? Number(liquidity) : 0,
       is_open: isOpen,
@@ -145,7 +157,7 @@ export default function EditCoupons() {
     if (closingDate) payload.closing_date = closingDate.toISOString();
 
     const { error } = await supabase.from('coupons').update(payload).eq('id', editing);
-    if (error) Alert.alert('Hata', error.message);
+    if (error) Alert.alert(t('common.error'), error.message);
     else setEditing(null);
   };
 
@@ -156,7 +168,7 @@ export default function EditCoupons() {
       setItems(prev => prev.filter((x: any) => String(x.id) !== String(id)));
       if (String(editing) === String(id)) setEditing(null);
     } catch (e: any) {
-      Alert.alert('Hata', e?.message ?? 'Silinemedi.');
+      Alert.alert(t('common.error'), e?.message ?? t('adminEdit.deleteFailed'));
     } finally {
       setBusy(false);
     }
@@ -169,7 +181,7 @@ export default function EditCoupons() {
   /** ====== BINARY: Sonuçla → Payout → Sil ====== */
  const resolveNow = async () => {
   if (!current) return;
-  if (!winner) return Alert.alert('Eksik', 'Kazananı seçin (YES/NO).');
+  if (!winner) return Alert.alert(t('adminEdit.missingTitle'), t('adminEdit.selectWinner'));
 
   try {
     setBusy(true);
@@ -187,7 +199,9 @@ export default function EditCoupons() {
 
     // 3) paid_out_at bekle
     const paid = await waitForPaidOut(current.id, 24, 500);
-    if (!paid) return Alert.alert('Uyarı', 'Payout tetiklendi ama paid_out_at görünmedi. Birazdan tekrar deneyebilirsin.');
+    if (!paid) {
+      return Alert.alert(t('common.warning'), t('adminEdit.payoutWaitWarn'));
+    }
 
     // 4) ❌ silme yerine arşivle / kapat
     const { error: archiveErr } = await supabase
@@ -196,14 +210,14 @@ export default function EditCoupons() {
       .eq('id', current.id);
     if (archiveErr) throw archiveErr;
 
-    Alert.alert('Tamam', 'Ödemeler dağıtıldı, kupon arşivlendi.');
+    Alert.alert(t('common.ok'), t('adminEdit.payoutDone'));
     setEditing(null);
     setItems(prev => prev.map(it => String(it.id) === String(current.id)
       ? { ...it, is_open: false, archived: true, result: winner, paid_out_at: new Date().toISOString() }
       : it
     ));
   } catch (e:any) {
-    Alert.alert('Hata', e?.message || 'Sonuç/payout başarısız');
+    Alert.alert(t('common.error'), e?.message || t('adminEdit.resolveFail'));
   } finally {
     setBusy(false);
   }
@@ -216,7 +230,7 @@ const payoutNow = async () => {
     setBusy(true);
     await callPayoutRPC(current.id);
     const paid = await waitForPaidOut(current.id, 24, 500);
-    if (!paid) return Alert.alert('Uyarı', 'Payout tetiklendi ama paid_out_at görünmedi.');
+    if (!paid) return Alert.alert(t('common.warning'), t('adminEdit.payoutWaitWarnShort'));
 
     // ❌ Silme yok, arşivle
     const { error: archiveErr } = await supabase
@@ -225,14 +239,14 @@ const payoutNow = async () => {
       .eq('id', current.id);
     if (archiveErr) throw archiveErr;
 
-    Alert.alert('Tamam', 'Ödemeler dağıtıldı ve kupon arşivlendi.');
+    Alert.alert(t('common.ok'), t('adminEdit.payoutDoneArchive'));
     setEditing(null);
     setItems(prev => prev.map(it => String(it.id) === String(current.id)
       ? { ...it, is_open: false, archived: true, paid_out_at: new Date().toISOString() }
       : it
     ));
   } catch (e:any) {
-    Alert.alert('Hata', e?.message ?? 'Payout başarısız');
+    Alert.alert(t('common.error'), e?.message ?? t('adminEdit.payoutFailed'));
   } finally {
     setBusy(false);
   }
@@ -242,12 +256,17 @@ const payoutNow = async () => {
     <View style={styles.card}>
       {editing === item.id ? (
         <>
-          <TextInput value={title} onChangeText={setTitle} style={styles.input} placeholder="Başlık" />
-          <TextInput value={category} onChangeText={setCategory} style={styles.input} placeholder="Kategori" />
-          <TextInput value={description} onChangeText={setDescription} style={[styles.input, { height: 80 }]} multiline placeholder="Açıklama" />
+          <TextInput value={title} onChangeText={setTitle} style={styles.input} placeholder={t('adminEdit.titlePlaceholder')} />
+          <TextInput value={category} onChangeText={setCategory} style={styles.input} placeholder={t('adminEdit.categoryPlaceholder')} />
+          <TouchableOpacity onPress={() => setCountryModal(true)} style={styles.input}>
+            <Text style={{ fontWeight: '700', color: '#333' }}>
+              {t('adminAdd.countryLabel')}: <Text style={{ fontWeight: '900', color: '#FF6B00' }}>{t(selectedCountry.nameKey)} ({countryCode})</Text>
+            </Text>
+          </TouchableOpacity>
+          <TextInput value={description} onChangeText={setDescription} style={[styles.input, { height: 80 }]} multiline placeholder={t('adminEdit.descriptionPlaceholder')} />
 
           <TouchableOpacity onPress={() => setShowPicker(true)} style={styles.input}>
-            <Text>Kapanış: {closingDate ? closingDate.toLocaleString() : '—'}</Text>
+            <Text>{t('adminAdd.closingLabel')}: {closingDate ? closingDate.toLocaleString() : t('common.dash')}</Text>
           </TouchableOpacity>
           {showPicker && (
             <DateTimePicker
@@ -258,26 +277,38 @@ const payoutNow = async () => {
             />
           )}
 
-          <TextInput value={imageUrl} onChangeText={setImageUrl} style={styles.input} placeholder="Görsel URL" />
-          <TextInput value={proofUrl} onChangeText={setProofUrl} style={styles.input} placeholder="Kanıt URL" />
+          <TextInput value={imageUrl} onChangeText={setImageUrl} style={styles.input} placeholder={t('adminEdit.imageUrlPlaceholder')} />
+          <TextInput value={proofUrl} onChangeText={setProofUrl} style={styles.input} placeholder={t('adminEdit.proofUrlPlaceholder')} />
 
           <View style={styles.row}>
-            <TextInput value={liquidity} onChangeText={setLiquidity} keyboardType="numeric" style={[styles.input, { flex: 1 }]} placeholder="Likidite" />
+            <TextInput value={liquidity} onChangeText={setLiquidity} keyboardType="numeric" style={[styles.input, { flex: 1 }]} placeholder={t('adminAdd.liquidityPlaceholder')} />
             <TouchableOpacity onPress={() => setIsOpen(!isOpen)} style={[styles.toggle, isOpen ? styles.on : styles.off]}>
-              <Text style={{ color: '#fff', fontWeight: 'bold' }}>{isOpen ? 'Açık' : 'Kapalı'}</Text>
+              <Text style={{ color: '#fff', fontWeight: 'bold' }}>{isOpen ? t('common.open') : t('common.closed')}</Text>
             </TouchableOpacity>
           </View>
 
           {/* BINARY oranları */}
           <View style={styles.row}>
-            <TextInput value={yesOdds} onChangeText={v=>setYesOdds(fmtOddsInput(v))} style={[styles.input, { flex: 1 }]} placeholder="YES (odds)" />
-            <TextInput value={noOdds}  onChangeText={v=>setNoOdds(fmtOddsInput(v))}  style={[styles.input, { flex: 1 }]} placeholder="NO (odds)" />
+            <TextInput
+              value={yesOdds}
+              onChangeText={(v) => setYesOdds(fmtOddsInput(v))}
+              style={[styles.input, { flex: 1 }]}
+              placeholder={t('adminEdit.yesOddsPlaceholder')}
+            />
+            <TextInput
+              value={noOdds}
+              onChangeText={(v) => setNoOdds(fmtOddsInput(v))}
+              style={[styles.input, { flex: 1 }]}
+              placeholder={t('adminEdit.noOddsPlaceholder')}
+            />
           </View>
 
           <View style={{ height: 1, backgroundColor: '#eee', marginVertical: 8 }} />
-          <Text style={{ fontWeight: '900', marginBottom: 4 }}>Sonuç & Ödeme (Binary)</Text>
+          <Text style={{ fontWeight: '900', marginBottom: 4 }}>{t('adminEdit.resultPayoutTitle')}</Text>
           <Text style={{ color: '#666', marginBottom: 6 }}>
-            Kapanış: {item.closing_date?.split('T')?.[0]} • Durum: {item.result ? `Sonuç: ${item.result}` : 'Sonuçlanmadı'} {item.paid_out_at ? '• Ödendi' : ''}
+            {t('adminAdd.closingLabel')}: {item.closing_date?.split('T')?.[0] ?? t('common.dash')} • {t('adminEdit.statusLabel')}:{' '}
+            {item.result ? t('adminEdit.resultLabel', { result: item.result }) : t('adminEdit.notResolved')}
+            {item.paid_out_at ? ` • ${t('adminEdit.paidOut')}` : ''}
           </Text>
 
           {!item.result && (
@@ -294,7 +325,9 @@ const payoutNow = async () => {
 
               <TouchableOpacity disabled={busy || !winner} onPress={resolveNow}
                 style={{ backgroundColor: (!winner || busy) ? '#f3a774' : '#FF6B00', padding: 12, borderRadius: 10, alignItems: 'center' }}>
-                <Text style={{ color: '#fff', fontWeight: '900' }}>{busy ? 'İşleniyor…' : 'Sonuçla (Öde & Sil)'}</Text>
+                <Text style={{ color: '#fff', fontWeight: '900' }}>
+                  {busy ? t('common.processing') : t('adminEdit.resolveAndPayout')}
+                </Text>
               </TouchableOpacity>
             </View>
           )}
@@ -302,25 +335,36 @@ const payoutNow = async () => {
           {!!item.result && !item.paid_out_at && (
             <TouchableOpacity disabled={busy} onPress={payoutNow}
               style={{ marginTop: 8, backgroundColor: busy ? '#9ccc65' : '#22c55e', padding: 12, borderRadius: 10, alignItems: 'center' }}>
-              <Text style={{ color: '#fff', fontWeight: '900' }}>{busy ? 'İşleniyor…' : 'Ödemeyi Dağıt (& Sil)'}</Text>
+              <Text style={{ color: '#fff', fontWeight: '900' }}>
+                {busy ? t('common.processing') : t('adminEdit.payoutOnly')}
+              </Text>
             </TouchableOpacity>
           )}
 
           <View style={styles.row}>
-            <TouchableOpacity onPress={save} style={[styles.btn, { backgroundColor: '#388E3C' }]}><Text style={styles.btnText}>Kaydet</Text></TouchableOpacity>
-            <TouchableOpacity onPress={() => setEditing(null)} style={[styles.btn, { backgroundColor: '#757575' }]}><Text style={styles.btnText}>Vazgeç</Text></TouchableOpacity>
+            <TouchableOpacity onPress={save} style={[styles.btn, { backgroundColor: '#388E3C' }]}>
+              <Text style={styles.btnText}>{t('common.save')}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setEditing(null)} style={[styles.btn, { backgroundColor: '#757575' }]}>
+              <Text style={styles.btnText}>{t('common.cancel')}</Text>
+            </TouchableOpacity>
           </View>
         </>
       ) : (
         <>
           <Text style={styles.title}>{item.title}</Text>
           <Text style={styles.meta}>
-            Kategori: {item.category} • Likidite: {(item.liquidity ?? 0).toLocaleString('tr-TR')} XP • {item.is_open ? 'Açık' : 'Kapalı'}
-            {' '}• {item.result ? `Sonuç: ${item.result}` : 'Sonuçlanmadı'} {item.paid_out_at ? '• Ödendi' : ''}
+            {t('adminAdd.categoryLabel')}: {item.category} • {t('adminAdd.countryLabel')}: {item.country_code ?? 'TR'} • {t('adminAdd.liquidityLabel')}:{' '}
+            {(item.liquidity ?? 0).toLocaleString(numberLocale)} XP • {item.is_open ? t('common.open') : t('common.closed')}
+            {' '}• {item.result ? t('adminEdit.resultLabel', { result: item.result }) : t('adminEdit.notResolved')} {item.paid_out_at ? `• ${t('adminEdit.paidOut')}` : ''}
           </Text>
           <View style={styles.row}>
-            <TouchableOpacity onPress={() => startEdit(item)} style={[styles.btn, { backgroundColor: '#1976D2' }]}><Text style={styles.btnText}>Düzenle</Text></TouchableOpacity>
-            <TouchableOpacity onPress={() => remove(item.id)} style={[styles.btn, { backgroundColor: '#E53935' }]}><Text style={styles.btnText}>Sil</Text></TouchableOpacity>
+            <TouchableOpacity onPress={() => startEdit(item)} style={[styles.btn, { backgroundColor: '#1976D2' }]}>
+              <Text style={styles.btnText}>{t('common.edit')}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => remove(item.id)} style={[styles.btn, { backgroundColor: '#E53935' }]}>
+              <Text style={styles.btnText}>{t('common.delete')}</Text>
+            </TouchableOpacity>
           </View>
         </>
       )}
@@ -332,13 +376,23 @@ const payoutNow = async () => {
       <TouchableOpacity style={{ position: 'absolute', top: 50, left: 20 }} onPress={() => fetchAll()}>
         <Ionicons name="refresh" size={24} color="#FF6B00" />
       </TouchableOpacity>
-      <Text style={styles.header}>Kuponları Düzenle (Binary)</Text>
+      <Text style={styles.header}>{t('adminEdit.header')}</Text>
 
       <FlatList
         data={items}
         keyExtractor={(i:any) => String(i.id)}
         renderItem={renderItem}
         contentContainerStyle={{ paddingBottom: 40 }}
+      />
+
+      <CountryPickerModal
+        visible={countryModal}
+        value={countryCode}
+        onClose={() => setCountryModal(false)}
+        onSelect={(code) => {
+          setCountryModal(false);
+          setCountryCode(code);
+        }}
       />
     </View>
   );

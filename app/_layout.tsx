@@ -6,17 +6,21 @@ import 'react-native-url-polyfill/auto';
 
 import { Stack, usePathname, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useEffect, useRef, useState } from 'react';
-import { Platform, StatusBar, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Modal, Platform, ScrollView, StatusBar, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import BottomBar from '@/components/BottomBar';
 import { ensureBootstrapAndProfile } from '@/lib/bootstrap';
+import { I18nProvider } from '@/lib/i18n';
+import { BlockProvider } from '@/lib/blocks';
 import { supabase } from '@/lib/supabaseClient';
 import { useInterstitial } from '@/src/contexts/ads/interstitial';
 import { requestATTOnce } from '@/src/contexts/lib/att';
 import { initAds } from '@/src/contexts/lib/ads';
 import { XpProvider } from '@/src/contexts/XpProvider';
+import { TERMS_VERSION } from '@/lib/terms';
+import { useI18n } from '@/lib/i18n';
 
 // iOS’a “ben hazır diyene kadar splash kapanma” diyoruz.
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -33,8 +37,6 @@ export default function RootLayout() {
     async function prepare() {
       try {
         await Promise.allSettled([
-          requestATTOnce().catch((e) => console.warn('ATT request failed:', e)),
-          initAds().catch((e) => console.warn('Ad Init Fail:', e)),
           (async () => {
             // ✅ BOZUK SESSION FIX: Invalid Refresh Token -> local temizle
             const { data, error } = await supabase.auth.getSession();
@@ -64,9 +66,13 @@ export default function RootLayout() {
   }, []);
 
   useEffect(() => {
-    if (appIsReady) {
-      SplashScreen.hideAsync().catch(() => {});
-    }
+    if (!appIsReady) return;
+    (async () => {
+      // ✅ splash kapandıktan sonra ATT iste, sonra ads'i başlat
+      await SplashScreen.hideAsync().catch(() => {});
+      await requestATTOnce().catch((e) => console.warn('ATT request failed:', e));
+      await initAds().catch((e) => console.warn('Ad Init Fail:', e));
+    })();
   }, [appIsReady]);
 
   // ✅ AUTH LISTENER (reset-password akışı bozulmasın diye özel kurallar)
@@ -147,32 +153,38 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
-      <XpProvider>
-        <StatusBar barStyle="dark-content" backgroundColor="white" translucent />
+      <I18nProvider>
+        <BlockProvider>
+          <XpProvider>
+          <StatusBar barStyle="dark-content" backgroundColor="white" translucent />
 
-        <View style={{ flex: 1, backgroundColor: 'white' }}>
-          {appIsReady && (
-            <>
-              <NavigationWatcher />
-              <GlobalAdTimer />
-            </>
-          )}
+          <View style={{ flex: 1, backgroundColor: 'white' }}>
+            {appIsReady && (
+              <>
+                <NavigationWatcher />
+                <GlobalAdTimer />
+              </>
+            )}
 
-          <Stack
-            screenOptions={{
-              headerShown: false,
-              gestureEnabled: true,
-              fullScreenGestureEnabled: Platform.OS === 'ios',
-              animation: Platform.OS === 'ios' ? 'slide_from_right' : 'fade_from_bottom',
-            }}
-          >
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-            <Stack.Screen name="(modals)" options={{ presentation: 'modal' }} />
-          </Stack>
+            <TermsGate appReady={appIsReady} />
 
-          {!hide && <BottomBarWrapper />}
-        </View>
-      </XpProvider>
+            <Stack
+              screenOptions={{
+                headerShown: false,
+                gestureEnabled: true,
+                fullScreenGestureEnabled: Platform.OS === 'ios',
+                animation: Platform.OS === 'ios' ? 'slide_from_right' : 'fade_from_bottom',
+              }}
+            >
+              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+              <Stack.Screen name="(modals)" options={{ presentation: 'modal' }} />
+            </Stack>
+
+            {!hide && <BottomBarWrapper />}
+          </View>
+          </XpProvider>
+        </BlockProvider>
+      </I18nProvider>
     </SafeAreaProvider>
   );
 }
@@ -223,4 +235,120 @@ function GlobalAdTimer() {
   }, []);
 
   return null;
+}
+
+function TermsGate({ appReady }: { appReady: boolean }) {
+  const { t } = useI18n();
+  const [visible, setVisible] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const check = useCallback(async () => {
+    if (!appReady) return;
+    const { data } = await supabase.auth.getUser();
+    const user = data?.user;
+    if (!user?.id) {
+      setVisible(false);
+      return;
+    }
+    const { data: row } = await supabase
+      .from('users')
+      .select('terms_accepted, terms_version')
+      .eq('id', user.id)
+      .maybeSingle();
+    const needs = !row?.terms_accepted || row?.terms_version !== TERMS_VERSION;
+    setVisible(needs);
+  }, [appReady]);
+
+  useEffect(() => {
+    check().catch(() => {});
+  }, [check]);
+
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(() => {
+      check().catch(() => {});
+    });
+    return () => {
+      try {
+        subscription.unsubscribe();
+      } catch {}
+    };
+  }, [check]);
+
+  const accept = async () => {
+    const { data } = await supabase.auth.getUser();
+    const user = data?.user;
+    if (!user?.id) return;
+    setBusy(true);
+    try {
+      await supabase
+        .from('users')
+        .update({
+          terms_accepted: true,
+          terms_version: TERMS_VERSION,
+          terms_accepted_at: new Date().toISOString(),
+        })
+        .eq('id', user.id);
+      setVisible(false);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const logout = async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch {}
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="fade">
+      <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center' }}>
+        <View
+          style={{
+            width: '90%',
+            maxHeight: '80%',
+            backgroundColor: '#fff',
+            borderRadius: 16,
+            padding: 16,
+          }}
+        >
+          <Text style={{ fontWeight: '900', fontSize: 18, color: '#111' }}>
+            {t('terms.title')}
+          </Text>
+          <ScrollView style={{ marginTop: 10 }} showsVerticalScrollIndicator={false}>
+            <Text style={{ color: '#444', lineHeight: 20 }}>{t('terms.body')}</Text>
+          </ScrollView>
+
+          <TouchableOpacity
+            onPress={accept}
+            disabled={busy}
+            style={{
+              marginTop: 14,
+              backgroundColor: '#FF6B00',
+              paddingVertical: 12,
+              borderRadius: 12,
+              alignItems: 'center',
+              opacity: busy ? 0.7 : 1,
+            }}
+          >
+            <Text style={{ color: '#fff', fontWeight: '900' }}>{t('terms.accept')}</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={logout}
+            disabled={busy}
+            style={{
+              marginTop: 8,
+              backgroundColor: '#F3F4F6',
+              paddingVertical: 12,
+              borderRadius: 12,
+              alignItems: 'center',
+            }}
+          >
+            <Text style={{ color: '#111', fontWeight: '800' }}>{t('terms.logout')}</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
 }

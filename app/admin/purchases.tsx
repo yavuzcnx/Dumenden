@@ -2,6 +2,7 @@
 'use client';
 
 import { supabase } from '@/lib/supabaseClient';
+import { useI18n } from '@/lib/i18n';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator, Alert, FlatList, Image, Linking,
@@ -93,12 +94,27 @@ async function sendUserNotification(
 }
 /* ================== Screen ================== */
 export default function AdminPurchases() {
+  const { t, numberLocale } = useI18n();
   const [loading, setLoading] = useState(true);
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [rewards, setRewards] = useState<Record<string, Reward>>({});
   const [filter, setFilter] = useState<Status>('all');
   const [search, setSearch] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+
+  const statusLabel = useMemo(() => {
+    const map: Record<Status, string> = {
+      all: t('adminPurchases.status.all'),
+      new: t('adminPurchases.status.new'),
+      contacted: t('adminPurchases.status.contacted'),
+      preparing: t('adminPurchases.status.preparing'),
+      shipped: t('adminPurchases.status.shipped'),
+      delivered: t('adminPurchases.status.delivered'),
+      cancelled: t('adminPurchases.status.cancelled'),
+      refunded: t('adminPurchases.status.refunded'),
+    };
+    return (s: Status) => map[s] ?? s;
+  }, [t]);
 
   const fetchAll = async () => {
     setLoading(true);
@@ -110,7 +126,7 @@ export default function AdminPurchases() {
       supabase.from('rewards').select('id,name,image_url'),
     ]);
     if (pRes.error) {
-      Alert.alert('Hata', pRes.error.message);
+      Alert.alert(t('common.error'), pRes.error.message);
       setLoading(false);
       return;
     }
@@ -194,7 +210,7 @@ export default function AdminPurchases() {
     if (error) {
       // rollback
       setPurchases((list) => list.map((x) => (x.id === row.id ? { ...x, status: prev } : x)));
-      Alert.alert('Hata', error.message);
+      Alert.alert(t('common.error'), error.message);
       return;
     }
 
@@ -212,13 +228,13 @@ export default function AdminPurchases() {
     try {
     await sendUserNotification(
   row.user_id,                      // reward_purchases tablosundaki gerçek kullanıcı id
-  'Siparişiniz için sizinle iletişime geçiyoruz',
-  `Durum: CONTACTED`,
+  t('adminPurchases.notifications.contactTitle'),
+  t('adminPurchases.notifications.contactBody'),
   { purchase_id: row.id, status: 'contacted' },
   'order'                           // veya 'system' / 'shipping' / 'message'
 );
     } catch (e: any) {
-      Alert.alert('Bildirim hatası', e.message);
+      Alert.alert(t('adminPurchases.notificationErrorTitle'), e.message);
     }
   };
 
@@ -247,26 +263,26 @@ export default function AdminPurchases() {
       setPurchases((list) =>
         list.map((x) => (x.id === row.id ? ({ ...x, [field]: prev } as any) : x))
       );
-      Alert.alert('Hata', error.message);
+      Alert.alert(t('common.error'), error.message);
       return;
     }
 
     if (sendNotif && field !== 'admin_notes' && value.trim()) {
       try {
         const title =
-          field === 'tracking_code' ? 'Kargo kodunuz hazır' : 'Sipariş notu';
+          field === 'tracking_code' ? t('adminPurchases.notifications.trackingTitle') : t('adminPurchases.notifications.noteTitle');
         const body =
-          field === 'tracking_code' ? `Takip kodu: ${value}` : value.trim();
+          field === 'tracking_code' ? t('adminPurchases.notifications.trackingBody', { code: value }) : value.trim();
         await sendUserNotification(row.user_id, title, body, {
           purchase_id: row.id,
           [field]: value,
         });
       } catch (e: any) {
-        Alert.alert('Bildirim hatası', e.message);
+        Alert.alert(t('adminPurchases.notificationErrorTitle'), e.message);
       }
     }
 
-    Alert.alert('Kaydedildi');
+    Alert.alert(t('adminPurchases.savedTitle'));
   };
 
   if (loading) {
@@ -280,7 +296,7 @@ export default function AdminPurchases() {
   return (
     <View style={styles.page}>
       {/* ------------ FILTERS (sadeleştirilmiş) ------------ */}
-      <Text style={styles.sectionHead}>Gelenler</Text>
+      <Text style={styles.sectionHead}>{t('adminPurchases.sections.inbox')}</Text>
       <View style={styles.filterRow}>
         {(['all', ...buckets.inbox] as Status[]).map((s) => {
           const col = STATUS_COL_FULL[s];
@@ -292,14 +308,14 @@ export default function AdminPurchases() {
               style={[styles.chip, sel && { borderColor: col, backgroundColor: `${col}22` }]}
             >
               <Text style={[styles.chipText, sel && { color: col }]}>
-                {s} ({counts[s] ?? 0})
+                {statusLabel(s)} ({counts[s] ?? 0})
               </Text>
             </Pressable>
           );
         })}
       </View>
 
-      <Text style={styles.sectionHead}>Operasyon</Text>
+      <Text style={styles.sectionHead}>{t('adminPurchases.sections.ops')}</Text>
       <View style={styles.filterRow}>
         {buckets.ops.map((s) => {
           const col = STATUS_COL_FULL[s];
@@ -311,14 +327,14 @@ export default function AdminPurchases() {
               style={[styles.chip, sel && { borderColor: col, backgroundColor: `${col}22` }]}
             >
               <Text style={[styles.chipText, sel && { color: col }]}>
-                {s} ({counts[s] ?? 0})
+                {statusLabel(s)} ({counts[s] ?? 0})
               </Text>
             </Pressable>
           );
         })}
       </View>
 
-      <Text style={styles.sectionHead}>Tamamlanan</Text>
+      <Text style={styles.sectionHead}>{t('adminPurchases.sections.done')}</Text>
       <View style={styles.filterRow}>
         {buckets.done.map((s) => {
           const col = STATUS_COL_FULL[s];
@@ -330,14 +346,14 @@ export default function AdminPurchases() {
               style={[styles.chip, sel && { borderColor: col, backgroundColor: `${col}22` }]}
             >
               <Text style={[styles.chipText, sel && { color: col }]}>
-                {s} ({counts[s] ?? 0})
+                {statusLabel(s)} ({counts[s] ?? 0})
               </Text>
             </Pressable>
           );
         })}
       </View>
 
-      <Text style={styles.sectionHead}>Sorunlar</Text>
+      <Text style={styles.sectionHead}>{t('adminPurchases.sections.issues')}</Text>
       <View style={styles.filterRow}>
         {buckets.issues.map((s) => {
           const col = STATUS_COL_FULL[s];
@@ -349,7 +365,7 @@ export default function AdminPurchases() {
               style={[styles.chip, sel && { borderColor: col, backgroundColor: `${col}22` }]}
             >
               <Text style={[styles.chipText, sel && { color: col }]}>
-                {s} ({counts[s] ?? 0})
+                {statusLabel(s)} ({counts[s] ?? 0})
               </Text>
             </Pressable>
           );
@@ -357,7 +373,7 @@ export default function AdminPurchases() {
       </View>
 
       <TextInput
-        placeholder="Ara: ödül, kullanıcı, takip kodu, not…"
+        placeholder={t('adminPurchases.searchPlaceholder')}
         value={search}
         onChangeText={setSearch}
         style={[styles.input, { marginTop: 12, marginBottom: 8 }]}
@@ -382,6 +398,7 @@ export default function AdminPurchases() {
             <PurchaseCard
               row={item}
               reward={rw}
+              statusLabel={statusLabel}
               onSave={(field, value, notify) => saveField(item, field as any, value, notify)}
               onAdvance={() => {
                 const n = NEXT(item.status);
@@ -405,6 +422,7 @@ function PurchaseCard({
   onAdvance,
   onSet,
   onContactAndComplete,
+  statusLabel,
 }: {
   row: Purchase;
   reward?: Reward;
@@ -416,7 +434,9 @@ function PurchaseCard({
   onAdvance: () => void;
   onSet: (s: Exclude<Status, 'all'>) => void;
   onContactAndComplete: () => void; // İletişime geç → Tamamla (delivered)
+  statusLabel: (s: Status) => string;
 }) {
+  const { t, numberLocale } = useI18n();
   const qty = row.quantity ?? row.qty ?? 1;
   const c = row.contact || {};
 
@@ -430,10 +450,10 @@ function PurchaseCard({
 
   const next = NEXT(row.status);
   const nextLabel: Record<string, string> = {
-    contacted: 'İletişime geçildi',
-    preparing: 'Hazırlanıyor',
-    shipped: 'Kargoya verildi',
-    delivered: 'Teslim edildi',
+    contacted: t('adminPurchases.next.contacted'),
+    preparing: t('adminPurchases.next.preparing'),
+    shipped: t('adminPurchases.next.shipped'),
+    delivered: t('adminPurchases.next.delivered'),
   };
 
   const formNote = (c?.note || c?.notes || '').toString();
@@ -449,43 +469,46 @@ function PurchaseCard({
         </View>
         <View style={{ flex: 1 }}>
           <Text style={styles.title} numberOfLines={1}>
-            {reward?.name ?? 'Ödül'}
+            {reward?.name ?? t('adminPurchases.rewardFallback')}
           </Text>
           <Text style={styles.sub}>
-            Adet: {qty} • Fiyat: {row.price_xp.toLocaleString('tr-TR')} XP • Toplam:{' '}
-            {row.total_xp.toLocaleString('tr-TR')} XP
+            {t('adminPurchases.itemLine', {
+              qty,
+              price: row.price_xp.toLocaleString(numberLocale),
+              total: row.total_xp.toLocaleString(numberLocale),
+            })}
           </Text>
-          <Text style={styles.time}>{new Date(row.created_at).toLocaleString()}</Text>
+          <Text style={styles.time}>{new Date(row.created_at).toLocaleString(numberLocale)}</Text>
         </View>
         <View style={styles.badge}>
-          <Text style={styles.badgeText}>{row.status}</Text>
+          <Text style={styles.badgeText}>{statusLabel(row.status)}</Text>
         </View>
       </View>
 
       {/* iletişim */}
       <View style={styles.contact}>
-        <Text style={styles.blockTitle}>İletişim</Text>
-        <Text><Text style={styles.muted}>İsim:</Text> {c.full_name || '-'}</Text>
-        <Text><Text style={styles.muted}>Tel:</Text> {c.phone || '-'}</Text>
-        <Text><Text style={styles.muted}>E-posta:</Text> {c.email || '-'}</Text>
-        <Text numberOfLines={3}><Text style={styles.muted}>Adres:</Text> {c.address || '-'}</Text>
+        <Text style={styles.blockTitle}>{t('adminPurchases.contact.title')}</Text>
+        <Text><Text style={styles.muted}>{t('adminPurchases.contact.name')}:</Text> {c.full_name || t('common.na')}</Text>
+        <Text><Text style={styles.muted}>{t('adminPurchases.contact.phone')}:</Text> {c.phone || t('common.na')}</Text>
+        <Text><Text style={styles.muted}>{t('adminPurchases.contact.email')}:</Text> {c.email || t('common.na')}</Text>
+        <Text numberOfLines={3}><Text style={styles.muted}>{t('adminPurchases.contact.address')}:</Text> {c.address || t('common.na')}</Text>
 
         {!!formNote && (
           <View style={{ marginTop: 8, padding: 10, borderRadius: 10, backgroundColor: '#FFF7ED', borderWidth: 1, borderColor: '#FED7AA' }}>
-            <Text style={{ fontWeight: '900', color: '#9A3412', marginBottom: 4 }}>Form Notu</Text>
+            <Text style={{ fontWeight: '900', color: '#9A3412', marginBottom: 4 }}>{t('adminPurchases.formNoteTitle')}</Text>
             <Text style={{ color: '#7C2D12' }}>{formNote}</Text>
           </View>
         )}
 
         <View style={styles.row}>
-          <Btn label="Ara" onPress={() => c.phone && Linking.openURL(`tel:${c.phone}`)} />
+          <Btn label={t('adminPurchases.actions.call')} onPress={() => c.phone && Linking.openURL(`tel:${c.phone}`)} />
           <Btn
-            label="SMS/WhatsApp"
+            label={t('adminPurchases.actions.sms')}
             color="#0284C7"
             onPress={() => c.phone && Linking.openURL(`sms:${c.phone}`)}
           />
           <Btn
-            label="E-posta"
+            label={t('adminPurchases.actions.email')}
             color={C.orange}
             onPress={() => c.email && Linking.openURL(`mailto:${c.email}`)}
           />
@@ -493,42 +516,42 @@ function PurchaseCard({
       </View>
 
       {/* kargo takip */}
-      <Text style={styles.blockLabel}>Kargo Takip</Text>
+      <Text style={styles.blockLabel}>{t('adminPurchases.trackingTitle')}</Text>
       <View style={styles.row}>
         <TextInput
           style={[styles.input, { flex: 1 }]}
-          placeholder="Takip kodu…"
+          placeholder={t('adminPurchases.trackingPlaceholder')}
           value={trk}
           onChangeText={setTrk}
         />
         <Btn
-          label="Kaydet"
+          label={t('common.save')}
           color={C.orange}
           onPress={() => onSave('tracking_code', trk.trim(), true)}
         />
       </View>
 
       {/* notlar (müşteriye giden) */}
-      <Text style={styles.blockLabel}>Müşteri Notu</Text>
+      <Text style={styles.blockLabel}>{t('adminPurchases.customerNoteTitle')}</Text>
       <TextInput
         style={styles.input}
-        placeholder="Müşteriye giden not…"
+        placeholder={t('adminPurchases.customerNotePlaceholder')}
         value={note}
         onChangeText={setNote}
       />
       <View style={{ height: 8 }} />
-      <Btn label="Müşteriye gönder" color="#0F766E" onPress={() => onSave('notes', note, true)} />
+      <Btn label={t('adminPurchases.actions.sendToCustomer')} color="#0F766E" onPress={() => onSave('notes', note, true)} />
 
       {/* admin not */}
-      <Text style={[styles.blockLabel, { marginTop: 16 }]}>Admin Notu</Text>
+      <Text style={[styles.blockLabel, { marginTop: 16 }]}>{t('adminPurchases.adminNoteTitle')}</Text>
       <TextInput
         style={styles.input}
-        placeholder="Sadece ekip için…"
+        placeholder={t('adminPurchases.adminNotePlaceholder')}
         value={admin}
         onChangeText={setAdmin}
       />
       <View style={{ height: 8 }} />
-      <Btn label="Kaydet" color="#374151" onPress={() => onSave('admin_notes', admin)} />
+      <Btn label={t('common.save')} color="#374151" onPress={() => onSave('admin_notes', admin)} />
 
       {/* hızlı aksiyonlar */}
       <View style={{ height: 12 }} />
@@ -538,7 +561,7 @@ function PurchaseCard({
           onPress={onContactAndComplete}
           style={[styles.primary, { backgroundColor: STATUS_COL.delivered, marginBottom: 8 }]}
         >
-          <Text style={styles.primaryText}>İletişime geçildi → Tamamla</Text>
+          <Text style={styles.primaryText}>{t('adminPurchases.actions.contactAndComplete')}</Text>
         </TouchableOpacity>
       )}
 
@@ -561,7 +584,7 @@ function PurchaseCard({
             { borderColor: STATUS_COL.cancelled, backgroundColor: STATUS_COL.cancelled + '1A' },
           ]}
         >
-          <Text style={{ color: STATUS_COL.cancelled, fontWeight: '900' }}>cancelled</Text>
+          <Text style={{ color: STATUS_COL.cancelled, fontWeight: '900' }}>{statusLabel('cancelled')}</Text>
         </Pressable>
         <Pressable
           onPress={() => onSet('refunded')}
@@ -570,7 +593,7 @@ function PurchaseCard({
             { borderColor: STATUS_COL.refunded, backgroundColor: STATUS_COL.refunded + '1A' },
           ]}
         >
-          <Text style={{ color: STATUS_COL.refunded, fontWeight: '900' }}>refunded</Text>
+          <Text style={{ color: STATUS_COL.refunded, fontWeight: '900' }}>{statusLabel('refunded')}</Text>
         </Pressable>
       </View>
     </View>

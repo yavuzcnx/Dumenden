@@ -2,6 +2,8 @@
 
 import { uploadImage } from '@/lib/storage';
 import { supabase } from '@/lib/supabaseClient';
+import { useI18n } from '@/lib/i18n';
+import { useBlocks } from '@/lib/blocks';
 import { useXp } from '@/src/contexts/hooks/useXp';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -19,10 +21,34 @@ const BRAND  = '#FF6B00';
 const BORDER = '#F2D9C8';
 const SOFT   = '#FFF2E8';
 
-const CATS = ['Gündem', 'Spor', 'Magazin', 'Politika', 'Absürt'];
+const CATS = [
+  { value: 'Gündem', labelKey: 'categories.agenda' },
+  { value: 'Spor', labelKey: 'categories.sports' },
+  { value: 'Magazin', labelKey: 'categories.entertainment' },
+  { value: 'Politika', labelKey: 'categories.politics' },
+  { value: 'Absürt', labelKey: 'categories.absurd' },
+];
 
 /* Sexy Live Preview Component */
-function LivePreview({ title, yes, no, cat, img, closing }) {
+function LivePreview({
+  title,
+  yes,
+  no,
+  catLabel,
+  img,
+  closing,
+  t,
+  numberLocale,
+}: {
+  title: string;
+  yes: string;
+  no: string;
+  catLabel: string;
+  img: { uri: string; w: number; h: number } | null;
+  closing: Date;
+  t: (key: string, params?: Record<string, string | number>) => string;
+  numberLocale: string;
+}) {
   return (
     <View style={{
       marginTop: 35,
@@ -39,10 +65,10 @@ function LivePreview({ title, yes, no, cat, img, closing }) {
     }}>
 
       <Text style={{ fontWeight:'900', fontSize:16, marginBottom: 4 }}>
-        Canlı Önizleme
+        {t('createModal.previewTitle')}
       </Text>
       <Text style={{ fontSize:12, color:'#888', marginBottom: 12 }}>
-        Kuponun kullanıcıya böyle görünecek 👇
+        {t('createModal.previewSubtitle')}
       </Text>
 
       {img?.uri ? (
@@ -66,7 +92,7 @@ function LivePreview({ title, yes, no, cat, img, closing }) {
           marginBottom:12
         }}>
           <Ionicons name="image" size={36} color="#bbb" />
-          <Text style={{ color:'#aaa', marginTop:4 }}>Görsel seçilmedi</Text>
+          <Text style={{ color:'#aaa', marginTop:4 }}>{t('createModal.imageNotSelected')}</Text>
         </View>
       )}
 
@@ -78,27 +104,27 @@ function LivePreview({ title, yes, no, cat, img, closing }) {
         borderRadius:20,
         marginBottom:10
       }}>
-        <Text style={{ fontWeight:'800', color:'#D45F00', fontSize:12 }}>{cat}</Text>
+        <Text style={{ fontWeight:'800', color:'#D45F00', fontSize:12 }}>{catLabel}</Text>
       </View>
 
       <Text style={{ fontWeight:'900', fontSize:15, marginBottom:12 }}>
-        {title || 'Başlık buraya gelecek…'}
+        {title || t('createModal.titlePlaceholderPreview')}
       </Text>
 
       <View style={{ flexDirection:'row', gap:10 }}>
         <View style={{ flex:1, backgroundColor:'#E8FFF1', padding:10, borderRadius:10 }}>
-          <Text style={{ color:'#1B8E3F', fontWeight:'900', fontSize:12 }}>YES</Text>
+          <Text style={{ color:'#1B8E3F', fontWeight:'900', fontSize:12 }}>{t('common.yes').toUpperCase()}</Text>
           <Text style={{ fontWeight:'900', fontSize:18 }}>{yes || '--'}</Text>
         </View>
 
         <View style={{ flex:1, backgroundColor:'#FFECEC', padding:10, borderRadius:10 }}>
-          <Text style={{ color:'#C62828', fontWeight:'900', fontSize:12 }}>NO</Text>
+          <Text style={{ color:'#C62828', fontWeight:'900', fontSize:12 }}>{t('common.no').toUpperCase()}</Text>
           <Text style={{ fontWeight:'900', fontSize:18 }}>{no || '--'}</Text>
         </View>
       </View>
 
       <Text style={{ marginTop:12, color:'#555', fontWeight:'700', fontSize:12 }}>
-        Kapanış: {closing.toLocaleDateString()} - {closing.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
+        {t('createModal.closingLabel')} {closing.toLocaleDateString(numberLocale)} - {closing.toLocaleTimeString(numberLocale, {hour:'2-digit', minute:'2-digit'})}
       </Text>
     </View>
   );
@@ -116,6 +142,8 @@ function formatOdds(next: string) {
 export default function CreateCouponModal() {
   const router = useRouter();
   const { xp, loading: xpLoading } = useXp();
+  const { t, numberLocale } = useI18n();
+  const { selfBlocked } = useBlocks();
   const isPlus = xp > 0;
   const insets = useSafeAreaInsets();
 
@@ -153,7 +181,7 @@ export default function CreateCouponModal() {
 
   const [title, setTitle]   = useState('');
   const [desc, setDesc]     = useState('');
-  const [cat, setCat]       = useState(CATS[0]);
+  const [cat, setCat]       = useState(CATS[0].value);
   
   // Default kapanış 24 saat sonra olsun ki hata vermesin başta
   const [closing, setClosing] = useState<Date>(new Date(Date.now() + 24 * 3600 * 1000));
@@ -165,27 +193,31 @@ export default function CreateCouponModal() {
   const [mediaSheet, setMediaSheet] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  const selectedCat = CATS.find((c) => c.value === cat);
+  const catLabel = selectedCat ? t(selectedCat.labelKey) : cat;
+
   const errors = useMemo(() => {
     const e: string[] = [];
     const y = Number(yes.replace(',', '.'));
     const n = Number(no.replace(',', '.'));
-    if (!title.trim()) e.push('Başlık boş olamaz.');
-    if (title.trim().length < 6) e.push('Başlık en az 6 karakter olmalı.');
-    if (!CATS.includes(cat)) e.push('Kategori geçersiz.');
-    if (!Number.isFinite(y) || y < 1.01 || y > 10) e.push('Yes oranı 1.01–10 aralığında olmalı.');
-    if (!Number.isFinite(n) || n < 1.01 || n > 10) e.push('No oranı 1.01–10 aralığında olmalı.');
+    if (!title.trim()) e.push(t('createModal.errors.titleRequired'));
+    if (title.trim().length < 6) e.push(t('createModal.errors.titleMin'));
+    if (!CATS.some((c) => c.value === cat)) e.push(t('createModal.errors.categoryInvalid'));
+    if (!Number.isFinite(y) || y < 1.01 || y > 10) e.push(t('createModal.errors.yesRange'));
+    if (!Number.isFinite(n) || n < 1.01 || n > 10) e.push(t('createModal.errors.noRange'));
     
     // 🔥 FİX: En az 3 saat kuralı
     const minTime = Date.now() + 3 * 3600 * 1000;
     if (closing.getTime() <= minTime) {
-        e.push('Kapanış tarihi şu andan en az 3 saat sonra olmalıdır.');
+        e.push(t('createModal.errors.closingMinHours'));
     }
 
-    if (!quotaLoading && (remaining ?? 0) <= 0) e.push('Haftalık gönderim hakkın doldu.');
+    if (!quotaLoading && (remaining ?? 0) <= 0) e.push(t('createModal.errors.weeklyQuota'));
     return e;
-  }, [title, yes, no, closing, cat, remaining, quotaLoading]);
+  }, [title, yes, no, closing, cat, remaining, quotaLoading, t]);
 
   const canSubmit = errors.length === 0 && uid && !submitting;
+  const signed = (value: number) => (value > 0 ? `+${value}` : `${value}`);
 
   const onDateChange = (event: any, selectedDate?: Date) => {
     // Android için otomatik kapama
@@ -259,7 +291,10 @@ export default function CreateCouponModal() {
 
   const submit = async () => {
     if (!canSubmit) {
-      return Alert.alert("Form Hatalı", errors.join("\n"));
+      return Alert.alert(t('createModal.formInvalidTitle'), errors.join("\n"));
+    }
+    if (selfBlocked) {
+      return Alert.alert(t('ugc.blockedTitle'), t('ugc.blockedBody'));
     }
     try {
       setSubmitting(true);
@@ -284,10 +319,10 @@ export default function CreateCouponModal() {
       const { error } = await supabase.from("coupon_submissions").insert(payload);
       if (error) throw error;
 
-      Alert.alert("Gönderildi", "Kupon admin onayına gönderildi.");
+      Alert.alert(t('createModal.submitSuccessTitle'), t('createModal.submitSuccessBody'));
       router.back();
     } catch (err: any) {
-      Alert.alert("Hata", err.message || "Bilinmeyen hata");
+      Alert.alert(t('common.error'), err.message || t('common.unknownError'));
     } finally {
       setSubmitting(false);
     }
@@ -317,48 +352,49 @@ export default function CreateCouponModal() {
           {/* Kota */}
           <View style={styles.quota}>
             <Text style={{ fontWeight:'900', color:'#5a463f' }}>
-              Haftalık hak: <Text style={{ color:BRAND }}>{remaining}/5</Text>  
-              <Text style={{ color:'#5a463f' }}> (kullanılan: {used})</Text>
+              {t('createModal.weeklyQuotaLabel')}{' '}
+              <Text style={{ color:BRAND }}>{remaining}/5</Text>
+              <Text style={{ color:'#5a463f' }}>{t('createModal.weeklyQuotaUsed', { used })}</Text>
             </Text>
           </View>
 
           {/* Başlık */}
-          <Text style={styles.label}>Başlık</Text>
-          <TextInput style={styles.input} value={title} onChangeText={setTitle} placeholder="Örn: Bu hafta X takımı kazanır mı?" />
+          <Text style={styles.label}>{t('createModal.titleLabel')}</Text>
+          <TextInput style={styles.input} value={title} onChangeText={setTitle} placeholder={t('createModal.titlePlaceholder')} />
 
           {/* Açıklama */}
-          <Text style={styles.label}>Açıklama (opsiyonel)</Text>
+          <Text style={styles.label}>{t('createModal.descLabel')}</Text>
           <TextInput
             style={[styles.input, { height: 90, textAlignVertical:'top' }]}
             value={desc}
             onChangeText={setDesc}
-            placeholder="Kaynak, gerekçe vs."
+            placeholder={t('createModal.descPlaceholder')}
             multiline
           />
 
           {/* Kategori */}
-          <Text style={styles.label}>Kategori</Text>
+          <Text style={styles.label}>{t('createModal.categoryLabel')}</Text>
           <ScrollView horizontal contentContainerStyle={{ gap:10 }}>
-            {CATS.map(c => (
+            {CATS.map((c) => (
               <Pressable
-                key={c}
-                onPress={() => setCat(c)}
-                style={[styles.chip, { backgroundColor: cat === c ? BRAND : '#eee' }]}
+                key={c.value}
+                onPress={() => setCat(c.value)}
+                style={[styles.chip, { backgroundColor: cat === c.value ? BRAND : '#eee' }]}
               >
-                <Text style={{ color: cat === c ? '#fff' : '#333', fontWeight:'800' }}>{c}</Text>
+                <Text style={{ color: cat === c.value ? '#fff' : '#333', fontWeight:'800' }}>{t(c.labelKey)}</Text>
               </Pressable>
             ))}
           </ScrollView>
 
           {/* Oranlar */}
-          <Text style={[styles.label, { marginTop:16 }]}>Oranlar</Text>
+          <Text style={[styles.label, { marginTop:16 }]}>{t('createModal.oddsLabel')}</Text>
           <View style={{ flexDirection:'row', gap:10 }}>
             <View style={{ flex:1 }}>
-              <Text style={styles.smallMut}>Yes</Text>
+              <Text style={styles.smallMut}>{t('common.yes')}</Text>
               <TextInput keyboardType="decimal-pad" style={styles.input} value={yes} onChangeText={(t)=>setYes(formatOdds(t))} />
             </View>
             <View style={{ flex:1 }}>
-              <Text style={styles.smallMut}>No</Text>
+              <Text style={styles.smallMut}>{t('common.no')}</Text>
               <TextInput keyboardType="decimal-pad" style={styles.input} value={no} onChangeText={(t)=>setNo(formatOdds(t))} />
             </View>
           </View>
@@ -382,19 +418,19 @@ export default function CreateCouponModal() {
               onPress={()=>{ setYes('1.80'); setNo('2.10'); }}
               style={{ paddingHorizontal:12, paddingVertical:8, backgroundColor:'#ffdddd', borderRadius:10 }}
             >
-              <Text style={{ fontWeight:'900', color:'#c0392b' }}>Sıfırla</Text>
+              <Text style={{ fontWeight:'900', color:'#c0392b' }}>{t('createModal.resetOdds')}</Text>
             </TouchableOpacity>
           </View>
 
           {/* Kapanış - SEXY PICKERS */}
-          <Text style={[styles.label, { marginTop:16 }]}>Kapanış (Tarih & Saat)</Text>
+          <Text style={[styles.label, { marginTop:16 }]}>{t('createModal.closingSection')}</Text>
           <View style={{ flexDirection:'row', gap:10 }}>
             <TouchableOpacity
               onPress={()=>setPickerMode('date')}
               style={[styles.input,{ flex:1, alignItems:'center', justifyContent:'center', backgroundColor:'#F9FAFB' }]}
             >
               <Ionicons name="calendar-outline" size={22} color={BRAND} />
-              <Text style={{ marginTop:4, fontWeight:'700', fontSize:15 }}>{closing.toLocaleDateString()}</Text>
+              <Text style={{ marginTop:4, fontWeight:'700', fontSize:15 }}>{closing.toLocaleDateString(numberLocale)}</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -403,7 +439,7 @@ export default function CreateCouponModal() {
             >
               <Ionicons name="time-outline" size={22} color={BRAND} />
               <Text style={{ marginTop:4, fontWeight:'700', fontSize:15 }}>
-                {closing.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
+                {closing.toLocaleTimeString(numberLocale, {hour:'2-digit', minute:'2-digit'})}
               </Text>
             </TouchableOpacity>
           </View>
@@ -422,58 +458,50 @@ export default function CreateCouponModal() {
 
           {/* HIZLI GÜNLER */}
           <View style={{ flexDirection:'row', gap:8, marginTop:10, flexWrap:'wrap' }}>
-            {[
-              {label:'+1g', val:1},
-              {label:'+3g', val:3},
-              {label:'+7g', val:7},
-            ].map(btn=>(
+            {[1, 3, 7].map((val) => (
               <TouchableOpacity
-                key={btn.label}
+                key={val}
                 onPress={()=>{
                   const d = new Date(closing);
-                  d.setDate(d.getDate()+btn.val);
+                  d.setDate(d.getDate()+val);
                   setClosing(new Date(d));
                 }}
                 style={{ paddingVertical:6, paddingHorizontal:12, backgroundColor:'#eee', borderRadius:10 }}
               >
-                <Text style={{ fontWeight:'800' }}>{btn.label}</Text>
+                <Text style={{ fontWeight:'800' }}>{t('createModal.quickDay', { value: signed(val) })}</Text>
               </TouchableOpacity>
             ))}
           </View>
 
           {/* HIZLI SAATLER */}
           <View style={{ flexDirection:'row', gap:8, marginTop:10, flexWrap:'wrap' }}>
-            {[
-              {label:'+3s', val:3}, // En az 3 saat kuralı için
-              {label:'+6s', val:6},
-              {label:'-1s', val:-1},
-            ].map(btn=>(
+            {[3, 6, -1].map((val) => (
               <TouchableOpacity
-                key={btn.label}
+                key={val}
                 onPress={()=>{
                   const d = new Date(closing);
-                  d.setHours(d.getHours()+btn.val);
+                  d.setHours(d.getHours()+val);
                   setClosing(new Date(d));
                 }}
                 style={{ paddingVertical:6, paddingHorizontal:12, backgroundColor:'#ddf0ff', borderRadius:10 }}
               >
-                <Text style={{ fontWeight:'800', color:'#1565c0' }}>{btn.label}</Text>
+                <Text style={{ fontWeight:'800', color:'#1565c0' }}>{t('createModal.quickHour', { value: signed(val) })}</Text>
               </TouchableOpacity>
             ))}
           </View>
 
           {/* Kapak Görseli */}
-          <Text style={[styles.label,{ marginTop:16 }]}>Kapak Görseli</Text>
+          <Text style={[styles.label,{ marginTop:16 }]}>{t('createModal.coverImageLabel')}</Text>
 
           {!img ? (
             <TouchableOpacity onPress={()=>setMediaSheet(true)} style={styles.imagePick}>
-              <Text style={{ color:BRAND, fontWeight:'900' }}>Kamera / Galeri</Text>
+              <Text style={{ color:BRAND, fontWeight:'900' }}>{t('createModal.pickImage')}</Text>
             </TouchableOpacity>
           ) : (
             <View style={styles.imageWrap}>
               <Image source={{ uri: img.uri }} style={{ width:'100%', height:170, borderRadius:12 }} />
               <Pressable onPress={removeImage} style={styles.removeBtn}>
-                <Text style={{ color:'#fff', fontWeight:'900' }}>Sil</Text>
+                <Text style={{ color:'#fff', fontWeight:'900' }}>{t('common.delete')}</Text>
               </Pressable>
             </View>
           )}
@@ -483,9 +511,11 @@ export default function CreateCouponModal() {
             title={title}
             yes={yes}
             no={no}
-            cat={cat}
+            catLabel={catLabel}
             img={img}
             closing={closing}
+            t={t}
+            numberLocale={numberLocale}
           />
 
           {errors.length > 0 && (
@@ -504,7 +534,7 @@ export default function CreateCouponModal() {
             {submitting ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <Text style={{ color:'#fff', fontWeight:'900' }}>Gönder (Onaya)</Text>
+              <Text style={{ color:'#fff', fontWeight:'900' }}>{t('createModal.submit')}</Text>
             )}
           </TouchableOpacity>
 
@@ -518,10 +548,10 @@ export default function CreateCouponModal() {
                <View style={styles.pickerSheet}>
                   <View style={styles.pickerHeader}>
                       <Text style={{fontWeight:'bold', color:'#666'}}>
-                          {pickerMode === 'date' ? 'Tarih Seç' : 'Saat Seç'}
+                          {pickerMode === 'date' ? t('createModal.pickDate') : t('createModal.pickTime')}
                       </Text>
                       <TouchableOpacity onPress={()=>setPickerMode(null)} style={styles.doneBtn}>
-                          <Text style={{color:'#fff', fontWeight:'bold'}}>Bitti</Text>
+                          <Text style={{color:'#fff', fontWeight:'bold'}}>{t('createModal.done')}</Text>
                       </TouchableOpacity>
                   </View>
                   <DateTimePicker
@@ -551,17 +581,17 @@ export default function CreateCouponModal() {
             paddingBottom: insets.bottom + 30
           }}>
 
-            <Text style={{ fontWeight:'900', fontSize:16, marginBottom:12 }}>Görsel Kaynağı</Text>
+            <Text style={{ fontWeight:'900', fontSize:16, marginBottom:12 }}>{t('createModal.mediaSource')}</Text>
 
             <View style={{ flexDirection:'row', gap:12 }}>
               <TouchableOpacity onPress={pickFromCamera} style={styles.sheetBtnCamera}>
                 <Ionicons name="camera" size={22} color={BRAND} />
-                <Text style={styles.sheetLabelCamera}>Kamera</Text>
+                <Text style={styles.sheetLabelCamera}>{t('createModal.camera')}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity onPress={pickFromGallery} style={styles.sheetBtnGallery}>
                 <Ionicons name="image" size={22} color="#1B66FF" />
-                <Text style={styles.sheetLabelGallery}>Galeri</Text>
+                <Text style={styles.sheetLabelGallery}>{t('createModal.gallery')}</Text>
               </TouchableOpacity>
             </View>
 

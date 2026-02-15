@@ -2,6 +2,7 @@
 
 import { publicUrl, uploadImage } from '@/lib/storage';
 import { supabase } from '@/lib/supabaseClient';
+import { useI18n } from '@/lib/i18n';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -24,6 +25,7 @@ const BORDER = '#FFD9C4';
 
 export default function EditCoupon() {
   const router = useRouter();
+  const { t } = useI18n();
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams(); // kupon ID
   const [uid, setUid] = useState<string | null>(null);
@@ -59,12 +61,12 @@ export default function EditCoupon() {
         .maybeSingle();
 
       if (error) {
-        Alert.alert('Hata', error.message);
+        Alert.alert(t('common.error'), error.message);
         return;
       }
 
       if (!data) {
-        Alert.alert('Bulunamadı', 'Kupon verisi yüklenemedi.');
+        Alert.alert(t('userEditCoupon.notFoundTitle'), t('userEditCoupon.notFoundBody'));
         return;
       }
 
@@ -87,7 +89,7 @@ export default function EditCoupon() {
   const pickImage = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (perm.status !== 'granted')
-      return Alert.alert('İzin gerekli', 'Galeriden seçim izni ver.');
+      return Alert.alert(t('userEditCoupon.permissionTitle'), t('userEditCoupon.permissionBody'));
 
     const res = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -107,16 +109,16 @@ export default function EditCoupon() {
   const save = async () => {
     if (!uid) return;
 
-    if (!title.trim()) return Alert.alert('Eksik', 'Başlık gerekli.');
-    if (!category.trim()) return Alert.alert('Eksik', 'Kategori gerekli.');
+    if (!title.trim()) return Alert.alert(t('userEditCoupon.missingTitle'), t('userEditCoupon.titleRequired'));
+    if (!category.trim()) return Alert.alert(t('userEditCoupon.missingTitle'), t('userEditCoupon.categoryRequired'));
     if (!yesPrice.trim() || !noPrice.trim())
-      return Alert.alert('Eksik', 'Oranlar gerekli.');
-    if (!closing.trim()) return Alert.alert('Eksik', 'Kapanış tarihi gerekli.');
+      return Alert.alert(t('userEditCoupon.missingTitle'), t('userEditCoupon.oddsRequired'));
+    if (!closing.trim()) return Alert.alert(t('userEditCoupon.missingTitle'), t('userEditCoupon.closingRequired'));
 
     try {
       setSaving(true);
 
-      let finalImagePath = null;
+      let finalImagePath: string | null = null;
 
       // Yeni resim seçilmişse yükle
       if (localUri) {
@@ -125,7 +127,7 @@ export default function EditCoupon() {
           bucket: 'Media',
           contentType: 'image/jpeg',
         });
-let finalImagePath: string | null = null;
+        finalImagePath = filePath;
       }
 
       const updatePayload: any = {
@@ -148,10 +150,10 @@ let finalImagePath: string | null = null;
 
       if (error) throw error;
 
-      Alert.alert('Başarılı ✔', 'Kupon güncellendi. Admin tekrar inceleyecek.');
+      Alert.alert(t('userEditCoupon.updateSuccessTitle'), t('userEditCoupon.updateSuccessBody'));
       router.back();
     } catch (e: any) {
-      Alert.alert('Hata', e.message);
+      Alert.alert(t('common.error'), e.message);
     } finally {
       setSaving(false);
     }
@@ -186,19 +188,19 @@ let finalImagePath: string | null = null;
         }}
       >
         <Text style={{ fontSize: 24, fontWeight: '900', color: BRAND }}>
-          Kuponu Düzenle
+          {t('userEditCoupon.title')}
         </Text>
         <Text style={{ color: '#7A5A4A', marginTop: 4 }}>
-          Gönderdiğin kuponu güncelle, admin tekrar incelesin.
+          {t('userEditCoupon.subtitle')}
         </Text>
       </LinearGradient>
 
       {/* TITLE */}
-      <Text style={{ fontWeight: '900', marginBottom: 4 }}>Başlık</Text>
+      <Text style={{ fontWeight: '900', marginBottom: 4 }}>{t('userEditCoupon.titleLabel')}</Text>
       <TextInput
         value={title}
         onChangeText={setTitle}
-        placeholder="Kupon başlığı"
+        placeholder={t('userEditCoupon.titlePlaceholder')}
         style={{
           borderWidth: 1,
           borderColor: '#ddd',
@@ -209,11 +211,11 @@ let finalImagePath: string | null = null;
       />
 
       {/* DESC */}
-      <Text style={{ fontWeight: '900', marginBottom: 4 }}>Açıklama</Text>
+      <Text style={{ fontWeight: '900', marginBottom: 4 }}>{t('userEditCoupon.descLabel')}</Text>
       <TextInput
         value={desc}
         onChangeText={setDesc}
-        placeholder="Açıklama (opsiyonel)"
+        placeholder={t('userEditCoupon.descPlaceholder')}
         multiline
         style={{
           borderWidth: 1,
@@ -226,11 +228,11 @@ let finalImagePath: string | null = null;
       />
 
       {/* CATEGORY */}
-      <Text style={{ fontWeight: '900', marginBottom: 4 }}>Kategori</Text>
+      <Text style={{ fontWeight: '900', marginBottom: 4 }}>{t('userEditCoupon.categoryLabel')}</Text>
       <TextInput
         value={category}
         onChangeText={setCategory}
-        placeholder="Örn: Gündem"
+        placeholder={t('userEditCoupon.categoryPlaceholder')}
         style={{
           borderWidth: 1,
           borderColor: '#ddd',
@@ -243,7 +245,7 @@ let finalImagePath: string | null = null;
       {/* ORANLAR */}
       <View style={{ flexDirection: 'row', gap: 10 }}>
         <View style={{ flex: 1 }}>
-          <Text style={{ fontWeight: '900' }}>YES Oranı</Text>
+          <Text style={{ fontWeight: '900' }}>{t('userEditCoupon.yesOddsLabel')}</Text>
           <TextInput
             value={yesPrice}
             onChangeText={setYesPrice}
@@ -258,7 +260,7 @@ let finalImagePath: string | null = null;
           />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={{ fontWeight: '900' }}>NO Oranı</Text>
+          <Text style={{ fontWeight: '900' }}>{t('userEditCoupon.noOddsLabel')}</Text>
           <TextInput
             value={noPrice}
             onChangeText={setNoPrice}
@@ -275,11 +277,11 @@ let finalImagePath: string | null = null;
       </View>
 
       {/* CLOSING DATE */}
-      <Text style={{ fontWeight: '900', marginBottom: 4 }}>Kapanış Tarihi</Text>
+      <Text style={{ fontWeight: '900', marginBottom: 4 }}>{t('userEditCoupon.closingLabel')}</Text>
       <TextInput
         value={closing}
         onChangeText={setClosing}
-        placeholder="2025-12-31 23:59:59"
+        placeholder={t('userEditCoupon.closingPlaceholder')}
         style={{
           borderWidth: 1,
           borderColor: '#ddd',
@@ -290,7 +292,7 @@ let finalImagePath: string | null = null;
       />
 
       {/* IMAGE */}
-      <Text style={{ fontWeight: '900', marginBottom: 6 }}>Kapak Görseli</Text>
+      <Text style={{ fontWeight: '900', marginBottom: 6 }}>{t('userEditCoupon.coverImageLabel')}</Text>
 
       {localUri ? (
         <Image
@@ -314,7 +316,7 @@ let finalImagePath: string | null = null;
         }}
       >
         <Text style={{ color: '#fff', fontWeight: '900', textAlign: 'center' }}>
-          Görsel Seç
+          {t('userEditCoupon.pickImage')}
         </Text>
       </TouchableOpacity>
 
@@ -337,7 +339,7 @@ let finalImagePath: string | null = null;
           <ActivityIndicator color="#fff" />
         ) : (
           <Text style={{ color: '#fff', fontWeight: '900', fontSize: 16 }}>
-            Güncelle & Gönder
+            {t('userEditCoupon.saveButton')}
           </Text>
         )}
       </TouchableOpacity>

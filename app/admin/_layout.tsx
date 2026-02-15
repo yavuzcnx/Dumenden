@@ -3,12 +3,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, usePathname, useRouter } from 'expo-router';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
+import { useI18n } from '@/lib/i18n';
 
 const ORANGE = '#FF6B00';
 
 export default function AdminLayout() {
   const router = useRouter();
   const pathname = usePathname();
+  const { t } = useI18n();
   const onLanding = pathname?.startsWith('/admin/landing');
 
   return (
@@ -22,7 +24,7 @@ export default function AdminLayout() {
           style={styles.fab}
           onPress={() => router.replace('/admin/landing')}
           activeOpacity={0.85}
-          accessibilityLabel="Admin ana sayfa"
+          accessibilityLabel={t('adminLayout.homeLabel')}
         >
           <Ionicons name="home" size={26} color="#fff" />
         </TouchableOpacity>

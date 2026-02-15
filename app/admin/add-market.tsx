@@ -2,6 +2,7 @@
 
 import { publicUrl, uploadImage } from '@/lib/storage';
 import { supabase } from '@/lib/supabaseClient';
+import { useI18n } from '@/lib/i18n';
 import * as ImagePicker from 'expo-image-picker';
 import { useEffect, useMemo, useState } from 'react';
 import {
@@ -43,30 +44,31 @@ function detectShelfType(name?: string): ShelfType {
   if (/(xp|boost|paket|paketi)/i.test(n)) return 'xppacks';
   return 'wood';
 }
-function shelfBadge(t: ShelfType) {
-  switch (t) {
-    case 'podium':  return '🏆 Podyum';
-    case 'hanger':  return '👚 Askılı Raf';
-    case 'wood':    return '🪵 Tahta Raf';
-    case 'glass':   return '🧊 Cam Raf';
-    case 'cubbies': return '🧩 Küp Raf';
-    case 'holo':    return '✨ Hologram Kart';
-    case 'xppacks': return '⚡️ XP Kutuları';
+function shelfBadge(type: ShelfType, t: (key: string) => string) {
+  switch (type) {
+    case 'podium':  return t('adminRewards.shelf.podium');
+    case 'hanger':  return t('adminRewards.shelf.hanger');
+    case 'wood':    return t('adminRewards.shelf.wood');
+    case 'glass':   return t('adminRewards.shelf.glass');
+    case 'cubbies': return t('adminRewards.shelf.cubbies');
+    case 'holo':    return t('adminRewards.shelf.holo');
+    case 'xppacks': return t('adminRewards.shelf.xppacks');
   }
 }
 
 // önerilen kategoriler
-const PRESETS: { label: string; emoji: string }[] = [
-  { label: 'Büyük Ödül', emoji: '🏆' },
-  { label: 'Giyim', emoji: '👚' },
-  { label: 'Beyaz Eşya', emoji: '🪵' },
-  { label: 'Ev Aletleri / Elektronik', emoji: '🧊' },
-  { label: 'Aksesuar / Koleksiyon', emoji: '🧩' },
-  { label: 'Dijital Ödüller', emoji: '✨' },
-  { label: 'XP Paketleri', emoji: '⚡️' },
+const PRESETS: { value: string; labelKey: string; emoji: string }[] = [
+  { value: 'Büyük Ödül', labelKey: 'adminRewards.presets.grandPrize', emoji: '🏆' },
+  { value: 'Giyim', labelKey: 'adminRewards.presets.apparel', emoji: '👚' },
+  { value: 'Beyaz Eşya', labelKey: 'adminRewards.presets.whiteGoods', emoji: '🪵' },
+  { value: 'Ev Aletleri / Elektronik', labelKey: 'adminRewards.presets.electronics', emoji: '🧊' },
+  { value: 'Aksesuar / Koleksiyon', labelKey: 'adminRewards.presets.accessories', emoji: '🧩' },
+  { value: 'Dijital Ödüller', labelKey: 'adminRewards.presets.digital', emoji: '✨' },
+  { value: 'XP Paketleri', labelKey: 'adminRewards.presets.xpPacks', emoji: '⚡️' },
 ];
 
 export default function AddMarket() {
+  const { t, numberLocale } = useI18n();
   const [cats, setCats] = useState<Cat[]>([]);
   const [catName, setCatName] = useState('');
   const [activeCat, setActiveCat] = useState<string | null>(null);
@@ -90,12 +92,12 @@ export default function AddMarket() {
   useEffect(() => { loadCats(); }, []);
 
   // preset seç → yoksa oluştur
-  const selectOrCreatePreset = async (label: string) => {
-    const existing = cats.find(c => c.name.toLowerCase() === label.toLowerCase());
+  const selectOrCreatePreset = async (value: string) => {
+    const existing = cats.find(c => c.name.toLowerCase() === value.toLowerCase());
     if (existing) { setActiveCat(existing.id); return; }
     const { data, error } = await supabase.from('reward_categories')
-      .insert([{ name: label }]).select('id').single();
-    if (error) { Alert.alert('Hata', error.message); return; }
+      .insert([{ name: value }]).select('id').single();
+    if (error) { Alert.alert(t('common.error'), error.message); return; }
     await loadCats();
     setActiveCat(data!.id);
   };
@@ -104,11 +106,11 @@ export default function AddMarket() {
   const createCat = async () => {
     if (!catName.trim()) return;
     const { data, error } = await supabase.from('reward_categories').insert([{ name: catName }]).select('id').single();
-    if (error) return Alert.alert('Hata', error.message);
+    if (error) return Alert.alert(t('common.error'), error.message);
     setCatName('');
     await loadCats();
     setActiveCat(data!.id);
-    Alert.alert('OK', 'Kategori eklendi');
+    Alert.alert(t('common.success'), t('adminRewards.categoryAdded'));
   };
 
   // kategori değişince ürünleri getir
@@ -130,7 +132,7 @@ export default function AddMarket() {
   // görsel seç
   const pickImage = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (perm.status !== 'granted') return Alert.alert('İzin gerekli', 'Galeriden seçim izni ver.');
+    if (perm.status !== 'granted') return Alert.alert(t('adminRewards.permissionTitle'), t('adminRewards.permissionBody'));
     const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.9, allowsEditing: true });
     if (res.canceled) return;
     const a = res.assets?.[0]; if (!a?.uri) return;
@@ -140,10 +142,10 @@ export default function AddMarket() {
   // ödül ekle
   const createItem = async () => {
     if (saving) return;
-    if (!activeCat)      return Alert.alert('Eksik', 'Kategori seçmelisin.');
-    if (!name.trim())    return Alert.alert('Eksik', 'Ödül adı gerekli.');
-    if (!price.trim() || Number.isNaN(Number(price))) return Alert.alert('Eksik', 'Geçerli bir XP fiyatı gir.');
-    if (stock && Number.isNaN(Number(stock))) return Alert.alert('Eksik', 'Stok sayısı sayı olmalı.');
+    if (!activeCat)      return Alert.alert(t('adminRewards.missingTitle'), t('adminRewards.categoryRequired'));
+    if (!name.trim())    return Alert.alert(t('adminRewards.missingTitle'), t('adminRewards.nameRequired'));
+    if (!price.trim() || Number.isNaN(Number(price))) return Alert.alert(t('adminRewards.missingTitle'), t('adminRewards.priceRequired'));
+    if (stock && Number.isNaN(Number(stock))) return Alert.alert(t('adminRewards.missingTitle'), t('adminRewards.stockInvalid'));
 
     try {
       setSaving(true);
@@ -166,9 +168,9 @@ export default function AddMarket() {
 
       setName(''); setDesc(''); setPrice(''); setStock(''); setLocalUri(null);
       await loadItems();
-      Alert.alert('OK', 'Ödül eklendi');
+      Alert.alert(t('common.success'), t('adminRewards.rewardAdded'));
     } catch (e: any) {
-      Alert.alert('Hata', e?.message ?? 'Odul kaydedilemedi.');
+      Alert.alert(t('common.error'), e?.message ?? t('adminRewards.rewardSaveFailed'));
     } finally {
       setSaving(false);
     }
@@ -176,10 +178,10 @@ export default function AddMarket() {
 
   // 🔥 SOFT DELETE (GİZLEME) FONKSİYONU
   const deleteItem = async (row: RewardRow) => {
-    Alert.alert('Silinsin mi?', `"${row.name}" marketten kaldırılacak.`, [
-      { text: 'Vazgeç' },
+    Alert.alert(t('adminRewards.deleteRewardTitle'), t('adminRewards.deleteRewardBody', { name: row.name }), [
+      { text: t('common.cancel') },
       {
-        text: 'Sil', style: 'destructive',
+        text: t('common.delete'), style: 'destructive',
         onPress: async () => {
           try {
             // DELETE yerine UPDATE yapıyoruz -> is_active = false
@@ -193,7 +195,7 @@ export default function AddMarket() {
             // Listeden anında siliyoruz (UI güncellemesi)
             setItems(prev => prev.filter(i => i.id !== row.id));
           } catch (e: any) {
-            Alert.alert('Silinemedi', e?.message ?? 'Bilinmeyen hata');
+            Alert.alert(t('adminRewards.deleteFailedTitle'), e?.message ?? t('common.unknownError'));
           }
         }
       }
@@ -216,10 +218,10 @@ export default function AddMarket() {
           '• "Kategoriyi Sil" dersen ürünler gizlenir.'
         : `"${catName}" kategorisini silmek istiyor musun?`;
 
-      Alert.alert('Kategori Sil', msg, [
-        { text: 'Vazgeç' },
+      Alert.alert(t('adminRewards.deleteCategoryTitle'), msg, [
+        { text: t('common.cancel') },
         {
-          text: 'Kategoriyi Sil',
+          text: t('adminRewards.deleteCategoryAction'),
           style: 'destructive',
           onPress: async () => {
             // 1) Önce ürünleri gizle
@@ -229,9 +231,9 @@ export default function AddMarket() {
             const { error } = await supabase.from('reward_categories').delete().eq('id', catId);
             
             if (error) { 
-                Alert.alert('Bilgi', 'Kategori ilişkili veriler nedeniyle tam silinemedi ama ürünler gizlendi.'); 
+                Alert.alert(t('adminRewards.categoryPartialDeleteTitle'), t('adminRewards.categoryPartialDeleteBody')); 
             } else {
-                Alert.alert('OK', 'Kategori silindi');
+                Alert.alert(t('common.success'), t('adminRewards.categoryDeleted'));
             }
             
             if (activeCat === catId) { setActiveCat(null); setItems([]); }
@@ -240,14 +242,14 @@ export default function AddMarket() {
         }
       ]);
     } catch (e: any) {
-      Alert.alert('Hata', e?.message ?? 'Kategori silinemedi');
+      Alert.alert(t('common.error'), e?.message ?? t('adminRewards.categoryDeleteFailed'));
     }
   };
 
   // seçili kategori / rozet
   const activeCatObj = useMemo(() => cats.find(c => c.id === activeCat) || null, [cats, activeCat]);
   const shelfType: ShelfType = detectShelfType(activeCatObj?.name);
-  const shelfHint = shelfBadge(shelfType);
+  const shelfHint = shelfBadge(shelfType, t);
 
   // küçük market önizlemesi
   const Preview = () => {
@@ -255,7 +257,7 @@ export default function AddMarket() {
     const p = Number(price || 0);
     return (
       <View style={styles.preview}>
-        <Text style={styles.previewTitle}>Market Önizleme</Text>
+        <Text style={styles.previewTitle}>{t('adminRewards.previewTitle')}</Text>
         <View style={[
           styles.rail,
           shelfType === 'wood'  && { backgroundColor: '#f6d6be' },
@@ -271,8 +273,8 @@ export default function AddMarket() {
             <View style={[styles.previewImg, shelfType === 'holo' && { backgroundColor:'#111827' }]}>
               {localUri ? <Image source={{ uri: localUri }} style={{ width:'100%', height:'100%' }} /> : null}
             </View>
-            <Text numberOfLines={1} style={[styles.previewName, shelfType === 'holo' && { color:'#E5E7EB' }]}>{name || 'Ödül adı'}</Text>
-            <Text style={[styles.previewPrice, shelfType === 'holo' && { color:'#A78BFA' }]}>{p.toLocaleString()} XP</Text>
+            <Text numberOfLines={1} style={[styles.previewName, shelfType === 'holo' && { color:'#E5E7EB' }]}>{name || t('adminRewards.rewardNamePlaceholder')}</Text>
+            <Text style={[styles.previewPrice, shelfType === 'holo' && { color:'#A78BFA' }]}>{p.toLocaleString(numberLocale)} XP</Text>
           </View>
         </View>
       </View>
@@ -282,24 +284,24 @@ export default function AddMarket() {
   return (
     <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 24 }}>
       {/* Önerilen kategoriler */}
-      <Text style={styles.header}>Önerilen Kategoriler</Text>
+      <Text style={styles.header}>{t('adminRewards.suggestedCategories')}</Text>
       <FlatList
         data={PRESETS}
         horizontal
-        keyExtractor={(i) => i.label}
+        keyExtractor={(i) => i.value}
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={{ paddingVertical: 6 }}
         renderItem={({ item }) => (
-          <TouchableOpacity onPress={() => selectOrCreatePreset(item.label)}
+          <TouchableOpacity onPress={() => selectOrCreatePreset(item.value)}
             style={[styles.presetChip, { borderColor: '#eee' }]}>
             <Text style={{ fontSize: 16, marginRight: 6 }}>{item.emoji}</Text>
-            <Text style={{ fontWeight: '800' }}>{item.label}</Text>
+            <Text style={{ fontWeight: '800' }}>{t(item.labelKey)}</Text>
           </TouchableOpacity>
         )}
       />
 
       {/* Mevcut kategoriler (SEÇ + SİL) */}
-      <Text style={[styles.header, { marginTop: 18 }]}>Kategori Seç</Text>
+      <Text style={[styles.header, { marginTop: 18 }]}>{t('adminRewards.selectCategory')}</Text>
       <FlatList
         data={cats}
         keyExtractor={(i) => i.id}
@@ -331,50 +333,50 @@ export default function AddMarket() {
       {/* rozet */}
       {activeCatObj && (
         <View style={styles.badgeRow}>
-          <Text style={{ color: MUTED }}>Raf Tipi:</Text>
+          <Text style={{ color: MUTED }}>{t('adminRewards.shelfTypeLabel')}</Text>
           <Text style={{ marginLeft: 6, fontWeight: '900', color: BRAND }}>{shelfHint}</Text>
         </View>
       )}
 
       {/* Yeni kategori oluştur */}
-      <Text style={[styles.header, { marginTop: 18 }]}>Yeni Kategori Ekle</Text>
+      <Text style={[styles.header, { marginTop: 18 }]}>{t('adminRewards.addCategoryTitle')}</Text>
       <View style={styles.row}>
-        <TextInput value={catName} onChangeText={setCatName} placeholder="Kategori adı" style={styles.input} />
-        <TouchableOpacity onPress={createCat} style={styles.btn}><Text style={styles.btnTxt}>Kaydet</Text></TouchableOpacity>
+        <TextInput value={catName} onChangeText={setCatName} placeholder={t('adminRewards.categoryNamePlaceholder')} style={styles.input} />
+        <TouchableOpacity onPress={createCat} style={styles.btn}><Text style={styles.btnTxt}>{t('common.save')}</Text></TouchableOpacity>
       </View>
 
       {/* Ödül formu */}
-      <Text style={[styles.header, { marginTop: 24 }]}>Ödül Ekle</Text>
-      <TextInput value={name} onChangeText={setName} placeholder="Ödül adı" style={styles.input} />
-      <TextInput value={desc} onChangeText={setDesc} placeholder="Açıklama (opsiyonel)" style={styles.input} />
-      <TextInput value={price} onChangeText={setPrice} keyboardType="numeric" placeholder="XP fiyatı" style={styles.input} />
-      <TextInput value={stock} onChangeText={setStock} keyboardType="numeric" placeholder="Stok (opsiyonel)" style={styles.input} />
+      <Text style={[styles.header, { marginTop: 24 }]}>{t('adminRewards.addRewardTitle')}</Text>
+      <TextInput value={name} onChangeText={setName} placeholder={t('adminRewards.rewardNamePlaceholder')} style={styles.input} />
+      <TextInput value={desc} onChangeText={setDesc} placeholder={t('adminRewards.rewardDescPlaceholder')} style={styles.input} />
+      <TextInput value={price} onChangeText={setPrice} keyboardType="numeric" placeholder={t('adminRewards.rewardPricePlaceholder')} style={styles.input} />
+      <TextInput value={stock} onChangeText={setStock} keyboardType="numeric" placeholder={t('adminRewards.rewardStockPlaceholder')} style={styles.input} />
 
-      <Text style={[styles.sub, { marginTop: 8 }]}>Görsel</Text>
+      <Text style={[styles.sub, { marginTop: 8 }]}>{t('adminRewards.imageLabel')}</Text>
       {localUri
         ? <Image source={{ uri: localUri }} style={{ width: '100%', height: 180, borderRadius: 12 }} />
         : <View style={{ width: '100%', height: 160, borderRadius: 12, backgroundColor: '#f3f3f3' }} />}
       <TouchableOpacity onPress={pickImage} style={[styles.btn, { backgroundColor: '#3D5AFE', marginTop: 8 }]}>
-        <Text style={styles.btnTxt}>Görsel Seç</Text>
+        <Text style={styles.btnTxt}>{t('adminRewards.pickImage')}</Text>
       </TouchableOpacity>
 
       <TouchableOpacity onPress={createItem} disabled={!activeCat || saving}
         style={[styles.btn, { opacity: activeCat && !saving ? 1 : 0.6, marginTop: 10 }]}>
-        <Text style={styles.btnTxt}>{saving ? 'Kaydediliyor...' : 'Ödülü Kaydet'}</Text>
+        <Text style={styles.btnTxt}>{saving ? t('adminRewards.saving') : t('adminRewards.saveReward')}</Text>
       </TouchableOpacity>
 
       {/* canlı market önizleme */}
       <Preview />
 
       {/* Yönetim: Seçili kategorideki ödüller */}
-      <Text style={[styles.header, { marginTop: 26 }]}>Ödülleri Yönet</Text>
-      {!activeCat && <Text style={{ color: MUTED, marginTop: 6 }}>Önce bir kategori seç.</Text>}
+      <Text style={[styles.header, { marginTop: 26 }]}>{t('adminRewards.manageRewardsTitle')}</Text>
+      {!activeCat && <Text style={{ color: MUTED, marginTop: 6 }}>{t('adminRewards.selectCategoryFirst')}</Text>}
       {activeCat && (
         <>
           {loadingList ? (
-            <Text style={{ color: MUTED, marginTop: 8 }}>Yükleniyor…</Text>
+            <Text style={{ color: MUTED, marginTop: 8 }}>{t('common.loading')}</Text>
           ) : items.length === 0 ? (
-            <Text style={{ color: MUTED, marginTop: 8 }}>Bu kategoride ürün yok.</Text>
+            <Text style={{ color: MUTED, marginTop: 8 }}>{t('adminRewards.emptyCategory')}</Text>
           ) : (
             <View style={{ marginTop: 8 }}>
               {items.map(row => (
@@ -385,11 +387,11 @@ export default function AddMarket() {
                   <View style={{ flex: 1 }}>
                     <Text numberOfLines={1} style={{ fontWeight: '900' }}>{row.name}</Text>
                     <Text style={{ color: MUTED, marginTop: 2 }}>
-                      {row.int_price.toLocaleString()} XP · Stok: {row.stock}
+                      {t('adminRewards.itemLine', { price: row.int_price.toLocaleString(numberLocale), stock: row.stock })}
                     </Text>
                   </View>
                   <TouchableOpacity onPress={() => deleteItem(row)} style={styles.deleteBtn}>
-                    <Text style={{ color:'#fff', fontWeight:'900' }}>Sil</Text>
+                    <Text style={{ color:'#fff', fontWeight:'900' }}>{t('common.delete')}</Text>
                   </TouchableOpacity>
                 </View>
               ))}

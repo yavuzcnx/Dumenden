@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabaseClient';
+import { useI18n } from '@/lib/i18n';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -48,6 +49,7 @@ type Proof = {
 
 export default function AdminProofManage() {
   const router = useRouter();
+  const { t, numberLocale } = useI18n();
   const [proofs, setProofs] = useState<Proof[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -70,7 +72,7 @@ export default function AdminProofManage() {
 
     if (error) {
       console.log('Fetch error:', error);
-      Alert.alert('Hata', 'Veriler çekilemedi.');
+      Alert.alert(t('common.error'), t('adminVitrin.loadFailed'));
     } else {
       setProofs((data as any) || []);
     }
@@ -84,18 +86,18 @@ export default function AdminProofManage() {
   // 2. Silme İşlemi
   const handleDelete = (item: Proof) => {
     Alert.alert(
-      'Silinecek!',
-      `"${item.title || 'Başlıksız'}" kanıtını silmek istediğine emin misin?`,
+      t('adminVitrin.deleteTitle'),
+      t('adminVitrin.deleteBody', { title: item.title || t('adminVitrin.untitled') }),
       [
-        { text: 'Vazgeç', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Sil',
+          text: t('common.delete'),
           style: 'destructive',
           onPress: async () => {
             setProofs((prev) => prev.filter((p) => p.id !== item.id));
             const { error } = await supabase.from('coupon_proofs').delete().eq('id', item.id);
             if (error) {
-              Alert.alert('Hata', error.message);
+              Alert.alert(t('common.error'), error.message);
               fetchProofs(); 
             }
           },
@@ -125,7 +127,7 @@ export default function AdminProofManage() {
     setEditModalVisible(false);
 
     if (error) {
-      Alert.alert('Hata', 'Güncellenemedi: ' + error.message);
+      Alert.alert(t('common.error'), `${t('adminVitrin.updateFailed')}: ${error.message}`);
     } else {
       setProofs((prev) =>
         prev.map((p) => (p.id === selectedProof.id ? { ...p, title: newTitle } : p))
@@ -149,20 +151,20 @@ export default function AdminProofManage() {
         
         {/* Durum Rozeti */}
         <View style={[styles.badge, { backgroundColor: item.status === 'approved' ? COLORS.success : COLORS.warning }]}>
-            <Text style={styles.badgeText}>{item.status === 'approved' ? 'Onaylı' : 'Beklemede'}</Text>
+            <Text style={styles.badgeText}>{item.status === 'approved' ? t('adminVitrin.statusApproved') : t('adminVitrin.statusPending')}</Text>
         </View>
       </View>
 
       {/* İçerik */}
       <View style={styles.cardContent}>
         <Text style={styles.cardTitle} numberOfLines={2}>
-          {item.title || 'Başlıksız Kanıt'}
+          {item.title || t('adminVitrin.untitled')}
         </Text>
         <Text style={styles.cardSub} numberOfLines={1}>
-          Kupon: {item.coupons?.title || 'Silinmiş Kupon'}
+          {t('adminVitrin.couponLabel')} {item.coupons?.title || t('adminVitrin.deletedCoupon')}
         </Text>
         <Text style={styles.date}>
-          {new Date(item.created_at).toLocaleDateString('tr-TR')}
+          {new Date(item.created_at).toLocaleDateString(numberLocale)}
         </Text>
       </View>
 
@@ -187,8 +189,8 @@ export default function AdminProofManage() {
           <Ionicons name="arrow-back" size={24} color={COLORS.text} />
         </TouchableOpacity>
         <View>
-            <Text style={styles.headerTitle}>Kanıt Yönetimi</Text>
-            <Text style={styles.headerSub}>Vitrin Düzenle & Sil</Text>
+            <Text style={styles.headerTitle}>{t('adminVitrin.title')}</Text>
+            <Text style={styles.headerSub}>{t('adminVitrin.subtitle')}</Text>
         </View>
         <TouchableOpacity onPress={() => { setLoading(true); fetchProofs(); }} style={styles.iconBtn}>
              <Ionicons name="refresh" size={20} color={COLORS.primary} />
@@ -210,7 +212,7 @@ export default function AdminProofManage() {
           showsVerticalScrollIndicator={false}
           ListEmptyComponent={
             <View style={styles.center}>
-              <Text style={{ color: '#999' }}>Hiç kanıt bulunamadı.</Text>
+              <Text style={{ color: '#999' }}>{t('adminVitrin.empty')}</Text>
             </View>
           }
         />
@@ -220,23 +222,23 @@ export default function AdminProofManage() {
       <Modal visible={editModalVisible} transparent animationType="fade" onRequestClose={() => setEditModalVisible(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalContainer}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Kanıtı Düzenle</Text>
+            <Text style={styles.modalTitle}>{t('adminVitrin.editTitle')}</Text>
             
-            <Text style={styles.label}>Görünen Başlık</Text>
+            <Text style={styles.label}>{t('adminVitrin.visibleTitle')}</Text>
             <TextInput
               style={styles.input}
               value={newTitle}
               onChangeText={setNewTitle}
-              placeholder="Başlık girin..."
+              placeholder={t('adminVitrin.titlePlaceholder')}
               placeholderTextColor="#999"
             />
 
             <View style={styles.modalButtons}>
               <TouchableOpacity style={styles.cancelBtn} onPress={() => setEditModalVisible(false)}>
-                <Text style={styles.cancelText}>İptal</Text>
+                <Text style={styles.cancelText}>{t('common.cancel')}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.saveBtn} onPress={handleSave} disabled={saving}>
-                {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveText}>Kaydet</Text>}
+                {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveText}>{t('common.save')}</Text>}
               </TouchableOpacity>
             </View>
           </View>

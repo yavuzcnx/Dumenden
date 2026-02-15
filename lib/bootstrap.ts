@@ -36,6 +36,9 @@ export async function ensureBootstrapAndProfile() {
     let full_name = sOrNull(md.full_name) || sOrNull(md.name) || sOrNull(md.user_name);
     let phone_number = sOrNull(md.phone_number);
     let birth_date = normalizeBirthDate(md.birth_date);
+    const terms_accepted = !!md.terms_accepted;
+    const terms_version = sOrNull(md.terms_version);
+    const terms_accepted_at = md.terms_accepted_at ?? null;
 
     // Eğer metadata boşsa ve email varsa, local storage'daki draft'a bak (Email kaydı için)
     if (!full_name && !phone_number && !birth_date && user.email) {
@@ -75,6 +78,9 @@ export async function ensureBootstrapAndProfile() {
         full_name: full_name,
         phone_number: phone_number,
         birth_date: birth_date,
+        terms_accepted: terms_accepted || null,
+        terms_version: terms_version,
+        terms_accepted_at: terms_accepted_at,
         // xp ve is_plus varsayılan değerlerle veritabanında oluşur
       }]);
       
@@ -85,6 +91,9 @@ export async function ensureBootstrapAndProfile() {
       if (full_name) patch.full_name = full_name;
       if (phone_number) patch.phone_number = phone_number;
       if (birth_date) patch.birth_date = birth_date;
+      if (terms_accepted) patch.terms_accepted = true;
+      if (terms_version) patch.terms_version = terms_version;
+      if (terms_accepted_at) patch.terms_accepted_at = terms_accepted_at;
       
       if (Object.keys(patch).length > 0) {
         await supabase.from('users').update(patch).eq('id', user.id);

@@ -2,6 +2,8 @@
 
 import CartRibbon from '@/components/CartRibbon';
 import { resolveStorageUrlSmart } from '@/lib/resolveStorageUrlSmart';
+import { useI18n } from '@/lib/i18n';
+import { useBlocks } from '@/lib/blocks';
 import { supabase } from '@/lib/supabaseClient';
 import { useXp } from '@/src/contexts/XpProvider';
 import { Ionicons } from '@expo/vector-icons';
@@ -14,7 +16,14 @@ import {
   Platform, Pressable, SafeAreaView, ScrollView, StatusBar, Text, TouchableOpacity, View,
 } from 'react-native';
 
-const CATS = ['Tümü', 'Gündem', 'Spor', 'Magazin', 'Politika', 'Absürt'];
+const CATS = [
+  { value: 'all', labelKey: 'categories.all' },
+  { value: 'Gündem', labelKey: 'categories.agenda' },
+  { value: 'Spor', labelKey: 'categories.sports' },
+  { value: 'Magazin', labelKey: 'categories.entertainment' },
+  { value: 'Politika', labelKey: 'categories.politics' },
+  { value: 'Absürt', labelKey: 'categories.absurd' },
+];
 
 type Row = {
   id: string | number;
@@ -73,13 +82,15 @@ const EmojiBurst = ({ onDone }: { onDone?: () => void }) => {
 /* ============================ Component ============================ */
 export default function Explore() {
   const router = useRouter();
+  const { t, numberLocale } = useI18n();
+  const { blockedSet } = useBlocks();
 
   const [loading, setLoading] = useState(true);
   const { xp, loading: xpLoading, refresh } = useXp();
   const [xpLocal, setXpLocal] = useState<number | null>(null);
   useEffect(() => { setXpLocal(xp); }, [xp]);
 
-  const [cat, setCat] = useState('Tümü');
+  const [cat, setCat] = useState('all');
   const [rows, setRows] = useState<Row[]>([]);
   const [myId, setMyId] = useState<string | null>(null);
 
@@ -126,12 +137,13 @@ export default function Explore() {
       .order('created_at', { ascending: false })
       .limit(120);
 
-    if (cat !== 'Tümü') q = q.eq('category', cat);
+    if (cat !== 'all') q = q.eq('category', cat);
 
     const r = await q;
     if (r.error) { console.log('EXPLORE load error:', r.error); setRows([]); setLoading(false); return; }
 
     const list: Row[] = (r.data ?? []) as any;
+    const filtered = list.filter((it) => !it.created_by || !blockedSet.has(it.created_by));
 
     await Promise.all(
       list.map(async (it) => {
@@ -143,11 +155,11 @@ export default function Explore() {
       })
     );
 
-    setRows(list);
+    setRows(filtered);
     setLoading(false);
   };
 
-  useEffect(() => { load(); }, [cat]);
+  useEffect(() => { load(); }, [cat, blockedSet]);
   useEffect(() => { refresh().catch(() => {}); }, []);
 
   useEffect(() => {
@@ -220,12 +232,12 @@ export default function Explore() {
       !!row.paid_out_at ||
       new Date(row.closing_date).getTime() <= Date.now();
     if (isClosed) {
-      Alert.alert('Kupon kapandi', 'Bu kupon sonuclandigi icin oynanamaz.');
+      Alert.alert(t('home.couponClosedTitle'), t('explore.couponClosedPlay'));
       return;
     }
     
     if (myId && row.created_by === myId) {
-        Alert.alert("Hata", "Kendi oluşturduğun kupona bahis oynayamazsın.");
+        Alert.alert(t('common.error'), t('explore.ownCouponError'));
         return;
     }
 
@@ -257,7 +269,7 @@ export default function Explore() {
       .map((c: any) => String(c.id));
     if (closedIds.length > 0) {
       setBasket((prev) => prev.filter((b) => !closedIds.includes(String(b.coupon_id))));
-      Alert.alert('Kupon kapandi', 'Bazi kuponlar sonuclandigi icin sepetten kaldirildi.');
+      Alert.alert(t('home.couponClosedTitle'), t('home.couponClosedBody'));
       await refresh().catch(() => {});
       return false;
     }
@@ -276,11 +288,11 @@ export default function Explore() {
         )
       );
       setXpLocal((prev) => Math.max(0, (prev ?? xp) - totalStake));
-      Alert.alert('Tamam', 'Bahis(ler) oynandı.');
+      Alert.alert(t('common.ok'), t('explore.betPlaced'));
       setBasket([]); setShowBasket(false);
       await refresh().catch(() => {});
     } catch (e: any) {
-      Alert.alert('Hata', e.message || 'İşlem başarısız');
+      Alert.alert(t('common.error'), e.message || t('explore.playFailed'));
     } finally { setBusy(false); }
   };
 
@@ -339,7 +351,9 @@ export default function Explore() {
         {hasProof && (
           <TouchableOpacity onPress={() => openProofs(item)}
             style={{ position: 'absolute', top: 10, left: 10, backgroundColor: '#16a34a', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12, transform: [{ rotate: '-5deg' }], zIndex: 10 }}>
-            <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12 }}>📎 Kanıt ({proofCount})</Text>
+            <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12 }}>
+              {t('explore.proofBadge', { count: proofCount })}
+            </Text>
           </TouchableOpacity>
         )}
 
@@ -355,19 +369,19 @@ export default function Explore() {
               <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
                 <TouchableOpacity disabled={locked || !item.yes_price} onPress={() => addOnceToBasket(item, 'YES')}
                   style={{ flex: 1, backgroundColor: '#E8F1FF', borderWidth: 1, borderColor: '#C9E0FF', paddingVertical: 8, borderRadius: 12, alignItems: 'center', opacity: locked ? 0.45 : 1 }}>
-                  <Text style={{ color: '#1B66FF', fontWeight: '900', fontSize: 12 }}>Yes</Text>
-                  <Text style={{ fontWeight: '900', fontSize: 13 }}>{item.yes_price?.toFixed(2) ?? '-'}</Text>
+                  <Text style={{ color: '#1B66FF', fontWeight: '900', fontSize: 12 }}>{t('common.yes')}</Text>
+                  <Text style={{ fontWeight: '900', fontSize: 13 }}>{item.yes_price?.toFixed(2) ?? t('common.dash')}</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity disabled={locked || !item.no_price} onPress={() => addOnceToBasket(item, 'NO')}
                   style={{ flex: 1, backgroundColor: '#FFE6EF', borderWidth: 1, borderColor: '#FFC7DA', paddingVertical: 8, borderRadius: 12, alignItems: 'center', opacity: locked ? 0.45 : 1 }}>
-                  <Text style={{ color: '#D61C7B', fontWeight: '900', fontSize: 12 }}>No</Text>
-                  <Text style={{ fontWeight: '900', fontSize: 13 }}>{item.no_price?.toFixed(2) ?? '-'}</Text>
+                  <Text style={{ color: '#D61C7B', fontWeight: '900', fontSize: 12 }}>{t('common.no')}</Text>
+                  <Text style={{ fontWeight: '900', fontSize: 13 }}>{item.no_price?.toFixed(2) ?? t('common.dash')}</Text>
                 </TouchableOpacity>
               </View>
           ) : (
               <View style={{ padding: 8, backgroundColor: '#FFF3E0', borderRadius: 10, alignItems: 'center', borderWidth: 1, borderColor: '#FFE0B2', marginTop: 4 }}>
-                  <Text style={{ color: '#E65100', fontWeight: '800', fontSize: 11 }}>Kendi kuponuna oynayamazsın</Text>
+                  <Text style={{ color: '#E65100', fontWeight: '800', fontSize: 11 }}>{t('explore.ownCouponHint')}</Text>
               </View>
           )}
         </View>
@@ -388,19 +402,19 @@ export default function Explore() {
         {/* HEADER */}
         <View style={{ paddingHorizontal: 16, paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) : 0, paddingBottom: 8 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Text style={{ fontSize: 28, fontWeight: '900', color: '#FF6B00' }}>Keşfet</Text>
+            <Text style={{ fontSize: 28, fontWeight: '900', color: '#FF6B00' }}>{t('tabs.explore')}</Text>
             <View style={{ marginLeft: 'auto', backgroundColor: '#FFF2E8', borderWidth: 1, borderColor: '#FF6B00', paddingVertical: 6, paddingHorizontal: 10, borderRadius: 20 }}>
               <Text style={{ color: '#FF6B00', fontWeight: '800' }}>
-                {xpLoading ? '...' : (xpLocal ?? xp).toLocaleString('tr-TR')} XP
+                {xpLoading ? t('common.loadingShort') : (xpLocal ?? xp).toLocaleString(numberLocale)} XP
               </Text>
             </View>
           </View>
-          <Text style={{ color: '#6B7280', marginTop: 4 }}>Plus kullanıcılarının en iyi kuponları</Text>
+          <Text style={{ color: '#6B7280', marginTop: 4 }}>{t('explore.subtitle')}</Text>
 
           <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
             {CATS.map((c) => (
-              <TouchableOpacity key={c} onPress={() => setCat(c)} style={{ paddingVertical: 8, paddingHorizontal: 14, borderRadius: 12, backgroundColor: cat === c ? '#FF6B00' : '#eee' }}>
-                <Text style={{ color: cat === c ? '#fff' : '#333', fontWeight: '700' }}>{c}</Text>
+              <TouchableOpacity key={c.value} onPress={() => setCat(c.value)} style={{ paddingVertical: 8, paddingHorizontal: 14, borderRadius: 12, backgroundColor: cat === c.value ? '#FF6B00' : '#eee' }}>
+                <Text style={{ color: cat === c.value ? '#fff' : '#333', fontWeight: '700' }}>{t(c.labelKey)}</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -433,22 +447,24 @@ export default function Explore() {
               shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 10, elevation: 8
             }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
-                <Text style={{ fontWeight: '900', fontSize: 18 }}>Sepet</Text>
+                <Text style={{ fontWeight: '900', fontSize: 18 }}>{t('home.basketTitle')}</Text>
                 <TouchableOpacity onPress={() => setShowBasket(false)} style={{ marginLeft: 'auto' }}>
-                  <Text style={{ fontWeight: '800' }}>Kapat</Text>
+                  <Text style={{ fontWeight: '800' }}>{t('common.close')}</Text>
                 </TouchableOpacity>
               </View>
 
               {basket.length === 0 ? (
-                <Text style={{ color: '#666' }}>Sepet boş.</Text>
+                <Text style={{ color: '#666' }}>{t('explore.basketEmpty')}</Text>
               ) : (
                 <ScrollView style={{ maxHeight: height * 0.45 }}>
                   {basket.map((b) => (
                     <View key={`${b.coupon_id}`} style={{ borderWidth: 1, borderColor: '#eee', borderRadius: 14, padding: 12, marginBottom: 10, backgroundColor: '#FAFAFB' }}>
                       <Text style={{ fontWeight: '800' }}>{b.title}</Text>
-                      <Text style={{ color: '#666', marginTop: 4 }}>{b.side} • Fiyat: {b.price.toFixed(2)} • XP: {b.stake}</Text>
+                      <Text style={{ color: '#666', marginTop: 4 }}>
+                        {t('explore.basketItemLine', { side: b.side, price: b.price.toFixed(2), stake: b.stake })}
+                      </Text>
                       <TouchableOpacity onPress={() => removeFromBasket(b.coupon_id)} style={{ position: 'absolute', right: 12, top: 12, backgroundColor: '#ef4444', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 6 }}>
-                        <Text style={{ color: '#fff', fontWeight: '800' }}>Sil</Text>
+                        <Text style={{ color: '#fff', fontWeight: '800' }}>{t('common.delete')}</Text>
                       </TouchableOpacity>
                     </View>
                   ))}
@@ -456,17 +472,19 @@ export default function Explore() {
               )}
 
               <View style={{ marginTop: 8 }}>
-                <Text style={{ fontWeight: '900' }}>Toplam Stake: {totalStake} XP</Text>
+                <Text style={{ fontWeight: '900' }}>{t('explore.totalStake', { total: totalStake })}</Text>
               </View>
 
               <View style={{ flexDirection: 'row', gap: 10, marginTop: 12 }}>
                 <TouchableOpacity disabled={basket.length === 0 || busy} onPress={confirmBasket}
                   style={{ flex: 1, backgroundColor: (basket.length === 0 || busy) ? '#f3a774' : '#FF6B00', padding: 14, borderRadius: 14, alignItems: 'center' }}>
-                  <Text style={{ color: '#fff', fontWeight: '900' }}>{busy ? 'İşleniyor…' : 'Onayla / Oyna'}</Text>
+                  <Text style={{ color: '#fff', fontWeight: '900' }}>
+                    {busy ? t('common.processing') : t('home.confirmPlay')}
+                  </Text>
                 </TouchableOpacity>
                 <TouchableOpacity disabled={basket.length === 0 || busy} onPress={() => setBasket([])}
                   style={{ flex: 1, backgroundColor: '#F0F1F4', padding: 14, borderRadius: 14, alignItems: 'center', opacity: (basket.length === 0 || busy) ? 0.6 : 1 }}>
-                  <Text style={{ fontWeight: '900' }}>Sepeti Temizle</Text>
+                  <Text style={{ fontWeight: '900' }}>{t('common.clear')}</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -509,14 +527,14 @@ export default function Explore() {
                  {proofSheet?.title}
                 </Text>
                 <TouchableOpacity onPress={() => setProofSheet(null)} style={{ marginLeft: 'auto' }}>
-                  <Text style={{ fontWeight: '800', color: '#666' }}>Kapat</Text>
+                  <Text style={{ fontWeight: '800', color: '#666' }}>{t('common.close')}</Text>
                 </TouchableOpacity>
               </View>
 
               {loadingProofs ? (
                 <ActivityIndicator style={{ marginVertical: 40 }} color="#FF6B00" />
               ) : proofs.length === 0 ? (
-                <Text style={{ color: '#666', paddingHorizontal: 16 }}>Onaylı kanıt yok.</Text>
+                <Text style={{ color: '#666', paddingHorizontal: 16 }}>{t('explore.noProofs')}</Text>
               ) : (
                 <ScrollView contentContainerStyle={{ paddingHorizontal: 16 }}>
                   <View style={{ gap: 16, paddingBottom: 20 }}>
@@ -546,7 +564,7 @@ export default function Explore() {
                               {p.title}
                               </Text>
                               <Text style={{ color: '#666', fontSize: 11, marginTop: 4 }}>
-                                  {new Date(p.created_at).toLocaleDateString()} tarihinde eklendi
+                                  {t('explore.proofAddedOn', { date: new Date(p.created_at).toLocaleDateString() })}
                               </Text>
                           </View>
                         )}
@@ -579,17 +597,19 @@ export default function Explore() {
                     
                     {myId && focusCard.created_by === myId ? (
                         <View style={{ padding: 12, backgroundColor: '#FFF3E0', borderRadius: 12, alignItems: 'center', marginTop:12, borderWidth: 1, borderColor: '#FFE0B2' }}>
-                            <Text style={{ color: '#E65100', fontWeight: '800', fontSize: 14 }}>Sana ait kupon (Bahis Kapalı)</Text>
+                            <Text style={{ color: '#E65100', fontWeight: '800', fontSize: 14 }}>{t('explore.ownCouponLocked')}</Text>
                         </View>
                     ) : (
                         <View style={{ flexDirection: 'row', gap: 10, marginTop: 12 }}>
                           <TouchableOpacity disabled={basket.length === 0 || busy} onPress={confirmBasket}
                             style={{ flex: 1, backgroundColor: (basket.length === 0 || busy) ? '#f3a774' : '#FF6B00', padding: 14, borderRadius: 14, alignItems: 'center' }}>
-                            <Text style={{ color: '#fff', fontWeight: '900' }}>{busy ? 'İşleniyor…' : 'Onayla / Oyna'}</Text>
+                            <Text style={{ color: '#fff', fontWeight: '900' }}>
+                              {busy ? t('common.processing') : t('home.confirmPlay')}
+                            </Text>
                           </TouchableOpacity>
                           <TouchableOpacity disabled={basket.length === 0 || busy} onPress={() => setBasket([])}
                             style={{ flex: 1, backgroundColor: '#F0F1F4', padding: 14, borderRadius: 14, alignItems: 'center', opacity: (basket.length === 0 || busy) ? 0.6 : 1 }}>
-                            <Text style={{ fontWeight: '900' }}>Sepeti Temizle</Text>
+                            <Text style={{ fontWeight: '900' }}>{t('common.clear')}</Text>
                           </TouchableOpacity>
                         </View>
                     )}

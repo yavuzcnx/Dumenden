@@ -1,6 +1,7 @@
 'use client';
 
 import { supabase } from '@/lib/supabaseClient';
+import { useI18n } from '@/lib/i18n';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -17,6 +18,7 @@ import {
 } from 'react-native';
 
 export default function AdminSettingsPage() {
+  const { t } = useI18n();
   const [users, setUsers] = useState<any[]>([]);
   const [search, setSearch] = useState('');
   const router = useRouter();
@@ -33,7 +35,7 @@ export default function AdminSettingsPage() {
   const handleBlock = async (id: string) => {
     const { error } = await supabase.from('users').update({ is_blocked: true }).eq('id', id);
     if (!error) {
-      Alert.alert('Kullanıcı Engellendi');
+      Alert.alert(t('adminSettings.blockedTitle'));
       fetchUsers();
     }
   };
@@ -41,7 +43,7 @@ export default function AdminSettingsPage() {
   const handleUnblock = async (id: string) => {
     const { error } = await supabase.from('users').update({ is_blocked: false }).eq('id', id);
     if (!error) {
-      Alert.alert('Kullanıcı Engeli Kaldırıldı');
+      Alert.alert(t('adminSettings.unblockedTitle'));
       fetchUsers();
     }
   };
@@ -52,12 +54,12 @@ export default function AdminSettingsPage() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.header}>Admin Ayarları - Kullanıcı Yönetimi</Text>
+      <Text style={styles.header}>{t('adminSettings.title')}</Text>
     <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
       <Ionicons name="arrow-back" size={24} color="#FF6B00" />
     </TouchableOpacity>
       <TextInput
-        placeholder="Kullanıcı Ara..."
+        placeholder={t('adminSettings.searchPlaceholder')}
         value={search}
         onChangeText={setSearch}
         style={styles.searchBar}
@@ -69,18 +71,18 @@ export default function AdminSettingsPage() {
         renderItem={({ item }) => (
           <View style={styles.userRow}>
             <View>
-              <Text style={styles.userName}>{item.full_name || 'İsimsiz'}</Text>
+              <Text style={styles.userName}>{item.full_name || t('adminSettings.unnamedUser')}</Text>
               <Text style={styles.userEmail}>{item.email}</Text>
             </View>
             <TouchableOpacity
               style={[styles.blockButton, { backgroundColor: item.is_blocked ? '#4CAF50' : '#E53935' }]}
               onPress={() => (item.is_blocked ? handleUnblock(item.id) : handleBlock(item.id))}
             >
-              <Text style={{ color: '#fff' }}>{item.is_blocked ? 'Engeli Kaldır' : 'Engelle'}</Text>
+              <Text style={{ color: '#fff' }}>{item.is_blocked ? t('adminSettings.unblockAction') : t('adminSettings.blockAction')}</Text>
             </TouchableOpacity>
           </View>
         )}
-        ListEmptyComponent={<Text style={{ textAlign: 'center', marginTop: 20 }}>Kullanıcı bulunamadı</Text>}
+        ListEmptyComponent={<Text style={{ textAlign: 'center', marginTop: 20 }}>{t('adminSettings.empty')}</Text>}
       />
     </View>
   );

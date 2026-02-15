@@ -1,5 +1,8 @@
 'use client';
 
+import CountryPickerModal from '@/components/CountryPickerModal';
+import { COUNTRIES, CountryCode } from '@/lib/countries';
+import { useI18n } from '@/lib/i18n';
 import { supabase } from '@/lib/supabaseClient';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
@@ -60,13 +63,17 @@ const guessExt = (uri: string) => {
 const contentType = (ext: string) =>
   ext === 'jpg' ? 'image/jpeg' : ext === 'heic' ? 'image/heic' : `image/${ext}`;
 
-async function uploadLocalImageToSupabase(localUri: string, path?: string) {
+async function uploadLocalImageToSupabase(
+  localUri: string,
+  path?: string,
+  readErrorMessage?: string
+) {
   const ext = guessExt(localUri);
   const key =
     path ?? `coupons/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext || 'jpg'}`;
 
   const res = await fetch(localUri);
-  if (!res.ok) throw new Error('Görsel okunamadı');
+  if (!res.ok) throw new Error(readErrorMessage || 'Image read failed');
   const buf = await res.arrayBuffer();
 
   const { error } = await supabase.storage
@@ -81,6 +88,7 @@ async function uploadLocalImageToSupabase(localUri: string, path?: string) {
 /* ---------- component ---------- */
 export default function AddCouponPage() {
   const router = useRouter();
+  const { t } = useI18n();
 
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState('Gündem');
@@ -103,6 +111,10 @@ export default function AddCouponPage() {
 
   const [imageUrl, setImageUrl] = useState('');
   const [proofUrl, setProofUrl] = useState('');
+
+  const [countryCode, setCountryCode] = useState<CountryCode>('TR');
+  const [countryModal, setCountryModal] = useState(false);
+  const selectedCountry = COUNTRIES.find((c) => c.code === countryCode) ?? COUNTRIES[0];
 
   const [liquidity, setLiquidity] = useState('0');
   const [isOpen, setIsOpen] = useState(true);
@@ -136,7 +148,7 @@ export default function AddCouponPage() {
   const askGallery = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (perm.status !== 'granted') {
-      Alert.alert('İzin gerekli', 'Galeriden görsel seçebilmek için izin ver.');
+      Alert.alert(t('adminAdd.permissionTitle'), t('adminAdd.permissionBody'));
       return false;
     }
     return true;
@@ -191,7 +203,12 @@ export default function AddCouponPage() {
       } = await supabase.auth.getSession();
       if (!session?.user?.id) {
         setLoading(false);
-        Alert.alert('Giriş gerekli', 'Kupon eklemek için önce giriş yap.');
+        Alert.alert(t('adminAdd.loginRequiredTitle'), t('adminAdd.loginRequiredBody'));
+        return;
+      }
+      if (!countryCode) {
+        setLoading(false);
+        Alert.alert(t('common.error'), t('adminAdd.countryRequired'));
         return;
       }
 
@@ -199,16 +216,25 @@ export default function AddCouponPage() {
       let finalImageUrl = imageUrl;
       let finalProofUrl = proofUrl;
       if (finalImageUrl?.startsWith('file:')) {
-        finalImageUrl = await uploadLocalImageToSupabase(finalImageUrl);
+        finalImageUrl = await uploadLocalImageToSupabase(
+          finalImageUrl,
+          undefined,
+          t('adminAdd.imageReadFail')
+        );
       }
       if (finalProofUrl?.startsWith('file:')) {
-        finalProofUrl = await uploadLocalImageToSupabase(finalProofUrl);
+        finalProofUrl = await uploadLocalImageToSupabase(
+          finalProofUrl,
+          undefined,
+          t('adminAdd.imageReadFail')
+        );
       }
 
       const payload: any = {
         title: title.trim(),
         description: description.trim() || null,
         category: category.trim() || null,
+        country_code: countryCode,
         closing_date: closingDate.toISOString(),
         image_url: finalImageUrl || null,
         proof_url: finalProofUrl || null,
@@ -224,7 +250,7 @@ export default function AddCouponPage() {
         const n = toNum(noOdds);
         if (!y || !n || y <= 1.01 || n <= 1.01) {
           setLoading(false);
-          Alert.alert('Hata', 'YES/NO oranları 1.01 ve üzeri olmalı.');
+          Alert.alert(t('common.error'), t('adminAdd.oddsError'));
           return;
         }
         payload.yes_price = y;
@@ -244,7 +270,9 @@ export default function AddCouponPage() {
           if (!l.name || !ny || !nn) continue;
 
           let img = l.image || null;
-          if (img?.startsWith('file:')) img = await uploadLocalImageToSupabase(img);
+          if (img?.startsWith('file:')) {
+            img = await uploadLocalImageToSupabase(img, undefined, t('adminAdd.imageReadFail'));
+          }
 
           prepared.push({
             name: l.name.trim(),
@@ -256,7 +284,7 @@ export default function AddCouponPage() {
 
         if (prepared.length === 0) {
           setLoading(false);
-          Alert.alert('Hata', 'En az bir aday ekleyip oranlarını girin.');
+          Alert.alert(t('common.error'), t('adminAdd.candidateError'));
           return;
         }
         payload.lines = prepared;
@@ -266,14 +294,14 @@ export default function AddCouponPage() {
       setLoading(false);
 
       if (error) {
-        Alert.alert('Hata', error.message);
+        Alert.alert(t('common.error'), error.message);
       } else {
-        Alert.alert('Başarılı', 'Kupon oluşturuldu.');
+        Alert.alert(t('adminAdd.createSuccessTitle'), t('adminAdd.createSuccessBody'));
         router.replace('/admin/landing');
       }
     } catch (e: any) {
       setLoading(false);
-      Alert.alert('Hata', e?.message || 'İşlem başarısız.');
+      Alert.alert(t('common.error'), e?.message || t('adminAdd.submitFail'));
     }
   };
 
@@ -302,30 +330,38 @@ export default function AddCouponPage() {
           <Ionicons name="arrow-back" size={24} color={ORANGE} />
         </TouchableOpacity>
 
-        <Text style={styles.title}>Market Ekle (Admin)</Text>
+        <Text style={styles.title}>{t('adminAdd.title')}</Text>
 
         {/* Tip seçimi */}
         <View style={styles.switchRow}>
-          {(['binary', 'multi'] as MarketType[]).map((t) => (
+          {(['binary', 'multi'] as MarketType[]).map((mode) => (
             <TouchableOpacity
-              key={t}
-              onPress={() => setMarketType(t)}
-              style={[styles.switchBtn, marketType === t && styles.switchBtnActive]}
+              key={mode}
+              onPress={() => setMarketType(mode)}
+              style={[styles.switchBtn, marketType === mode && styles.switchBtnActive]}
             >
-              <Text style={[styles.switchText, marketType === t && styles.switchTextActive]}>
-                {t === 'binary' ? 'Binary (YES/NO)' : 'Multi (Adaylı)'}
+              <Text style={[styles.switchText, marketType === mode && styles.switchTextActive]}>
+                {mode === 'binary' ? t('adminAdd.marketTypeBinary') : t('adminAdd.marketTypeMulti')}
               </Text>
             </TouchableOpacity>
           ))}
         </View>
 
         {/* Başlık */}
-        <TextInput placeholder="Başlık" value={title} onChangeText={setTitle} style={styles.input} />
+        <TextInput placeholder={t('adminAdd.titlePlaceholder')} value={title} onChangeText={setTitle} style={styles.input} />
 
         {/* Kategori */}
         <TouchableOpacity onPress={() => setCatModal(true)} style={[styles.input, { paddingVertical: 14 }]}>
           <Text style={{ color: '#333', fontWeight: '700' }}>
-            Kategori: <Text style={{ fontWeight: '900', color: ORANGE }}>{category}</Text>
+            {t('adminAdd.categoryLabel')}: <Text style={{ fontWeight: '900', color: ORANGE }}>{category}</Text>
+          </Text>
+        </TouchableOpacity>
+
+        {/* Country */}
+        <TouchableOpacity onPress={() => setCountryModal(true)} style={[styles.input, { paddingVertical: 14 }]}>
+          <Text style={{ color: '#333', fontWeight: '700' }}>
+            {t('adminAdd.countryLabel')}:{' '}
+            <Text style={{ fontWeight: '900', color: ORANGE }}>{t(selectedCountry.nameKey)} ({countryCode})</Text>
           </Text>
         </TouchableOpacity>
 
@@ -333,7 +369,7 @@ export default function AddCouponPage() {
         {Platform.OS === 'android' ? (
           <>
             <TouchableOpacity onPress={openAndroidPickers} style={[styles.input, { paddingVertical: 14 }]}>
-              <Text>Kapanış: {closingDate.toLocaleString()}</Text>
+              <Text>{t('adminAdd.closingLabel')}: {closingDate.toLocaleString()}</Text>
             </TouchableOpacity>
             {showDate && (
               <DateTimePicker value={closingDate} mode="date" display="calendar" onChange={onDateChange} />
@@ -344,7 +380,7 @@ export default function AddCouponPage() {
           </>
         ) : (
           <View style={{ overflow: 'hidden' }}>
-            <Text style={{ marginBottom: 6, fontWeight: '700' }}>Kapanış</Text>
+            <Text style={{ marginBottom: 6, fontWeight: '700' }}>{t('adminAdd.closingLabel')}</Text>
             <DateTimePicker
               value={closingDate}
               mode="datetime"
@@ -357,7 +393,7 @@ export default function AddCouponPage() {
 
         {/* Açıklama */}
         <TextInput
-          placeholder="Açıklama (opsiyonel)"
+          placeholder={t('adminAdd.descriptionPlaceholder')}
           value={description}
           onChangeText={setDescription}
           multiline
@@ -367,7 +403,7 @@ export default function AddCouponPage() {
         {/* Likidite + durum */}
         <View style={styles.row}>
           <TextInput
-            placeholder="Likidite (örn: 25000)"
+            placeholder={t('adminAdd.liquidityPlaceholder')}
             value={liquidity}
             onChangeText={(v) => setLiquidity(v.replace(/[^0-9]/g, ''))}
             keyboardType="numeric"
@@ -377,17 +413,17 @@ export default function AddCouponPage() {
             onPress={() => setIsOpen((v) => !v)}
             style={[styles.toggle, isOpen ? styles.toggleOn : styles.toggleOff]}
           >
-            <Text style={{ color: '#fff', fontWeight: 'bold' }}>{isOpen ? 'Açık' : 'Kapalı'}</Text>
+            <Text style={{ color: '#fff', fontWeight: 'bold' }}>{isOpen ? t('common.open') : t('common.closed')}</Text>
           </TouchableOpacity>
         </View>
 
         {/* Ana görsel & kanıt */}
         <View style={styles.row}>
           <TouchableOpacity onPress={() => pickImg(setImageUrl)} style={styles.smallBtn}>
-            <Text style={styles.btnText}>Görsel Seç</Text>
+            <Text style={styles.btnText}>{t('adminAdd.pickImage')}</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={() => pickImg(setProofUrl)} style={styles.smallBtnAlt}>
-            <Text style={styles.btnText}>Kanıt Seç</Text>
+            <Text style={styles.btnText}>{t('adminAdd.pickProof')}</Text>
           </TouchableOpacity>
         </View>
         {!!imageUrl && <Image source={{ uri: imageUrl }} style={styles.preview} />}
@@ -395,18 +431,18 @@ export default function AddCouponPage() {
         {/* Odds / Adaylar */}
         {marketType === 'binary' ? (
           <>
-            <Text style={styles.section}>Binary Oranları (Odds)</Text>
+            <Text style={styles.section}>{t('adminAdd.binaryOdds')}</Text>
             <View style={styles.row}>
               <TextInput
                 style={[styles.input, { flex: 1 }]}
-                placeholder="YES (örn: 1.80)"
+                placeholder={t('adminAdd.yesOddsPlaceholder')}
                 value={yesOdds}
                 onChangeText={(v) => setYesOdds(fmtOddsInput(v))}
                 keyboardType="decimal-pad"
               />
               <TextInput
                 style={[styles.input, { flex: 1 }]}
-                placeholder="NO (örn: 2.10)"
+                placeholder={t('adminAdd.noOddsPlaceholder')}
                 value={noOdds}
                 onChangeText={(v) => setNoOdds(fmtOddsInput(v))}
                 keyboardType="decimal-pad"
@@ -415,7 +451,7 @@ export default function AddCouponPage() {
           </>
         ) : (
           <>
-            <Text style={styles.section}>Aday Satırları</Text>
+            <Text style={styles.section}>{t('adminAdd.candidateRows')}</Text>
             {lines.map((l, i) => (
               <View key={i} style={styles.lineRow}>
                 <Pressable onPress={() => pickLineImage(i)} style={styles.avatarPick}>
@@ -429,20 +465,20 @@ export default function AddCouponPage() {
                 <TextInput
                   value={l.name}
                   onChangeText={(v) => setLine(i, 'name', v)}
-                  placeholder="Aday adı"
+                  placeholder={t('adminAdd.candidateName')}
                   style={[styles.input, { flex: 1 }]}
                 />
                 <TextInput
                   value={l.yesOdds}
                   onChangeText={(v) => setLine(i, 'yesOdds', fmtOddsInput(v))}
-                  placeholder="YES (1.50)"
+                  placeholder={t('adminAdd.yesOddsShort')}
                   keyboardType="decimal-pad"
                   style={[styles.input, { width: 110 }]}
                 />
                 <TextInput
                   value={l.noOdds}
                   onChangeText={(v) => setLine(i, 'noOdds', fmtOddsInput(v))}
-                  placeholder="NO (2.10)"
+                  placeholder={t('adminAdd.noOddsShort')}
                   keyboardType="decimal-pad"
                   style={[styles.input, { width: 110 }]}
                 />
@@ -453,13 +489,15 @@ export default function AddCouponPage() {
             ))}
             <TouchableOpacity onPress={addLine} style={styles.addLine}>
               <Ionicons name="add" size={18} color="#fff" />
-              <Text style={styles.btnText}>Aday Ekle</Text>
+              <Text style={styles.btnText}>{t('adminAdd.addCandidate')}</Text>
             </TouchableOpacity>
           </>
         )}
 
         <TouchableOpacity style={styles.submit} onPress={handleSubmit} disabled={loading}>
-          <Text style={styles.submitText}>{loading ? 'Kaydediliyor…' : 'Market Oluştur'}</Text>
+          <Text style={styles.submitText}>
+            {loading ? t('adminAdd.saving') : t('adminAdd.submit')}
+          </Text>
         </TouchableOpacity>
       </ScrollView>
 
@@ -467,7 +505,9 @@ export default function AddCouponPage() {
       <Modal visible={catModal} transparent animationType="fade">
         <View style={styles.modalWrap}>
           <View style={styles.modalCard}>
-            <Text style={{ fontWeight: '900', fontSize: 16, marginBottom: 10 }}>Kategori Seç</Text>
+            <Text style={{ fontWeight: '900', fontSize: 16, marginBottom: 10 }}>
+              {t('adminAdd.categorySelect')}
+            </Text>
             <ScrollView style={{ maxHeight: 260 }}>
               {allCats.map((c) => (
                 <TouchableOpacity
@@ -490,24 +530,34 @@ export default function AddCouponPage() {
               ))}
             </ScrollView>
             <View style={{ height: 1, backgroundColor: '#eee', marginVertical: 10 }} />
-            <Text style={{ fontWeight: '800', marginBottom: 6 }}>Yeni kategori</Text>
+            <Text style={{ fontWeight: '800', marginBottom: 6 }}>{t('adminAdd.newCategory')}</Text>
             <View style={{ flexDirection: 'row', gap: 8 }}>
               <TextInput
                 value={newCat}
                 onChangeText={setNewCat}
-                placeholder="Kategori adı"
+                placeholder={t('adminAdd.categoryName')}
                 style={[styles.input, { flex: 1, marginBottom: 0 }]}
               />
               <TouchableOpacity onPress={addCategory} style={[styles.smallBtn, { paddingHorizontal: 14 }]}>
-                <Text style={styles.btnText}>Ekle</Text>
+                <Text style={styles.btnText}>{t('common.add')}</Text>
               </TouchableOpacity>
             </View>
             <TouchableOpacity onPress={() => setCatModal(false)} style={[styles.smallBtnAlt, { marginTop: 12 }]}>
-              <Text style={styles.btnText}>Kapat</Text>
+              <Text style={styles.btnText}>{t('common.close')}</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
+
+      <CountryPickerModal
+        visible={countryModal}
+        value={countryCode}
+        onClose={() => setCountryModal(false)}
+        onSelect={(code) => {
+          setCountryModal(false);
+          setCountryCode(code);
+        }}
+      />
     </KeyboardAvoidingView>
   );
 }

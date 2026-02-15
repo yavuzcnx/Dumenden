@@ -1,17 +1,23 @@
 'use client';
 
 import CartRibbon from '@/components/CartRibbon';
+import CountryPickerModal from '@/components/CountryPickerModal';
 import MarketCard, { type Market } from '@/components/MarketCard';
+import { flagEmoji, useCountry } from '@/lib/countries';
+import { useI18n } from '@/lib/i18n';
 import { resolveStorageUrlSmart } from '@/lib/resolveStorageUrlSmart';
 import { supabase } from '@/lib/supabaseClient';
 import { useInterstitial } from '@/src/contexts/ads/interstitial';
 import { usePlus } from '@/src/contexts/hooks/usePlus';
 import { useXp } from '@/src/contexts/XpProvider';
+import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Animated,
   Dimensions,
@@ -40,10 +46,20 @@ import {
   RewardedAd,
   RewardedAdEventType,
   TestIds,
-} from 'react-native-google-mobile-ads';
+} from '@/src/contexts/ads/googleMobileAds';
 
-const CATS = ['Tümü', 'Gündem', 'Spor', 'Magazin', 'Politika', 'Absürt'];
+const CATS = [
+  { value: 'all', labelKey: 'categories.all' },
+  { value: 'Gündem', labelKey: 'categories.agenda' },
+  { value: 'Spor', labelKey: 'categories.sports' },
+  { value: 'Magazin', labelKey: 'categories.entertainment' },
+  { value: 'Politika', labelKey: 'categories.politics' },
+  { value: 'Absürt', labelKey: 'categories.absurd' },
+];
 const PAGE = 12;
+const ONBOARDING_KEY = 'onboarding_home_v1';
+
+type Rect = { x: number; y: number; w: number; h: number };
 
 // 🔥 REKLAM ID'LERİ (SABİT)
 const AD_UNIT_ID = Platform.select({
@@ -173,12 +189,12 @@ type MarketRow = Market & {
 };
 
 /* profil satırını garanti altına al */
-async function ensureUserProfile() {
+async function ensureUserProfile(fallbackName: string) {
   const { data: auth } = await supabase.auth.getUser();
   const u = auth?.user;
   if (!u) return;
   const full_name =
-    (u.user_metadata?.full_name as string) || (u.email ? u.email.split('@')[0] : 'Kullanıcı');
+    (u.user_metadata?.full_name as string) || (u.email ? u.email.split('@')[0] : fallbackName);
 await supabase.from('users').upsert(
   { id: u.id, full_name },
   { onConflict: 'id' }
@@ -227,8 +243,31 @@ async function playParlay(items: BasketItem[], stake: number) {
 
 export default function HomeScreen() {
   const router = useRouter();
+  const { t, numberLocale } = useI18n();
+  const {
+    country: selectedCountry,
+    setCountry,
+    ready: countryReady,
+    option: countryOption,
+  } = useCountry();
   const { xp, loading: xpLoading, refresh } = useXp();
   const { isPlus } = usePlus();
+  const [countryPickerOpen, setCountryPickerOpen] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
+
+  // Onboarding refs & state
+  const xpRef = useRef<View>(null);
+  const countryRef = useRef<View>(null);
+  const avatarRef = useRef<View>(null);
+  const firstCardRef = useRef<View>(null);
+  const [tourOpen, setTourOpen] = useState(false);
+  const [tourStep, setTourStep] = useState(0);
+  const [tourTargets, setTourTargets] = useState<{
+    xp?: Rect;
+    country?: Rect;
+    avatar?: Rect;
+    card?: Rect;
+  }>({});
 
   // 🔥 YENİ REKLAM HOOK'U KULLANIMI
   const { isLoaded: adLoaded, showAd } = useRewardedAd();
@@ -250,6 +289,48 @@ export default function HomeScreen() {
       }
     })();
   }, [isPlus, interLoaded, showIfEligible]);
+
+  const measureTargets = useCallback(() => {
+    const measure = (ref: any, key: keyof typeof tourTargets) => {
+      ref.current?.measureInWindow((x, y, w, h) => {
+        if (!w || !h) return;
+        setTourTargets((prev) => ({ ...prev, [key]: { x, y, w, h } }));
+      });
+    };
+    measure(xpRef, 'xp');
+    measure(countryRef, 'country');
+    measure(avatarRef, 'avatar');
+    measure(firstCardRef, 'card');
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      const seen = await AsyncStorage.getItem(ONBOARDING_KEY);
+      if (!seen) setTourOpen(true);
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (tourOpen) setTourStep(0);
+  }, [tourOpen]);
+
+  useEffect(() => {
+    if (!tourOpen) return;
+    const t = setTimeout(measureTargets, 80);
+    return () => clearTimeout(t);
+  }, [tourOpen, measureTargets, markets, selectedCountry, xpLoading]);
+
+  useEffect(() => {
+    const sub = Dimensions.addEventListener('change', () => {
+      if (!tourOpen) return;
+      setTimeout(measureTargets, 60);
+    });
+    return () => {
+      try {
+        sub?.remove();
+      } catch {}
+    };
+  }, [tourOpen, measureTargets]);
 
   /* -------- XP Topla cooldown + shimmer -------- */
   const [cooldownEnd, setCooldownEnd] = useState<Date | null>(null);
@@ -284,8 +365,72 @@ export default function HomeScreen() {
     const m = Math.ceil(ms / 60000);
     const h = Math.floor(m / 60),
       mm = m % 60;
-    return `${h}s ${mm}dk`;
+    return t('home.xpCooldownShort', { hours: h, minutes: mm });
   })();
+
+  const tourSteps = useMemo(() => {
+    const steps: Array<{ key: string; title: string; body: string; target: Rect }> = [];
+    if (tourTargets.xp) {
+      steps.push({
+        key: 'xp',
+        title: t('onboarding.xpTitle'),
+        body: t('onboarding.xpBody'),
+        target: tourTargets.xp,
+      });
+    }
+    if (tourTargets.country) {
+      steps.push({
+        key: 'country',
+        title: t('onboarding.countryTitle'),
+        body: t('onboarding.countryBody'),
+        target: tourTargets.country,
+      });
+    }
+    if (tourTargets.avatar) {
+      steps.push({
+        key: 'profile',
+        title: t('onboarding.profileTitle'),
+        body: t('onboarding.profileBody'),
+        target: tourTargets.avatar,
+      });
+    }
+    if (tourTargets.card) {
+      steps.push({
+        key: 'card',
+        title: t('onboarding.cardTitle'),
+        body: t('onboarding.cardBody'),
+        target: tourTargets.card,
+      });
+    }
+    return steps;
+  }, [tourTargets, t]);
+
+  const currentTour = tourSteps[tourStep];
+
+  const closeTour = useCallback(
+    async (markSeen = true) => {
+      if (markSeen) await AsyncStorage.setItem(ONBOARDING_KEY, '1');
+      setTourOpen(false);
+    },
+    [],
+  );
+
+  const nextTour = useCallback(async () => {
+    if (tourStep + 1 >= tourSteps.length) {
+      await closeTour(true);
+    } else {
+      setTourStep((s) => s + 1);
+    }
+  }, [tourStep, tourSteps.length, closeTour]);
+
+  useEffect(() => {
+    if (!tourOpen) return;
+    if (tourSteps.length === 0) {
+      setTourOpen(false);
+      return;
+    }
+    if (tourStep >= tourSteps.length) setTourStep(0);
+  }, [tourOpen, tourSteps.length, tourStep]);
 
   useEffect(() => {
     if (!toplaReady) return;
@@ -308,7 +453,10 @@ export default function HomeScreen() {
       const mins = Math.max(0, Math.ceil(ms / 60000));
       const h = Math.floor(mins / 60);
       const m = mins % 60;
-      Alert.alert('Üzgünüz 😔', `Yeni XP alımı için ${h} saat ${m} dakika daha bekle.`);
+      Alert.alert(
+        t('home.xpWaitTitle'),
+        t('home.xpWaitBody', { hours: h, minutes: m })
+      );
       return;
     }
 
@@ -316,7 +464,7 @@ export default function HomeScreen() {
     try {
       // 1) Reklam Hazır mı?
       if (!adLoaded) {
-        Alert.alert('Reklam Yükleniyor', 'Lütfen 3-5 saniye bekleyip tekrar dene.');
+        Alert.alert(t('home.adLoadingTitle'), t('home.adLoadingBody'));
         return; // Fonksiyondan çık
       }
 
@@ -324,14 +472,17 @@ export default function HomeScreen() {
       const earned = await showAd();
       
       if (!earned) {
-        Alert.alert('Ödül Alınamadı', 'Reklamı sonuna kadar izlemedin.');
+        Alert.alert(t('home.rewardNotEarnedTitle'), t('home.rewardNotEarnedBody'));
         return;
       }
 
       // 3) Ödülü Ver (Supabase)
       const { data: auth } = await supabase.auth.getUser();
       const uid = auth?.user?.id;
-      if (!uid) { Alert.alert('Hata', 'Oturum yok.'); return; }
+      if (!uid) {
+        Alert.alert(t('common.error'), t('home.noSession'));
+        return;
+      }
 
       const { data, error } = await supabase.rpc('claim_ad_bonus', { p_user: uid });
       if (error) throw error;
@@ -342,7 +493,7 @@ export default function HomeScreen() {
 
       if (granted) {
         await refresh();
-        Alert.alert('Tebrikler 🎉', '100 XP kazandın!');
+        Alert.alert(t('home.xpCongratsTitle'), t('home.xpCongratsBody'));
         const end = remaining > 0 ? new Date(Date.now() + remaining * 1000) : new Date(Date.now() + 3 * 60 * 60 * 1000);
         setCooldownEnd(end);
       } else {
@@ -350,24 +501,27 @@ export default function HomeScreen() {
         const h = Math.floor(mins / 60);
         const m = mins % 60;
         if (remaining > 0) setCooldownEnd(new Date(Date.now() + remaining * 1000));
-        Alert.alert('Üzgünüz 😔', `Yeni XP için ${h}s ${m}dk kaldı.`);
+        Alert.alert(
+          t('home.xpWaitTitle'),
+          t('home.xpCooldownBody', { hours: h, minutes: m })
+        );
       }
     } catch (e: any) {
-      Alert.alert('Hata', e?.message ?? 'Bilinmeyen hata.');
+      Alert.alert(t('common.error'), e?.message ?? t('common.unknownError'));
     } finally {
       setBusyTopla(false);
     }
-  }, [busyTopla, toplaReady, cooldownEnd, refresh, adLoaded, showAd]);
+  }, [busyTopla, toplaReady, cooldownEnd, refresh, adLoaded, showAd, t]);
 
   /* -------- USER (ad + avatar) -------- */
   const [user, setUser] = useState<{ name: string; avatar: string | null }>({
-    name: 'Kullanıcı',
+    name: t('common.user'),
     avatar: null,
   });
 
   useEffect(() => {
     (async () => {
-      await ensureUserProfile();
+      await ensureUserProfile(t('common.user'));
       const { data: auth } = await supabase.auth.getUser();
       const au = auth?.user;
       if (!au) return;
@@ -382,7 +536,7 @@ export default function HomeScreen() {
         name:
           profile?.full_name?.trim() ||
           (au.user_metadata?.full_name as string) ||
-          (au.email ? au.email.split('@')[0] : 'Kullanıcı'),
+          (au.email ? au.email.split('@')[0] : t('common.user')),
         avatar: profile?.avatar_url ?? null,
       });
     })();
@@ -390,7 +544,7 @@ export default function HomeScreen() {
 
   /* -------- MARKETS + PAGING -------- */
   const [markets, setMarkets] = useState<MarketRow[]>([]);
-  const [category, setCategory] = useState('Tümü');
+  const [category, setCategory] = useState('all');
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -417,12 +571,13 @@ export default function HomeScreen() {
           )
           .eq('is_open', true)
           .eq('is_user_generated', false)
+          .eq('country_code', selectedCountry)
           .gt('closing_date', new Date().toISOString())
           .is('result', null)
           .is('paid_out_at', null)
           .order('created_at', { ascending: false });
 
-        if (category !== 'Tümü') q = q.eq('category', category);
+        if (category !== 'all') q = q.eq('category', category);
 
         const from = reset ? 0 : page * PAGE;
         const to = from + PAGE - 1;
@@ -466,13 +621,15 @@ export default function HomeScreen() {
         setMarkets(unique);
         setPage((p) => (reset ? 1 : p + 1));
         setHasMore((data?.length ?? 0) === PAGE);
+        if (reset) setInitialLoading(false);
       } catch (e) {
         console.log('fetchMore error:', e);
+        if (reset) setInitialLoading(false);
       } finally {
         setLoadingMore(false);
       }
     },
-    [hasMore, category, page, markets]
+    [hasMore, category, page, markets, selectedCountry]
   );
   const didInitFetch = useRef(false);
   useEffect(() => {
@@ -480,6 +637,13 @@ export default function HomeScreen() {
     didInitFetch.current = true;
     fetchMore(true);
   }, [fetchMore]);
+
+  useEffect(() => {
+    if (!countryReady) return;
+    setPage(0);
+    setHasMore(true);
+    fetchMore(true);
+  }, [countryReady, selectedCountry, fetchMore]);
 
   /* -------- GLOBAL TICK -------- */
   const [, setTick] = useState(0);
@@ -565,7 +729,7 @@ export default function HomeScreen() {
       .map((c: any) => String(c.id));
     if (closedIds.length > 0) {
       setBasket((prev) => prev.filter((b) => !closedIds.includes(String(b.coupon_id))));
-      Alert.alert('Kupon kapandi', 'Bazi kuponlar sonuclandigi icin sepetten kaldirildi.');
+      Alert.alert(t('home.couponClosedTitle'), t('home.couponClosedBody'));
       await fetchMore(true);
       return false;
     }
@@ -576,7 +740,7 @@ export default function HomeScreen() {
     if (basket.length === 0 || submitting) return;
     const bad = basket.find((it) => !it.stake || it.stake <= 0);
     if (bad) {
-      Alert.alert('Hata', 'Geçersiz stake var.');
+      Alert.alert(t('common.error'), t('home.invalidStake'));
       return;
     }
 
@@ -602,7 +766,7 @@ export default function HomeScreen() {
       setSubmitting(true);
       const newBal = await playBasket(basket);
 
-      await notifyNow('bet_place', 'Kupon oynandı', 'Sepetten tek tek oynandı', {
+      await notifyNow('bet_place', t('home.notifyBetTitle'), t('home.notifyBetBody'), {
         legs: basket.length,
         totalStake: totals.totalStake,
       });
@@ -612,15 +776,14 @@ export default function HomeScreen() {
 
       setBasketOpen(false);
       clearBasket();
-      Alert.alert(
-        'Tamam',
-        `Oynandı${
-          typeof newBal === 'number' ? ` • Yeni bakiye: ${newBal.toLocaleString('tr-TR')} XP` : ''
-        }`
-      );
+      const balanceLabel =
+        typeof newBal === 'number'
+          ? ` • ${t('home.newBalance', { balance: newBal.toLocaleString(numberLocale) })}`
+          : '';
+      Alert.alert(t('common.ok'), `${t('home.played')}${balanceLabel}`);
     } catch (e: any) {
       await fetchMore(true);
-      Alert.alert('Hata', e?.message ?? 'Oynama başarısız');
+      Alert.alert(t('common.error'), e?.message ?? t('home.playFailed'));
     } finally {
       setSubmitting(false);
     }
@@ -628,12 +791,12 @@ export default function HomeScreen() {
 
   const confirmPlayParlay = async () => {
     if (basket.length < 2) {
-      Alert.alert('Hata', 'Parlay için en az 2 seçim gerekli.');
+      Alert.alert(t('common.error'), t('home.parlayNeedTwo'));
       return;
     }
     const s = Math.max(0, Number(parlayStake || '0'));
     if (!s) {
-      Alert.alert('Hata', 'Parlay stake gir.');
+      Alert.alert(t('common.error'), t('home.parlayNeedStake'));
       return;
     }
 
@@ -643,7 +806,7 @@ export default function HomeScreen() {
       setSubmitting(true);
       const newBal = await playParlay(basket, s);
 
-      await notifyNow('parlay_place', 'Parlay oynandı', 'Sepetten parlay oynandı', {
+      await notifyNow('parlay_place', t('home.notifyParlayTitle'), t('home.notifyParlayBody'), {
         legs: basket.length,
         stake: s,
         multiplier: parlayProduct,
@@ -656,15 +819,14 @@ export default function HomeScreen() {
       clearBasket();
       setParlayStake('100');
       setParlayMode(false);
-      Alert.alert(
-        'Tamam',
-        `Parlay oynandı${
-          typeof newBal === 'number' ? ` • Yeni bakiye: ${newBal.toLocaleString('tr-TR')} XP` : ''
-        }`
-      );
+      const balanceLabel =
+        typeof newBal === 'number'
+          ? ` • ${t('home.newBalance', { balance: newBal.toLocaleString(numberLocale) })}`
+          : '';
+      Alert.alert(t('common.ok'), `${t('home.parlayPlayed')}${balanceLabel}`);
     } catch (e: any) {
       await fetchMore(true);
-      Alert.alert('Hata', e?.message ?? 'Parlay başarısız');
+      Alert.alert(t('common.error'), e?.message ?? t('home.parlayFailed'));
     } finally {
       setSubmitting(false);
     }
@@ -771,6 +933,94 @@ export default function HomeScreen() {
     </>
   );
 
+  const emptyState = (
+    <View style={styles.emptyWrap}>
+      <Text style={styles.emptyTitle}>
+        {t('home.emptyTitle', { country: t(countryOption.nameKey) })}
+      </Text>
+      <Text style={styles.emptySub}>{t('home.emptySubtitle')}</Text>
+      <TouchableOpacity
+        onPress={() => setCountryPickerOpen(true)}
+        activeOpacity={0.85}
+        style={styles.emptyCta}
+      >
+        <Text style={styles.emptyCtaText}>{t('home.emptyCta')}</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  const renderTour = () => {
+    if (!tourOpen || !currentTour) return null;
+    const { width, height } = Dimensions.get('window');
+    const target = currentTour.target;
+    const calloutW = Math.min(320, width - 32);
+    const margin = 12;
+    const estimateH = 170;
+    const placeBelow = target.y + target.h + margin + estimateH <= height - 20;
+    let top = placeBelow ? target.y + target.h + margin : Math.max(16, target.y - estimateH - margin);
+    let left = target.x + target.w / 2 - calloutW / 2;
+    left = Math.max(16, Math.min(left, width - calloutW - 16));
+    const arrowSize = 12;
+    const arrowLeft = Math.max(
+      16,
+      Math.min(target.x + target.w / 2 - left - arrowSize / 2, calloutW - arrowSize - 16)
+    );
+
+    const radius = Math.max(12, Math.min(target.h / 2 + 6, 26));
+
+    return (
+      <Modal visible transparent animationType="fade">
+        <View style={styles.tourOverlay}>
+          <Pressable style={styles.tourBackdrop} onPress={() => {}} />
+
+          <View
+            pointerEvents="none"
+            style={[
+              styles.tourHighlight,
+              {
+                left: target.x - 8,
+                top: target.y - 8,
+                width: target.w + 16,
+                height: target.h + 16,
+                borderRadius: radius,
+              },
+            ]}
+          />
+
+          <View style={[styles.tourCallout, { top, left, width: calloutW }]}>
+            <View
+              pointerEvents="none"
+              style={[
+                styles.tourArrow,
+                placeBelow ? styles.tourArrowTop : styles.tourArrowBottom,
+                { left: arrowLeft },
+              ]}
+            />
+            <Text style={styles.tourTitle}>{currentTour.title}</Text>
+            <Text style={styles.tourBody}>{currentTour.body}</Text>
+
+            <View style={styles.tourDots}>
+              {tourSteps.map((_, i) => (
+                <View key={`dot-${i}`} style={[styles.tourDot, i === tourStep && styles.tourDotActive]} />
+              ))}
+            </View>
+
+            <View style={styles.tourActions}>
+              <TouchableOpacity onPress={() => closeTour(true)} style={styles.tourBtnGhost}>
+                <Text style={styles.tourBtnGhostText}>{t('onboarding.skip')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={nextTour} style={styles.tourBtnPrimary}>
+                <Text style={styles.tourBtnPrimaryText}>
+                  {tourStep + 1 >= tourSteps.length ? t('onboarding.done') : t('onboarding.next')}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    );
+  };
+
   /* -------- UI -------- */
   return (
     <View style={{ flex: 1, backgroundColor: '#fff' }}>
@@ -780,82 +1030,103 @@ export default function HomeScreen() {
         <View style={{ flex: 1, backgroundColor: '#fff' }}>
           {/* HEADER */}
           <View style={styles.appHeader}>
-            <Text style={styles.brand}>Dümenden</Text>
+            <Text style={styles.brand}>{t('app.name')}</Text>
 
-            {/* XP Topla */}
-            <TouchableOpacity
-              onPress={handleXpToplaPress}
-              disabled={busyTopla}
-              activeOpacity={0.9}
-              style={{ borderRadius: 14, flexShrink: 1, marginHorizontal: 8 }}
-            >
-              <View style={{ padding: 2, borderRadius: 14, overflow: 'hidden' }}>
-                <Animated.View
-                  pointerEvents="none"
-                  style={{
-                    transform: [
-                      {
-                        translateX: shimmer.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [-18, 18],
-                        }),
-                      },
-                    ],
-                    opacity: toplaReady ? 1 : 0.3,
-                  }}
+            <View style={styles.headerRight}>
+              {/* XP Topla */}
+              <View ref={xpRef} collapsable={false}>
+                <TouchableOpacity
+                  onPress={handleXpToplaPress}
+                  disabled={busyTopla}
+                  activeOpacity={0.9}
+                  style={{ borderRadius: 14, flexShrink: 1, marginHorizontal: 8 }}
                 >
-                  <LinearGradient
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    colors={toplaReady ? ['#FFAA66', '#FF6B00', '#FFAA66'] : ['#ddd', '#ccc', '#ddd']}
-                    style={{ height: 30, width: 120, borderRadius: 14 }}
-                  />
-                </Animated.View>
+                  <View style={{ padding: 2, borderRadius: 14, overflow: 'hidden' }}>
+                    <Animated.View
+                      pointerEvents="none"
+                      style={{
+                        transform: [
+                          {
+                            translateX: shimmer.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: [-18, 18],
+                            }),
+                          },
+                        ],
+                        opacity: toplaReady ? 1 : 0.3,
+                      }}
+                    >
+                      <LinearGradient
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        colors={toplaReady ? ['#FFAA66', '#FF6B00', '#FFAA66'] : ['#ddd', '#ccc', '#ddd']}
+                        style={{ height: 30, width: 120, borderRadius: 14 }}
+                      />
+                    </Animated.View>
 
-                <View
-                  style={{
-                    position: 'absolute',
-                    left: 2,
-                    right: 2,
-                    top: 2,
-                    bottom: 2,
-                    backgroundColor: '#FFF2E8',
-                    borderRadius: 12,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <Text style={{ color: '#FF6B00', fontWeight: '900' }}>
-                    {busyTopla ? 'Yükleniyor…' : toplaReady ? 'XP Topla' : remainLabel}
-                  </Text>
+                    <View
+                      style={{
+                        position: 'absolute',
+                        left: 2,
+                        right: 2,
+                        top: 2,
+                        bottom: 2,
+                        backgroundColor: '#FFF2E8',
+                        borderRadius: 12,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <Text style={{ color: '#FF6B00', fontWeight: '900' }}>
+                        {busyTopla ? t('common.loading') : toplaReady ? t('home.collectXp') : remainLabel}
+                      </Text>
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.countryStack}>
+                {/* Country */}
+                <View ref={countryRef} collapsable={false}>
+                  <TouchableOpacity
+                    onPress={() => setCountryPickerOpen(true)}
+                    activeOpacity={0.85}
+                    accessibilityLabel={t('home.countryPickerLabel')}
+                    style={styles.countryBtn}
+                  >
+                    <Ionicons name="globe-outline" size={18} color="#FF6B00" />
+                    <Text style={styles.countryFlag}>{flagEmoji(selectedCountry)}</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Avatar */}
+                <View ref={avatarRef} collapsable={false} style={styles.avatarUnder}>
+                  <TouchableOpacity onPress={() => router.push('/profile')}>
+                    {user.avatar ? (
+                      <Image source={{ uri: user.avatar }} style={styles.avatarMini} />
+                    ) : (
+                      <View
+                        style={[
+                          styles.avatarMini,
+                          { backgroundColor: '#eee', alignItems: 'center', justifyContent: 'center' },
+                        ]}
+                      >
+                        <Text style={{ fontWeight: '900', color: '#999' }}>
+                          {user.name[0]?.toUpperCase() || t('common.userInitial')}
+                        </Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
                 </View>
               </View>
-            </TouchableOpacity>
-
-            {/* Avatar */}
-            <TouchableOpacity onPress={() => router.push('/profile')}>
-              {user.avatar ? (
-                <Image source={{ uri: user.avatar }} style={styles.avatarMini} />
-              ) : (
-                <View
-                  style={[
-                    styles.avatarMini,
-                    { backgroundColor: '#eee', alignItems: 'center', justifyContent: 'center' },
-                  ]}
-                >
-                  <Text style={{ fontWeight: '900', color: '#999' }}>
-                    {user.name[0]?.toUpperCase() || 'K'}
-                  </Text>
-                </View>
-              )}
-            </TouchableOpacity>
+            </View>
           </View>
 
           {/* XP ROZETİ */}
           <View style={{ paddingHorizontal: 16, marginTop: 6 }}>
             <View style={styles.xpPill}>
               <Text style={styles.xpPillTxt}>
-                {xpLoading ? '...' : xp.toLocaleString('tr-TR')} XP
+                {xpLoading ? t('common.loadingShort') : xp.toLocaleString(numberLocale)} XP
               </Text>
             </View>
           </View>
@@ -869,19 +1140,19 @@ export default function HomeScreen() {
               bounces={false}
             >
               {CATS.map((c) => {
-                const active = c === category;
+                const active = c.value === category;
                 return (
                   <TouchableOpacity
-                    key={c}
+                    key={c.value}
                     onPress={() => {
-                      setCategory(c);
+                      setCategory(c.value);
                       setPage(0);
                       setHasMore(true);
                       fetchMore(true);
                     }}
                     style={[styles.catPill, active && styles.catPillActive]}
                   >
-                    <Text style={[styles.catTxt, active && styles.catTxtActive]}>{c}</Text>
+                    <Text style={[styles.catTxt, active && styles.catTxtActive]}>{t(c.labelKey)}</Text>
                   </TouchableOpacity>
                 );
               })}
@@ -893,13 +1164,23 @@ export default function HomeScreen() {
             data={markets}
             keyExtractor={(it) => String(it.id)}
             ListHeaderComponent={SliderHeader}
+            ListEmptyComponent={
+              initialLoading ? (
+                <View style={styles.emptyWrap}>
+                  <ActivityIndicator color="#FF6B00" size="large" />
+                </View>
+              ) : (
+                emptyState
+              )
+            }
             contentContainerStyle={{ padding: 16, paddingBottom: 140 }}
             onEndReachedThreshold={0.4}
             onEndReached={() => fetchMore()}
-            renderItem={({ item }) => {
+            renderItem={({ item, index }) => {
               const st = marketState(item);
+              const isFirst = index === 0;
               return (
-                <View style={{ marginBottom: 12 }}>
+                <View ref={isFirst ? firstCardRef : null} collapsable={false} style={{ marginBottom: 12 }}>
                   <MarketCard
                     item={item}
                     onPress={() => {
@@ -953,10 +1234,10 @@ export default function HomeScreen() {
                           ))}
                         </View>
                         <TouchableOpacity style={styles.tradeBtn} onPress={addToBasket}>
-                          <Text style={{ color: '#fff', fontWeight: 'bold' }}>Sepete Ekle</Text>
+                          <Text style={{ color: '#fff', fontWeight: 'bold' }}>{t('home.addToBasket')}</Text>
                         </TouchableOpacity>
                         <Pressable onPress={() => setModal(null)} style={styles.closeBtn}>
-                          <Text style={{ fontWeight: 'bold' }}>Kapat</Text>
+                          <Text style={{ fontWeight: 'bold' }}>{t('common.close')}</Text>
                         </Pressable>
                       </>
                     )}
@@ -984,9 +1265,9 @@ export default function HomeScreen() {
                     ]}
                   >
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
-                      <Text style={styles.modalTitle}>Sepet</Text>
+                      <Text style={styles.modalTitle}>{t('home.basketTitle')}</Text>
                       <Pressable onPress={() => setBasketOpen(false)}>
-                        <Text style={{ fontWeight: 'bold' }}>Kapat</Text>
+                        <Text style={{ fontWeight: 'bold' }}>{t('common.close')}</Text>
                       </Pressable>
                     </View>
 
@@ -995,7 +1276,9 @@ export default function HomeScreen() {
                         <View key={`${it.coupon_id}-${i}`} style={styles.basketItem}>
                           <View style={{ flex: 1 }}>
                             <Text style={{ fontWeight: '700' }}>{it.title}</Text>
-                            <Text style={{ color: '#666' }}>{it.label} • {it.side} • Fiyat: {it.price.toFixed(2)}</Text>
+                            <Text style={{ color: '#666' }}>
+                              {it.label} • {it.side} • {t('home.priceLabel', { price: it.price.toFixed(2) })}
+                            </Text>
                           </View>
                           <TextInput
                             value={String(it.stake)}
@@ -1004,7 +1287,7 @@ export default function HomeScreen() {
                             style={styles.basketStakeInput}
                           />
                           <TouchableOpacity onPress={() => removeBasketItem(i)} style={styles.trashBtn}>
-                            <Text style={{ color: '#fff', fontWeight: '700' }}>Sil</Text>
+                            <Text style={{ color: '#fff', fontWeight: '700' }}>{t('common.delete')}</Text>
                           </TouchableOpacity>
                         </View>
                       ))}
@@ -1016,13 +1299,15 @@ export default function HomeScreen() {
                         onPress={parlayMode ? confirmPlayParlay : confirmPlaySingles}
                         disabled={submitting}
                       >
-                        <Text style={{ color: '#fff', fontWeight: 'bold' }}>{submitting ? 'Gönderiliyor…' : 'Onayla / Oyna'}</Text>
+                        <Text style={{ color: '#fff', fontWeight: 'bold' }}>
+                          {submitting ? t('common.sending') : t('home.confirmPlay')}
+                        </Text>
                       </TouchableOpacity>
                       <TouchableOpacity
                         style={[styles.tradeBtn, { flex: 1, backgroundColor: '#757575' }]}
                         onPress={clearBasket}
                       >
-                        <Text style={{ color: '#fff', fontWeight: 'bold' }}>Temizle</Text>
+                        <Text style={{ color: '#fff', fontWeight: 'bold' }}>{t('common.clear')}</Text>
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -1030,6 +1315,17 @@ export default function HomeScreen() {
               </TouchableWithoutFeedback>
             </KeyboardAvoidingView>
           </Modal>
+
+          <CountryPickerModal
+            visible={countryPickerOpen}
+            value={selectedCountry}
+            onClose={() => setCountryPickerOpen(false)}
+            onSelect={(code) => {
+              setCountryPickerOpen(false);
+              void setCountry(code);
+            }}
+          />
+          {renderTour()}
         </View>
       </SafeAreaView>
 
@@ -1069,6 +1365,7 @@ const styles = StyleSheet.create({
     gap: 8,
     backgroundColor: '#fff',
   },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   brand: { fontSize: 24, fontWeight: '900', color: '#FF6B00' },
 
   xpPill: {
@@ -1081,6 +1378,80 @@ const styles = StyleSheet.create({
   xpPillTxt: { color: '#FF6B00', fontWeight: '800' },
 
   avatarMini: { width: 36, height: 36, borderRadius: 18 },
+  countryStack: { alignItems: 'center' },
+  avatarUnder: { marginTop: 6 },
+
+  countryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    backgroundColor: '#FFF2E8',
+    borderWidth: 1,
+    borderColor: '#FFD6B8',
+  },
+  countryFlag: { fontSize: 16 },
+
+  // Onboarding Tour
+  tourOverlay: { ...StyleSheet.absoluteFillObject, zIndex: 999 },
+  tourBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.5)' },
+  tourHighlight: {
+    position: 'absolute',
+    borderWidth: 2,
+    borderColor: '#FF6B00',
+    backgroundColor: 'rgba(255,107,0,0.12)',
+    shadowColor: '#FF6B00',
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  tourCallout: {
+    position: 'absolute',
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#FFE1C7',
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  tourArrow: {
+    position: 'absolute',
+    width: 12,
+    height: 12,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#FFE1C7',
+    transform: [{ rotate: '45deg' }],
+  },
+  tourArrowTop: { top: -6 },
+  tourArrowBottom: { bottom: -6 },
+  tourTitle: { fontWeight: '900', fontSize: 16, color: '#111' },
+  tourBody: { marginTop: 6, color: '#555', fontSize: 13, lineHeight: 18 },
+  tourActions: { flexDirection: 'row', gap: 8, marginTop: 12 },
+  tourBtnGhost: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+  },
+  tourBtnGhostText: { color: '#111', fontWeight: '800' },
+  tourBtnPrimary: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: '#FF6B00',
+    alignItems: 'center',
+  },
+  tourBtnPrimaryText: { color: '#fff', fontWeight: '900' },
+  tourDots: { flexDirection: 'row', gap: 6, marginTop: 10 },
+  tourDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#E5E7EB' },
+  tourDotActive: { backgroundColor: '#FF6B00' },
 
   catBarWrap: { height: 48, marginTop: 8, marginBottom: 8 },
   catPill: {
@@ -1106,6 +1477,23 @@ const styles = StyleSheet.create({
   },
   dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#ddd' },
   dotActive: { backgroundColor: '#999' },
+
+  emptyWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+    gap: 8,
+  },
+  emptyTitle: { fontSize: 16, fontWeight: '900', color: '#111' },
+  emptySub: { color: '#6B7280', textAlign: 'center', paddingHorizontal: 24 },
+  emptyCta: {
+    marginTop: 6,
+    backgroundColor: '#FF6B00',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+  emptyCtaText: { color: '#fff', fontWeight: '900' },
 
   modalWrap: {
     flex: 1,

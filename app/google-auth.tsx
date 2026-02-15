@@ -1,4 +1,5 @@
 import { ensureBootstrapAndProfile } from '@/lib/bootstrap';
+import { useI18n } from '@/lib/i18n';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef } from 'react';
@@ -7,6 +8,7 @@ import { ActivityIndicator, Text, View } from 'react-native';
 export default function GoogleAuthCallback() {
   const router = useRouter();
   const didNavigateRef = useRef(false);
+  const { t } = useI18n();
 
   useEffect(() => {
     let mounted = true;
@@ -56,8 +58,8 @@ export default function GoogleAuthCallback() {
   return (
     <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
       <ActivityIndicator size="large" color="#FF6B00" />
-      <Text style={{ marginTop: 20, color: '#444', fontWeight: '500' }}>Google ile bağlanılıyor...</Text>
-      <Text style={{ marginTop: 5, color: '#999', fontSize: 12 }}>Lütfen bekleyiniz</Text>
+      <Text style={{ marginTop: 20, color: '#444', fontWeight: '500' }}>{t('auth.googleConnecting')}</Text>
+      <Text style={{ marginTop: 5, color: '#999', fontSize: 12 }}>{t('common.pleaseWait')}</Text>
     </View>
   );
 }

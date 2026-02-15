@@ -1,6 +1,7 @@
-'use client';
+﻿'use client';
 
 import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useI18n } from '@/lib/i18n';
 
 /** ---------- Types ---------- */
 export type Line = {
@@ -75,6 +76,7 @@ export default function MarketCard({
   urgent,
   disabled,
 }: Props) {
+  const { t, numberLocale } = useI18n();
   const yOdds = normOdds(item.yes_price ?? undefined);
   const nOdds = normOdds(item.no_price ?? undefined);
 
@@ -85,10 +87,12 @@ export default function MarketCard({
   const PILL_ROW_H = 92;
   const DESC_H = 40;
 
-  const bigPill = (label: 'Yes' | 'No', odds?: number, tap?: () => void) => {
-    const bg = label === 'Yes' ? '#e9f0ff' : '#fde9f1';
-    const tx = label === 'Yes' ? '#2657ff' : '#d0146a';
+  const bigPill = (label: 'yes' | 'no', odds?: number, tap?: () => void) => {
+    const bg = label === 'yes' ? '#e9f0ff' : '#fde9f1';
+    const tx = label === 'yes' ? '#2657ff' : '#d0146a';
     const dis = disabled || !odds || odds < 1.01;
+    const payoutVal = odds ? payout(StakePreview, odds) : null;
+    const payoutLabel = payoutVal != null ? payoutVal.toLocaleString(numberLocale) : t('common.dash');
 
     return (
       <TouchableOpacity
@@ -97,9 +101,9 @@ export default function MarketCard({
         style={[styles.pill, { backgroundColor: bg, opacity: dis ? 0.35 : 1 }]}
         activeOpacity={0.8}
       >
-        <Text style={[styles.pillTitle, { color: tx }]}>{label}</Text>
+        <Text style={[styles.pillTitle, { color: tx }]}>{label === 'yes' ? t('common.yes') : t('common.no')}</Text>
         <Text style={styles.pillSub}>
-          {StakePreview} XP → {odds ? payout(StakePreview, odds) : '—'} XP
+          {t('market.stakePreview', { stake: StakePreview, payout: payoutLabel })}
         </Text>
         <Text style={styles.pillOdds}>{odds ? `${odds.toFixed(2)}x` : ''}</Text>
       </TouchableOpacity>
@@ -118,13 +122,13 @@ export default function MarketCard({
           {item.title}
         </Text>
         <Text style={[styles.sub, urgent && !disabled ? styles.subUrgent : undefined]}>
-          {item.category ?? '—'} • {timeLeftLabel}
-          {disabled ? ' • Süre doldu' : ''}
+          {item.category ?? t('common.dash')} • {timeLeftLabel}
+          {disabled ? ` • ${t('market.timeExpired')}` : ''}
         </Text>
       </View>
       {disabled && (
         <View style={styles.badgeOff}>
-          <Text style={styles.badgeOffTxt}>Kapalı</Text>
+          <Text style={styles.badgeOffTxt}>{t('common.closed')}</Text>
         </View>
       )}
     </View>
@@ -154,7 +158,7 @@ export default function MarketCard({
             style={[styles.chip, styles.chipYes, disYes && styles.chipDisabled]}
             activeOpacity={0.85}
           >
-            <Text style={styles.chipTxt}>Yes {l.yesPrice?.toFixed(2)}</Text>
+            <Text style={styles.chipTxt}>{t('market.yesPrice', { price: l.yesPrice?.toFixed(2) ?? '' })}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             disabled={disNo}
@@ -162,7 +166,7 @@ export default function MarketCard({
             style={[styles.chip, styles.chipNo, disNo && styles.chipDisabled]}
             activeOpacity={0.85}
           >
-            <Text style={styles.chipTxt}>No {l.noPrice?.toFixed(2)}</Text>
+            <Text style={styles.chipTxt}>{t('market.noPrice', { price: l.noPrice?.toFixed(2) ?? '' })}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -176,8 +180,8 @@ export default function MarketCard({
       {isBinary ? (
         <>
           <View style={[styles.pillRow, { height: PILL_ROW_H }]}>
-            {bigPill('Yes', yOdds, () => onTapYes(item, 'YES/NO', yOdds!))}
-            {bigPill('No', nOdds, () => onTapNo(item, 'YES/NO', nOdds!))}
+            {bigPill('yes', yOdds, () => onTapYes(item, 'YES/NO', yOdds!))}
+            {bigPill('no', nOdds, () => onTapNo(item, 'YES/NO', nOdds!))}
           </View>
 
           <View style={{ minHeight: DESC_H, justifyContent: 'center' }}>
@@ -195,7 +199,9 @@ export default function MarketCard({
         </>
       )}
 
-      <Text style={styles.liq}>{(item.liquidity ?? 0).toLocaleString('tr-TR')} XP likidite</Text>
+      <Text style={styles.liq}>
+        {t('market.liquidity', { value: (item.liquidity ?? 0).toLocaleString(numberLocale) })}
+      </Text>
     </TouchableOpacity>
   );
 }
@@ -255,3 +261,4 @@ const styles = StyleSheet.create({
 
   liq: { marginTop: 10, color: '#9e9e9e', fontWeight: '600' },
 });
+

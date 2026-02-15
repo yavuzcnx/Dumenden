@@ -2,6 +2,7 @@
 'use client';
 
 import { supabase } from '@/lib/supabaseClient';
+import { useI18n } from '@/lib/i18n';
 import { useXp } from '@/src/contexts/XpProvider';
 import { buyItem, type PurchaseContact } from '@/src/contexts/services/purchaseService';
 import type { RealtimePostgresUpdatePayload } from '@supabase/supabase-js';
@@ -52,6 +53,7 @@ const CARD_BG = '#fff';
 
 export default function Market() {
   const router = useRouter();
+  const { t, numberLocale } = useI18n();
 
   const ins = useSafeAreaInsets();
   const topPad = Platform.OS === 'ios' ? s(6) : (ins.top || StatusBar.currentHeight || 0) + s(6);
@@ -155,23 +157,23 @@ export default function Market() {
         <View style={{ width: '100%', paddingHorizontal: 30, alignItems: 'center', zIndex: 1 }}>
           
           <Text style={{ color: ORANGE, fontSize: s(14), fontWeight: "900", letterSpacing: 2, marginBottom: 10 }}>
-            LAUNCHING SOON
+            {t('marketStore.closed.launchingSoon')}
           </Text>
 
           <Text style={{ color: "#fff", fontSize: s(32), fontWeight: "900", textAlign: "center", lineHeight: s(40) }}>
-            MARKET ÇOK YAKINDA AÇILIYOR
+            {t('marketStore.closed.title')}
           </Text>
 
           <Text style={{ color: "#aaa", fontSize: s(14), marginTop: 16, textAlign: "center", lineHeight: 22 }}>
-            {marketStatus?.close_message || "Hazırlıklarımız tüm hızıyla devam ediyor. En iyi ödüllerle geri dönüyoruz."}
+            {marketStatus?.close_message || t('marketStore.closed.message')}
           </Text>
 
           {marketStatus?.reopen_at && (
               <View style={{ flexDirection: 'row', gap: s(12), marginTop: s(40) }}>
-                  <TimeBox val={timeLeft.days} label="GÜN" />
-                  <TimeBox val={timeLeft.hours} label="SAAT" />
-                  <TimeBox val={timeLeft.minutes} label="DAK" />
-                  <TimeBox val={timeLeft.seconds} label="SN" />
+                  <TimeBox val={timeLeft.days} label={t('marketStore.closed.days')} />
+                  <TimeBox val={timeLeft.hours} label={t('marketStore.closed.hours')} />
+                  <TimeBox val={timeLeft.minutes} label={t('marketStore.closed.minutes')} />
+                  <TimeBox val={timeLeft.seconds} label={t('marketStore.closed.seconds')} />
               </View>
           )}
 
@@ -190,7 +192,7 @@ export default function Market() {
             }}
           >
             <Text style={{ color: "#fff", fontWeight: "900", fontSize: 16 }}>
-              Ana Sayfaya Dön
+              {t('marketStore.closed.backHome')}
             </Text>
           </TouchableOpacity>
         </View>
@@ -199,7 +201,7 @@ export default function Market() {
   };
   // -------------------------------------------------------------
 
- useEffect(() => {
+  useEffect(() => {
     (async () => {
       setLoading(true);
       const [cRes, rRes] = await Promise.all([
@@ -207,11 +209,11 @@ export default function Market() {
         // 🔥 BURAYA DİKKAT: .eq('is_active', true) EKLENDİ
         supabase.from('rewards').select('*').eq('is_active', true).order('int_price', { ascending: false }),
       ]);
-      setCats([{ id: 'all', name: 'Tümü' }, ...((cRes.data ?? []) as Category[])] as Category[]);
+      setCats([{ id: 'all', name: t('categories.all') }, ...((cRes.data ?? []) as Category[])] as Category[]);
       setRewards((rRes.data ?? []) as Reward[]);
       setLoading(false);
     })();
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     refresh().catch(() => {});
@@ -281,9 +283,9 @@ export default function Market() {
   const shelves: Shelf[] = useMemo(() => {
     if (active !== 'all') {
       const cat = cats.find(c => c.id === active);
-      const t = detectShelfType(cat?.name ?? 'Kategori');
+      const shelfType = detectShelfType(cat?.name ?? t('marketStore.categoryFallback'));
       const items = rewards.filter(r => r.category_id === active);
-      return [{ key: `cat-${active}`, type: t, label: cat?.name ?? 'Kategori', items }];
+      return [{ key: `cat-${active}`, type: shelfType, label: cat?.name ?? t('marketStore.categoryFallback'), items }];
     }
 
     const list: Shelf[] = [];
@@ -292,7 +294,7 @@ export default function Market() {
       .map(c => c.id);
 
     const big = rewards.filter(r => r.category_id && grandPrizeIds.includes(r.category_id));
-    if (big.length) list.push({ key: 'podium', type: 'podium', label: 'Büyük Ödül', items: big });
+    if (big.length) list.push({ key: 'podium', type: 'podium', label: t('marketStore.grandPrize'), items: big });
 
     cats
       .filter(c => c.id !== 'all' && !grandPrizeIds.includes(c.id))
@@ -303,10 +305,10 @@ export default function Market() {
       });
 
     const none = rewards.filter(r => !r.category_id);
-    if (none.length) list.push({ key: 'others', type: 'aluminum', label: 'Diğer', items: none });
+    if (none.length) list.push({ key: 'others', type: 'aluminum', label: t('marketStore.other'), items: none });
 
     return list;
-  }, [rewards, cats, active]);
+  }, [rewards, cats, active, t]);
 
   // Satın al butonu -> form aç
   const openBuyForm = (item: Reward) => {
@@ -327,15 +329,15 @@ export default function Market() {
         data: { user },
       } = await supabase.auth.getUser();
       if (!user) {
-        Alert.alert('Hata', 'Giriş yapmanız gerekiyor!');
+        Alert.alert(t('common.error'), t('marketStore.loginRequired'));
         return;
       }
       if ((detail.stock ?? 0) < 1) {
-        Alert.alert('Hata', 'Stok tükenmiş.');
+        Alert.alert(t('common.error'), t('marketStore.outOfStock'));
         return;
       }
       if (!contact.full_name || !contact.phone || !contact.address) {
-        Alert.alert('Eksik bilgi', 'Ad Soyad, Telefon ve Adres zorunludur.');
+        Alert.alert(t('marketStore.missingInfoTitle'), t('marketStore.missingInfoBody'));
         return;
       }
 
@@ -355,14 +357,14 @@ export default function Market() {
 
       setFormOpen(false);
       setDetail(null);
-      Alert.alert('Tamamlandı', 'Satın alma oluşturuldu. Ekibimiz sizinle iletişime geçecek.');
+      Alert.alert(t('marketStore.purchaseSuccessTitle'), t('marketStore.purchaseSuccessBody'));
     } catch (err: any) {
       if (detail) {
         setRewards(prev =>
           prev.map(r => (r.id === detail.id ? { ...r, stock: (r.stock ?? 0) + 1 } : r)),
         );
       }
-      Alert.alert('Satın alma başarısız', err?.message ?? 'Bilinmeyen hata');
+      Alert.alert(t('marketStore.purchaseFailedTitle'), err?.message ?? t('common.unknownError'));
     } finally {
       setPendingId(null);
       purchasingRef.current = false;
@@ -383,7 +385,7 @@ export default function Market() {
         opacity: 0.85,
       }}
     >
-      <Text style={{ color: '#fff', fontWeight: '900' }}>Tükendi</Text>
+      <Text style={{ color: '#fff', fontWeight: '900' }}>{t('marketStore.soldOut')}</Text>
     </View>
   );
 
@@ -419,7 +421,7 @@ export default function Market() {
 
       <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: s(10) }}>
         <Text style={{ fontSize: s(30), fontWeight: '900', color: ORANGE, includeFontPadding: false }}>
-          Market
+          {t('tabs.market')}
         </Text>
         <View
           style={{
@@ -433,7 +435,7 @@ export default function Market() {
           }}
         >
           <Text style={{ color: ORANGE, fontWeight: '800', includeFontPadding: false }}>
-            {xpLoading ? '...' : xp.toLocaleString('tr-TR')} XP
+            {xpLoading ? t('common.loadingShort') : xp.toLocaleString(numberLocale)} XP
           </Text>
         </View>
       </View>
@@ -490,7 +492,7 @@ export default function Market() {
     uri ? <Image source={{ uri }} style={{ width: '100%', height: '100%' }} /> : null;
 
   const PodiumRow = ({ items }: { items: Reward[] }) => (
-    <RowWrap title="Büyük Ödül">
+    <RowWrap title={t('marketStore.grandPrize')}>
       <FlatList
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -566,7 +568,7 @@ export default function Market() {
             {item.name}
           </Text>
           <Text style={{ color: ORANGE, fontWeight: '900', textAlign: 'center' }}>
-            {item.int_price.toLocaleString('tr-TR')} XP
+            {item.int_price.toLocaleString(numberLocale)} XP
           </Text>
 
           <TouchableOpacity
@@ -580,7 +582,7 @@ export default function Market() {
             }}
           >
             <Text style={{ color: sold ? '#9CA3AF' : '#fff', fontWeight: '900', textAlign: 'center' }}>
-              {sold ? 'Tükendi' : pendingId === item.id || purchasingRef.current ? '...' : 'Satın Al'}
+              {sold ? t('marketStore.soldOut') : pendingId === item.id || purchasingRef.current ? t('common.loadingShort') : t('marketStore.buy')}
             </Text>
           </TouchableOpacity>
         </View>
@@ -651,7 +653,7 @@ export default function Market() {
                 {item.name}
               </Text>
               <Text style={{ color: ORANGE, textAlign: 'center', fontWeight: '900', fontSize: s(10) }}>
-                {item.int_price.toLocaleString('tr-TR')} XP
+                {item.int_price.toLocaleString(numberLocale)} XP
               </Text>
             </View>
           </View>
@@ -663,7 +665,7 @@ export default function Market() {
             style={{ marginTop: s(6), backgroundColor: ORANGE, paddingVertical: s(6), paddingHorizontal: s(10), borderRadius: s(10) }}
           >
             <Text style={{ color: '#fff', fontWeight: '900', fontSize: s(10) }}>
-              {pendingId === item.id || purchasingRef.current ? '...' : 'Satın Al'}
+              {pendingId === item.id || purchasingRef.current ? t('common.loadingShort') : t('marketStore.buy')}
             </Text>
           </TouchableOpacity>
         )}
@@ -717,7 +719,7 @@ export default function Market() {
                   {item.name}
                 </Text>
                 <Text style={{ fontSize: s(12), color: ORANGE, fontWeight: '900', textAlign: 'center' }}>
-                  {item.int_price.toLocaleString('tr-TR')} XP
+                  {item.int_price.toLocaleString(numberLocale)} XP
                 </Text>
                 <TouchableOpacity
                   disabled={sold || pendingId === item.id || purchasingRef.current}
@@ -730,7 +732,7 @@ export default function Market() {
                   }}
                 >
                   <Text style={{ color: sold ? '#9CA3AF' : '#fff', fontWeight: '900', textAlign: 'center', fontSize: s(12) }}>
-                    {sold ? 'Tükendi' : pendingId === item.id || purchasingRef.current ? '...' : 'Satın Al'}
+                  {sold ? t('marketStore.soldOut') : pendingId === item.id || purchasingRef.current ? t('common.loadingShort') : t('marketStore.buy')}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -803,7 +805,7 @@ export default function Market() {
           {item.name}
         </Text>
         <Text style={{ fontSize: s(12), color: ORANGE, fontWeight: '900', textAlign: 'center' }}>
-          {item.int_price.toLocaleString('tr-TR')} XP
+          {item.int_price.toLocaleString(numberLocale)} XP
         </Text>
         <TouchableOpacity
           disabled={sold || pendingId === item.id || purchasingRef.current}
@@ -816,7 +818,7 @@ export default function Market() {
           }}
         >
           <Text style={{ color: sold ? '#9CA3AF' : '#fff', fontWeight: '900', textAlign: 'center', fontSize: s(12) }}>
-            {sold ? 'Tükendi' : pendingId === item.id || purchasingRef.current ? '...' : 'Satın Al'}
+            {sold ? t('marketStore.soldOut') : pendingId === item.id || purchasingRef.current ? t('common.loadingShort') : t('marketStore.buy')}
           </Text>
         </TouchableOpacity>
       </Animated.View>
@@ -858,7 +860,7 @@ export default function Market() {
                 {item.name}
               </Text>
               <Text style={{ fontSize: s(12), color: ORANGE, fontWeight: '900', textAlign: 'center' }}>
-                {item.int_price.toLocaleString('tr-TR')} XP
+                {item.int_price.toLocaleString(numberLocale)} XP
               </Text>
               <TouchableOpacity
                 disabled={(item.stock ?? 0) < 1 || pendingId === item.id || purchasingRef.current}
@@ -872,7 +874,7 @@ export default function Market() {
                 }}
               >
                 <Text style={{ color: (item.stock ?? 0) < 1 ? '#9CA3AF' : '#fff', fontWeight: '900', textAlign: 'center', fontSize: s(12) }}>
-                  {(item.stock ?? 0) < 1 ? 'Tükendi' : pendingId === item.id || purchasingRef.current ? '...' : 'Satın Al'}
+                  {(item.stock ?? 0) < 1 ? t('marketStore.soldOut') : pendingId === item.id || purchasingRef.current ? t('common.loadingShort') : t('marketStore.buy')}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -938,7 +940,7 @@ export default function Market() {
             {item.name}
           </Text>
           <Text style={{ color: '#A78BFA', fontWeight: '900' }}>
-            {item.int_price.toLocaleString('tr-TR')} XP
+            {item.int_price.toLocaleString(numberLocale)} XP
           </Text>
           <TouchableOpacity
             disabled={sold || pendingId === item.id || purchasingRef.current}
@@ -951,7 +953,7 @@ export default function Market() {
             }}
           >
             <Text style={{ color: sold ? '#9CA3AF' : '#fff', fontWeight: '900', textAlign: 'center' }}>
-              {sold ? 'Tükendi' : pendingId === item.id || purchasingRef.current ? '...' : 'Satın Al'}
+              {sold ? t('marketStore.soldOut') : pendingId === item.id || purchasingRef.current ? t('common.loadingShort') : t('marketStore.buy')}
             </Text>
           </TouchableOpacity>
         </Animated.View>
@@ -1024,7 +1026,7 @@ export default function Market() {
             {item.name}
           </Text>
           <Text style={{ color: ORANGE, fontWeight: '900', textAlign: 'center' }}>
-            {item.int_price.toLocaleString('tr-TR')} XP
+            {item.int_price.toLocaleString(numberLocale)} XP
           </Text>
           <TouchableOpacity
             disabled={sold || pendingId === item.id || purchasingRef.current}
@@ -1037,7 +1039,7 @@ export default function Market() {
             }}
           >
             <Text style={{ color: sold ? '#9CA3AF' : '#fff', fontWeight: '900', textAlign: 'center' }}>
-              {sold ? 'Tükendi' : pendingId === item.id || purchasingRef.current ? '...' : 'Satın Al'}
+              {sold ? t('marketStore.soldOut') : pendingId === item.id || purchasingRef.current ? t('common.loadingShort') : t('marketStore.buy')}
             </Text>
           </TouchableOpacity>
         </Animated.View>
@@ -1123,11 +1125,11 @@ export default function Market() {
                   <Text style={{ marginTop: 6, color: MUTED, textAlign: 'center' }}>{detail.description}</Text>
                 )}
                 <View style={{ marginTop: 12, alignItems: 'center' }}>
-                  <Text style={{ color: MUTED }}>Fiyat</Text>
+                  <Text style={{ color: MUTED }}>{t('marketStore.price')}</Text>
                   <Text style={{ fontWeight: '900', color: ORANGE }}>
-                    {detail.int_price.toLocaleString('tr-TR')} XP
+                    {detail.int_price.toLocaleString(numberLocale)} XP
                   </Text>
-                  <Text style={{ marginTop: 2, color: MUTED }}>Stok: {detail.stock}</Text>
+                  <Text style={{ marginTop: 2, color: MUTED }}>{t('marketStore.stock', { count: detail.stock ?? 0 })}</Text>
 
                   <TouchableOpacity
                     disabled={(detail.stock ?? 0) < 1 || pendingId === detail.id || purchasingRef.current}
@@ -1145,7 +1147,7 @@ export default function Market() {
                     }}
                   >
                     <Text style={{ color: (detail.stock ?? 0) < 1 ? '#9CA3AF' : '#fff', fontWeight: '900' }}>
-                      {(detail.stock ?? 0) < 1 ? 'Tükendi' : 'Satın Al'}
+                      {(detail.stock ?? 0) < 1 ? t('marketStore.soldOut') : t('marketStore.buy')}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -1193,11 +1195,11 @@ export default function Market() {
                 keyboardShouldPersistTaps="handled"
               >
                 <Text style={{ fontSize: 18, fontWeight: '900', textAlign: 'center', color: INPUT_TEXT }}>
-                  İletişim & Adres
+                  {t('marketStore.contactTitle')}
                 </Text>
 
                 <TextInput
-                  placeholder="Ad Soyad *"
+                  placeholder={t('marketStore.form.fullName')}
                   placeholderTextColor={INPUT_PLACEHOLDER}
                   value={contact.full_name}
                   onChangeText={t => setContact(c => ({ ...c, full_name: t }))}
@@ -1214,7 +1216,7 @@ export default function Market() {
                   returnKeyType="next"
                 />
                 <TextInput
-                  placeholder="E-posta"
+                  placeholder={t('marketStore.form.email')}
                   placeholderTextColor={INPUT_PLACEHOLDER}
                   value={contact.email}
                   onChangeText={t => setContact(c => ({ ...c, email: t }))}
@@ -1233,7 +1235,7 @@ export default function Market() {
                   returnKeyType="next"
                 />
                 <TextInput
-                  placeholder="Telefon *"
+                  placeholder={t('marketStore.form.phone')}
                   placeholderTextColor={INPUT_PLACEHOLDER}
                   value={contact.phone}
                   onChangeText={t => setContact(c => ({ ...c, phone: t }))}
@@ -1251,7 +1253,7 @@ export default function Market() {
                   returnKeyType="next"
                 />
                 <TextInput
-                  placeholder="Adres *"
+                  placeholder={t('marketStore.form.address')}
                   placeholderTextColor={INPUT_PLACEHOLDER}
                   value={contact.address}
                   onChangeText={t => setContact(c => ({ ...c, address: t }))}
@@ -1271,7 +1273,7 @@ export default function Market() {
                   returnKeyType="done"
                 />
                 <TextInput
-                  placeholder="Not (opsiyonel)"
+                  placeholder={t('marketStore.form.note')}
                   placeholderTextColor={INPUT_PLACEHOLDER}
                   value={contact.note}
                   onChangeText={t => setContact(c => ({ ...c, note: t }))}
@@ -1302,7 +1304,7 @@ export default function Market() {
                   {pendingId === detail?.id || purchasingRef.current ? (
                     <ActivityIndicator color="#fff" />
                   ) : (
-                    <Text style={{ color: '#fff', fontWeight: '900' }}>Onayla ve Satın Al</Text>
+                    <Text style={{ color: '#fff', fontWeight: '900' }}>{t('marketStore.confirmAndBuy')}</Text>
                   )}
                 </TouchableOpacity>
               </ScrollView>

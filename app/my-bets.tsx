@@ -1,6 +1,7 @@
 'use client';
 
 import { resolveStorageUrlSmart } from '@/lib/resolveStorageUrlSmart';
+import { useI18n } from '@/lib/i18n';
 import { supabase } from '@/lib/supabaseClient';
 import { useCallback, useEffect, useState } from 'react';
 import {
@@ -46,20 +47,9 @@ type SingleBet = {
 
 type TabKey = 'all' | 'singles';
 
-/* ------------ Small helpers ------------- */
-const chipInfo = (s: BetStatus | 'open') => {
-  switch (s) {
-    case 'won': return { label: 'Kazandı', bg: '#16a34a' };
-    case 'lost': return { label: 'Kaybetti', bg: '#dc2626' };
-    case 'refunded': return { label: 'İade', bg: '#0ea5e9' };
-    default: return { label: 'Açık', bg: '#9ca3af' };
-  }
-};
-const formatXP = (n: number) =>
-  new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 0 }).format(n);
-
 /* ============== Page ============== */
 export default function MyBets() {
+  const { t, numberLocale } = useI18n();
   const [tab, setTab] = useState<TabKey>('all');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -165,7 +155,7 @@ export default function MyBets() {
     }
 
     const couponDeleted = !item.coupon;
-    const title = item.coupon?.title || `(Silindi) Kupon #${item.coupon_id}`;
+    const title = item.coupon?.title || t('myBets.deletedCoupon', { id: item.coupon_id });
 
     return (
       <View style={styles.card}>
@@ -179,13 +169,13 @@ export default function MyBets() {
               {title}
             </Text>
             <Text style={styles.meta}>
-              {item.side} • {formatXP(item.stake)} XP • Oran: {item.price.toFixed(2)}
+              {t('myBets.betLine', { side: item.side, stake: formatXP(item.stake), odds: item.price.toFixed(2) })}
             </Text>
-            <Text style={styles.meta}>Potansiyel: {formatXP(pot)} XP</Text>
+            <Text style={styles.meta}>{t('myBets.potentialLine', { amount: formatXP(pot) })}</Text>
 
             {s !== 'open' && (
               <Text style={[styles.meta, { fontWeight: '800' }]}>
-                Ödendi: {formatXP(paid)} XP
+                {t('myBets.paidLine', { amount: formatXP(paid) })}
               </Text>
             )}
           </View>
@@ -196,7 +186,7 @@ export default function MyBets() {
             </View>
             {couponDeleted && (
               <View style={[styles.chip, { backgroundColor: '#6b7280' }]}>
-                <Text style={styles.chipText}>Silindi</Text>
+                <Text style={styles.chipText}>{t('myBets.deleted')}</Text>
               </View>
             )}
           </View>
@@ -208,15 +198,15 @@ export default function MyBets() {
   return (
     <View style={{ flex:1, backgroundColor:'#fff' }}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Oynadıklarım</Text>
+        <Text style={styles.headerTitle}>{t('myBets.title')}</Text>
       </View>
 
       <View style={styles.tabs}>
-        {[{ k: 'all', label: 'Tümü' }, { k: 'singles', label: 'Tekil' }].map(t => (
-          <TouchableOpacity key={t.k}
-            onPress={() => setTab(t.k as TabKey)}
-            style={[styles.tabBtn, tab===t.k && styles.tabBtnActive]}>
-            <Text style={[styles.tabTxt, tab===t.k && styles.tabTxtActive]}>{t.label}</Text>
+        {[{ k: 'all', label: t('categories.all') }, { k: 'singles', label: t('myBets.singlesTab') }].map(x => (
+          <TouchableOpacity key={x.k}
+            onPress={() => setTab(x.k as TabKey)}
+            style={[styles.tabBtn, tab===x.k && styles.tabBtnActive]}>
+            <Text style={[styles.tabTxt, tab===x.k && styles.tabTxtActive]}>{x.label}</Text>
           </TouchableOpacity>
         ))}
       </View>
@@ -230,7 +220,7 @@ export default function MyBets() {
           renderItem={renderSingle}
           contentContainerStyle={{ padding:16, paddingBottom:24 }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#FF6B00" />}
-          ListEmptyComponent={<Text style={styles.empty}>Henüz bahis yok.</Text>}
+          ListEmptyComponent={<Text style={styles.empty}>{t('myBets.empty')}</Text>}
         />
       )}
     </View>
@@ -260,3 +250,13 @@ const styles = StyleSheet.create({
 
   empty:{ textAlign:'center', marginTop:24, color:'#999' },
 });
+  const chipInfo = (s: BetStatus | 'open') => {
+    switch (s) {
+      case 'won': return { label: t('myBets.statusWon'), bg: '#16a34a' };
+      case 'lost': return { label: t('myBets.statusLost'), bg: '#dc2626' };
+      case 'refunded': return { label: t('myBets.statusRefunded'), bg: '#0ea5e9' };
+      default: return { label: t('myBets.statusOpen'), bg: '#9ca3af' };
+    }
+  };
+  const formatXP = (n: number) =>
+    new Intl.NumberFormat(numberLocale, { maximumFractionDigits: 0 }).format(n);

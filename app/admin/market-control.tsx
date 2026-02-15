@@ -1,5 +1,6 @@
 import { uploadImage } from "@/lib/storage"; // 🔥 Senin projedeki upload fonksiyonu
 import { supabase } from "@/lib/supabaseClient";
+import { useI18n } from '@/lib/i18n';
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from 'expo-image-picker';
 import { useEffect, useState } from "react";
@@ -17,6 +18,7 @@ const COLORS = {
 };
 
 export default function MarketControl() {
+  const { t, numberLocale } = useI18n();
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<any>(null);
   const [uploading, setUploading] = useState(false);
@@ -35,7 +37,7 @@ export default function MarketControl() {
     const { data, error } = await supabase.from("market_status").select("*").maybeSingle();
 
     if (error) {
-      Alert.alert("Hata", error.message);
+      Alert.alert(t('common.error'), error.message);
       setLoading(false);
       return;
     }
@@ -47,7 +49,7 @@ export default function MarketControl() {
     }
 
     setStatus(data);
-    setMessage(data.close_message || "Market şu an bakımda. Çok yakında geri dönüyoruz! 🚀");
+    setMessage(data.close_message || t('adminMarketControl.defaultCloseMessage'));
     setBgImage(data.bg_image || null);
 
     if (data.reopen_at) {
@@ -95,7 +97,7 @@ export default function MarketControl() {
   const handleUpload = async (localUri: string) => {
       try {
           const { data: { user } } = await supabase.auth.getUser();
-          if (!user) throw new Error("Kullanıcı oturumu yok.");
+          if (!user) throw new Error(t('adminMarketControl.sessionMissing'));
 
           const fileName = `market-bg-${Date.now()}.jpg`;
           // Dosya yolunu 'market' klasörüne atıyoruz
@@ -127,18 +129,18 @@ export default function MarketControl() {
     setLoading(false);
 
     if (error) {
-      Alert.alert("Hata", error.message);
+      Alert.alert(t('common.error'), error.message);
     } else {
-      Alert.alert("Başarılı", "Market durumu güncellendi.");
+      Alert.alert(t('common.success'), t('adminMarketControl.statusUpdated'));
       await loadStatus();
     }
   }
 
   const handleOpenMarket = () => {
-    Alert.alert("Onay", "Market herkese açılacak.", [
-        { text: "Vazgeç", style: "cancel" },
+    Alert.alert(t('adminMarketControl.openConfirmTitle'), t('adminMarketControl.openConfirmBody'), [
+        { text: t('common.cancel'), style: "cancel" },
         { 
-            text: "AÇ", 
+            text: t('adminMarketControl.openConfirmAction'), 
             onPress: () => updateStatus({ is_open: true, close_message: null, reopen_at: null, bg_image: null }) 
         }
     ]);
@@ -153,7 +155,7 @@ export default function MarketControl() {
         if (!isNaN(d.getTime())) {
             isoDate = d.toISOString();
         } else {
-            Alert.alert("Hata", "Girdiğin tarih geçersiz.");
+            Alert.alert(t('common.error'), t('adminMarketControl.invalidDate'));
             return;
         }
     }
@@ -169,7 +171,7 @@ export default function MarketControl() {
             finalBgImage = await handleUpload(bgImage);
             setUploading(false);
         } catch (e) {
-            Alert.alert("Hata", "Görsel yüklenirken bir sorun oluştu.");
+            Alert.alert(t('common.error'), t('adminMarketControl.imageUploadError'));
             setUploading(false);
             return;
         }
@@ -190,16 +192,16 @@ export default function MarketControl() {
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 50 }}>
       <View style={styles.header}>
-        <Text style={styles.title}>Market Kontrol 🛠️</Text>
-        <Text style={styles.subtitle}>Uygulama içi mağaza yönetimi</Text>
+        <Text style={styles.title}>{t('adminMarketControl.title')}</Text>
+        <Text style={styles.subtitle}>{t('adminMarketControl.subtitle')}</Text>
       </View>
 
       <View style={[styles.card, { borderColor: isOpen ? COLORS.success : COLORS.danger, borderWidth: 1 }]}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
             <View>
-                <Text style={styles.label}>Şu Anki Durum</Text>
+                <Text style={styles.label}>{t('adminMarketControl.currentStatus')}</Text>
                 <Text style={[styles.statusText, { color: isOpen ? COLORS.success : COLORS.danger }]}>
-                    {isOpen ? "AÇIK 🟢" : "KAPALI 🔴"}
+                    {isOpen ? t('adminMarketControl.openStatus') : t('adminMarketControl.closedStatus')}
                 </Text>
             </View>
             <TouchableOpacity onPress={loadStatus} style={styles.refreshBtn}>
@@ -208,7 +210,7 @@ export default function MarketControl() {
         </View>
         {!isOpen && status.reopen_at && (
             <Text style={{ color: '#FF8A80', fontSize: 13, marginTop: 10 }}>
-                📅 Açılış: {new Date(status.reopen_at).toLocaleString('tr-TR')}
+                📅 {t('adminMarketControl.reopenLabel')} {new Date(status.reopen_at).toLocaleString(numberLocale)}
             </Text>
         )}
       </View>
@@ -216,70 +218,70 @@ export default function MarketControl() {
       {isOpen ? (
           <TouchableOpacity style={[styles.bigButton, { backgroundColor: COLORS.danger }]} onPress={() => setStatus({...status, is_open: false})}> 
               <Ionicons name="lock-closed" size={24} color="#fff" style={{ marginBottom: 5 }} />
-              <Text style={styles.bigButtonText}>Marketi Bakıma Al</Text>
+              <Text style={styles.bigButtonText}>{t('adminMarketControl.closeButton')}</Text>
           </TouchableOpacity>
       ) : (
         <View>
-            <Text style={styles.sectionTitle}>Kapatma Ayarları</Text>
+            <Text style={styles.sectionTitle}>{t('adminMarketControl.closeSettingsTitle')}</Text>
             
             <View style={styles.card}>
-                <Text style={styles.label}>Kullanıcı Mesajı</Text>
+                <Text style={styles.label}>{t('adminMarketControl.userMessageLabel')}</Text>
                 <TextInput
                     style={styles.textArea}
                     value={message}
                     onChangeText={setMessage}
-                    placeholder="Örn: Bakımdayız..."
+                    placeholder={t('adminMarketControl.userMessagePlaceholder')}
                     placeholderTextColor={COLORS.subText}
                     multiline
                 />
             </View>
 
             <View style={styles.card}>
-                <Text style={styles.label}>Otomatik Açılış</Text>
+                <Text style={styles.label}>{t('adminMarketControl.autoOpenLabel')}</Text>
                 <View style={styles.dateRow}>
-                    <TextInput style={styles.dateInput} keyboardType="numeric" maxLength={2} value={dateParts.day} onChangeText={(t) => setDateParts({...dateParts, day: t})} placeholder="GG" placeholderTextColor="#555"/>
+                    <TextInput style={styles.dateInput} keyboardType="numeric" maxLength={2} value={dateParts.day} onChangeText={(t) => setDateParts({...dateParts, day: t})} placeholder={t('adminMarketControl.dateDay')} placeholderTextColor="#555"/>
                     <Text style={styles.slash}>/</Text>
-                    <TextInput style={styles.dateInput} keyboardType="numeric" maxLength={2} value={dateParts.month} onChangeText={(t) => setDateParts({...dateParts, month: t})} placeholder="AA" placeholderTextColor="#555"/>
+                    <TextInput style={styles.dateInput} keyboardType="numeric" maxLength={2} value={dateParts.month} onChangeText={(t) => setDateParts({...dateParts, month: t})} placeholder={t('adminMarketControl.dateMonth')} placeholderTextColor="#555"/>
                     <Text style={styles.slash}>/</Text>
-                    <TextInput style={[styles.dateInput, {width: 60}]} keyboardType="numeric" maxLength={4} value={dateParts.year} onChangeText={(t) => setDateParts({...dateParts, year: t})} placeholder="YYYY" placeholderTextColor="#555"/>
+                    <TextInput style={[styles.dateInput, {width: 60}]} keyboardType="numeric" maxLength={4} value={dateParts.year} onChangeText={(t) => setDateParts({...dateParts, year: t})} placeholder={t('adminMarketControl.dateYear')} placeholderTextColor="#555"/>
                 </View>
                 <View style={[styles.dateRow, { marginTop: 15 }]}>
-                    <TextInput style={styles.dateInput} keyboardType="numeric" maxLength={2} value={dateParts.hour} onChangeText={(t) => setDateParts({...dateParts, hour: t})} placeholder="SS" placeholderTextColor="#555"/>
+                    <TextInput style={styles.dateInput} keyboardType="numeric" maxLength={2} value={dateParts.hour} onChangeText={(t) => setDateParts({...dateParts, hour: t})} placeholder={t('adminMarketControl.timeHour')} placeholderTextColor="#555"/>
                     <Text style={styles.slash}>:</Text>
-                    <TextInput style={styles.dateInput} keyboardType="numeric" maxLength={2} value={dateParts.minute} onChangeText={(t) => setDateParts({...dateParts, minute: t})} placeholder="DD" placeholderTextColor="#555"/>
+                    <TextInput style={styles.dateInput} keyboardType="numeric" maxLength={2} value={dateParts.minute} onChangeText={(t) => setDateParts({...dateParts, minute: t})} placeholder={t('adminMarketControl.timeMinute')} placeholderTextColor="#555"/>
                 </View>
             </View>
 
             {/* GÖRSEL SEÇME ALANI */}
             <View style={styles.card}>
-                <Text style={styles.label}>Arka Plan Görseli (Opsiyonel)</Text>
+                <Text style={styles.label}>{t('adminMarketControl.backgroundLabel')}</Text>
                 <TouchableOpacity onPress={pickImage} style={{ alignItems:'center', justifyContent:'center', height: 150, backgroundColor:'#2C2C2C', borderRadius: 8, marginTop: 8, overflow:'hidden' }}>
                     {bgImage ? (
                         <Image source={{ uri: bgImage }} style={{ width:'100%', height:'100%' }} resizeMode="cover" />
                     ) : (
                         <View style={{ alignItems:'center' }}>
                             <Ionicons name="image-outline" size={32} color="#666" />
-                            <Text style={{ color:'#666', marginTop:5 }}>Görsel Seçmek İçin Dokun</Text>
+                            <Text style={{ color:'#666', marginTop:5 }}>{t('adminMarketControl.pickImageHint')}</Text>
                         </View>
                     )}
                 </TouchableOpacity>
                 {bgImage && (
                     <TouchableOpacity onPress={() => setBgImage(null)} style={{ alignSelf:'flex-end', marginTop: 5 }}>
-                        <Text style={{ color: COLORS.danger }}>Görseli Kaldır</Text>
+                        <Text style={{ color: COLORS.danger }}>{t('adminMarketControl.removeImage')}</Text>
                     </TouchableOpacity>
                 )}
-                <Text style={{ fontSize: 10, color: '#666', marginTop: 5 }}>*Görsel seçmezsen arka plan düz siyah olur.</Text>
+                <Text style={{ fontSize: 10, color: '#666', marginTop: 5 }}>{t('adminMarketControl.backgroundHint')}</Text>
             </View>
 
             <TouchableOpacity style={styles.saveButton} onPress={handleCloseMarket} disabled={uploading}>
-                {uploading ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveButtonText}>Ayarları Kaydet ve Kapat</Text>}
+                {uploading ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveButtonText}>{t('adminMarketControl.saveAndClose')}</Text>}
             </TouchableOpacity>
 
             <View style={styles.divider} />
 
             <TouchableOpacity style={[styles.bigButton, { backgroundColor: COLORS.success, marginTop: 10 }]} onPress={handleOpenMarket}>
                 <Ionicons name="lock-open" size={24} color="#fff" style={{ marginBottom: 5 }} />
-                <Text style={styles.bigButtonText}>Marketi Şimdi Aç</Text>
+                <Text style={styles.bigButtonText}>{t('adminMarketControl.openNow')}</Text>
             </TouchableOpacity>
         </View>
       )}

@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useRef, useState } from 'react';
 import { Platform } from 'react-native';
+import { onAdsReady } from '@/src/contexts/lib/ads';
 
 const PROD_INTERSTITIAL_ANDROID = 'ca-app-pub-3837426346942059/8002763076';
 const PROD_INTERSTITIAL_IOS = 'ca-app-pub-3837426346942059/7530153923';
@@ -39,61 +40,67 @@ export function useInterstitial() {
   useEffect(() => {
     let unsubscribers: Array<() => void> = [];
     let mounted = true;
+    let offReady: (() => void) | null = null;
 
-    (async () => {
-      try {
-        const mod = await import('react-native-google-mobile-ads');
-        const { AdEventType, InterstitialAd, TestIds } = mod;
+    offReady = onAdsReady(() => {
+      (async () => {
+        try {
+          const mod = await import('./googleMobileAds');
+          const { AdEventType, InterstitialAd, TestIds } = mod;
 
-        const adUnitId =
-          Platform.OS === 'ios'
-            ? TestIds.INTERSTITIAL
-            : (__DEV__ ? TestIds.INTERSTITIAL : PROD_INTERSTITIAL_ANDROID);
+          const adUnitId =
+            Platform.OS === 'ios'
+              ? TestIds.INTERSTITIAL
+              : (__DEV__ ? TestIds.INTERSTITIAL : PROD_INTERSTITIAL_ANDROID);
 
-        const ad = InterstitialAd.createForAdRequest(adUnitId);
-        adRef.current = ad;
+          const ad = InterstitialAd.createForAdRequest(adUnitId);
+          adRef.current = ad;
 
-        const l1 = ad.addAdEventListener(AdEventType.LOADED, () => {
-          if (!mounted) return;
-          loadingRef.current = false;
-          setLoaded(true);
-        });
+          const l1 = ad.addAdEventListener(AdEventType.LOADED, () => {
+            if (!mounted) return;
+            loadingRef.current = false;
+            setLoaded(true);
+          });
 
-        const l2 = ad.addAdEventListener(AdEventType.CLOSED, () => {
-          if (!mounted) return;
-          setLoaded(false);
-          loadingRef.current = true;
-          try {
-            ad.load();
-          } catch {}
-        });
-
-        const l3 = ad.addAdEventListener(AdEventType.ERROR, () => {
-          if (!mounted) return;
-          setLoaded(false);
-          if (!loadingRef.current) {
+          const l2 = ad.addAdEventListener(AdEventType.CLOSED, () => {
+            if (!mounted) return;
+            setLoaded(false);
             loadingRef.current = true;
-            setTimeout(() => {
-              try {
-                ad.load();
-              } catch {}
-            }, 1500);
-          }
-        });
+            try {
+              ad.load();
+            } catch {}
+          });
 
-        unsubscribers = [l1, l2, l3];
+          const l3 = ad.addAdEventListener(AdEventType.ERROR, () => {
+            if (!mounted) return;
+            setLoaded(false);
+            if (!loadingRef.current) {
+              loadingRef.current = true;
+              setTimeout(() => {
+                try {
+                  ad.load();
+                } catch {}
+              }, 1500);
+            }
+          });
 
-        loadingRef.current = true;
-        ad.load();
-      } catch (e) {
-        // ✅ modül yoksa crash değil, ads kapanır
-        disabledRef.current = true;
-        console.warn('[ADS] interstitial disabled', e);
-      }
-    })();
+          unsubscribers = [l1, l2, l3];
+
+          loadingRef.current = true;
+          ad.load();
+        } catch (e) {
+          // ✅ modül yoksa crash değil, ads kapanır
+          disabledRef.current = true;
+          console.warn('[ADS] interstitial disabled', e);
+        }
+      })();
+    });
 
     return () => {
       mounted = false;
+      try {
+        offReady?.();
+      } catch {}
       try {
         unsubscribers.forEach((u) => u());
       } catch {}

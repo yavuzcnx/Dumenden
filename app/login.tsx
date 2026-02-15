@@ -2,6 +2,7 @@
 
 import AnimatedLogo from '@/components/AnimatedLogo';
 import { ensureBootstrapAndProfile } from '@/lib/bootstrap';
+import { useI18n } from '@/lib/i18n';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'expo-router';
 
@@ -37,6 +38,7 @@ const COLORS = {
 export default function LoginPage() {
   const router = useRouter();
   const logoRef = useRef<any>(null);
+  const { t } = useI18n();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -106,7 +108,7 @@ export default function LoginPage() {
     Keyboard.dismiss();
 
     if (!email || !password) {
-      setError('E-posta ve şifre gir.');
+      setError(t('login.enterEmailPassword'));
       return;
     }
 
@@ -135,7 +137,7 @@ export default function LoginPage() {
         setBusy(false);
       }
     } catch (e: any) {
-      setError(e?.message || 'Beklenmedik bir hata oluştu.');
+      setError(e?.message || t('common.unexpectedError'));
       setBusy(false);
     }
   };
@@ -143,26 +145,17 @@ export default function LoginPage() {
   // ✅ Şifremi Unuttum -> Destek maili aç (expo-mail-composer)
   const openSupportEmail = async () => {
     const to = 'dumendenhelp@gmail.com';
-    const subject = 'Dümenden – Şifre Sıfırlama Talebi';
+    const subject = t('login.supportEmailSubject');
 
     // ✅ modal email > login email fallback
     const knownEmail = (forgotEmail || email || '').trim();
 
     if (!knownEmail) {
-      Alert.alert('Uyarı', 'Lütfen e-posta adresinizi girin.');
+      Alert.alert(t('common.warning'), t('login.enterEmailWarning'));
       return;
     }
 
-    const body = `Merhaba Dümenden Destek Ekibi,
-
-Hesabıma giriş yapamıyorum ve şifremi sıfırlamak istiyorum.
-
-Kayıtlı e-posta adresim: ${knownEmail}
-Kullanıcı adım (varsa):
-
-Yardımcı olabilir misiniz?
-
-Teşekkürler.`;
+    const body = t('login.supportEmailBody', { email: knownEmail });
 
     try {
       setSupportLoading(true);
@@ -170,8 +163,8 @@ Teşekkürler.`;
       const available = await MailComposer.isAvailableAsync();
       if (!available) {
         Alert.alert(
-          'Mail uygulaması bulunamadı',
-          `Lütfen manuel mail at:\n\nTo: ${to}\nSubject: ${subject}\n\n${body}`
+          t('login.mailAppMissingTitle'),
+          t('login.mailAppMissingBody', { to, subject, body })
         );
         return;
       }
@@ -186,7 +179,7 @@ Teşekkürler.`;
       setForgotModalVisible(false);
       setForgotEmail('');
     } catch (e: any) {
-      Alert.alert('Hata', e?.message || 'Mail ekranı açılamadı.');
+      Alert.alert(t('common.error'), e?.message || t('login.mailOpenFail'));
     } finally {
       setSupportLoading(false);
     }
@@ -207,16 +200,14 @@ Teşekkürler.`;
     );
   }
 
-  return (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.wrapper}>
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <View style={styles.container}>
-          <AnimatedLogo ref={logoRef} />
+  const content = (
+    <View style={styles.container}>
+      <AnimatedLogo ref={logoRef} />
 
-          <Text style={styles.title}>Giriş Yap</Text>
+          <Text style={styles.title}>{t('login.title')}</Text>
 
           <TextInput
-            placeholder="E-posta"
+            placeholder={t('login.emailPlaceholder')}
             value={email}
             onChangeText={(t) => {
               didNavigateRef.current = false;
@@ -230,7 +221,7 @@ Teşekkürler.`;
 
           <View style={styles.passRow}>
             <TextInput
-              placeholder="Şifre"
+              placeholder={t('login.passwordPlaceholder')}
               value={password}
               onChangeText={(t) => {
                 didNavigateRef.current = false;
@@ -243,7 +234,7 @@ Teşekkürler.`;
 
             <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeBtn}>
               <Text style={{ color: COLORS.primary, fontWeight: '700', fontSize: 12 }}>
-                {showPassword ? 'GİZLE' : 'GÖSTER'}
+                {showPassword ? t('login.hide') : t('login.show')}
               </Text>
             </TouchableOpacity>
           </View>
@@ -258,18 +249,18 @@ Teşekkürler.`;
                 setForgotEmail((email || '').trim());
               }}
             >
-              <Text style={{ color: '#666', fontWeight: '400' }}>Şifremi Unuttum?</Text>
+              <Text style={{ color: '#666', fontWeight: '400' }}>{t('login.forgotPassword')}</Text>
             </TouchableOpacity>
           </View>
 
           {!!error && <Text style={styles.error}>{error}</Text>}
 
           <TouchableOpacity style={[styles.button, busy && { opacity: 0.6 }]} onPress={handleLogin} disabled={busy}>
-            {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Giriş Yap</Text>}
+            {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>{t('login.submit')}</Text>}
           </TouchableOpacity>
 
           <TouchableOpacity onPress={() => router.replace('/register')}>
-            <Text style={styles.link}>Hesabın yok mu? Kayıt Ol</Text>
+            <Text style={styles.link}>{t('login.noAccount')}</Text>
           </TouchableOpacity>
 
           {/* ✅ MODAL: destek yazısı + email input + mail aç */}
@@ -285,13 +276,11 @@ Teşekkürler.`;
                 </TouchableWithoutFeedback>
 
                 <View style={styles.modalContent}>
-                  <Text style={styles.modalTitle}>Şifrenizi mi unuttunuz?</Text>
-                  <Text style={styles.modalSub}>
-                    Destek ekibimizle iletişime geçerek yeni bir şifre alabilirsiniz. E-postanızı yazın, mail otomatik hazırlanacak.
-                  </Text>
+                  <Text style={styles.modalTitle}>{t('login.forgotTitle')}</Text>
+                  <Text style={styles.modalSub}>{t('login.forgotBody')}</Text>
 
                   <TextInput
-                    placeholder="E-posta"
+                    placeholder={t('login.emailPlaceholder')}
                     value={forgotEmail}
                     onChangeText={setForgotEmail}
                     style={styles.input}
@@ -302,7 +291,7 @@ Teşekkürler.`;
                     onSubmitEditing={Keyboard.dismiss}
                   />
 
-                  <Text style={styles.supportHint}>Destek: dumendenhelp@gmail.com</Text>
+                  <Text style={styles.supportHint}>{t('login.supportHint', { email: 'dumendenhelp@gmail.com' })}</Text>
 
                   <TouchableOpacity
                     onPress={openSupportEmail}
@@ -312,19 +301,27 @@ Teşekkürler.`;
                     {supportLoading ? (
                       <ActivityIndicator color="#fff" />
                     ) : (
-                      <Text style={[styles.supportBtnText, { color: '#fff' }]}>👉 Destekle İletişime Geç</Text>
+                      <Text style={[styles.supportBtnText, { color: '#fff' }]}>{t('login.contactSupport')}</Text>
                     )}
                   </TouchableOpacity>
 
                   <TouchableOpacity onPress={closeForgotModal} style={[styles.supportBtn, { backgroundColor: '#eee' }]}>
-                    <Text style={[styles.supportBtnText, { color: '#333' }]}>İptal</Text>
+                    <Text style={[styles.supportBtnText, { color: '#333' }]}>{t('common.cancel')}</Text>
                   </TouchableOpacity>
                 </View>
               </View>
             </KeyboardAvoidingView>
           </Modal>
-        </View>
-      </TouchableWithoutFeedback>
+    </View>
+  );
+
+  return (
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.wrapper}>
+      {Platform.OS === 'web' ? content : (
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          {content}
+        </TouchableWithoutFeedback>
+      )}
     </KeyboardAvoidingView>
   );
 }
